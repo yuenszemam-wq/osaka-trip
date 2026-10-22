@@ -742,3 +742,8 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .child.card .folded .cnum { width: 24px; height: 24px; }
 .child.card .edtools { margin-top: 10px; padding-top: 8px; }
 .child.card.done { opacity: .7; }
+
+/* 時間欄可以清除 */
+.tbox { position: relative; display: block; }
+.tbox input { width: 100%; padding-right: 40px !important; }
+.tbox .tclear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--soft); color: var(--muted); font-size: 13px; display: grid; place-items: center; padding: 0; }

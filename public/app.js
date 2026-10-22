@@ -2085,11 +2085,11 @@ function renderEditor() {
       <label class="field"><span>這個行程的圖片顯示方式（個別圖片可再按下方標籤設定）</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       ${typeInfo ? `<p class="hint">資訊不佔時間，不會影響前後行程的時間。</p>` : ""}
       ${ED.info || typeInfo ? "" : isTr ? `<div class="grid2">
-        <label class="field"><span>出發時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="start" value="${hhmm(it.start)}"></label>
+        <label class="field"><span>出發時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
         <label class="field"><span>交通時間（分鐘）</span><input type="number" name="tdur" inputmode="numeric" min="0" step="1" value="${v.dur || ""}" placeholder="例如：25"></label>
       </div><p class="hint" id="arrHint">${arrText(it.start, v.dur)}</p>` : `<div class="grid2">
-        <label class="field"><span>開始時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="start" value="${hhmm(it.start)}"></label>
-        <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"></label>
+        <label class="field"><span>開始時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
+        <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"><button type="button" class="tclear" data-act="time-clear" data-name="end" aria-label="清除時間">✕</button></span></label>
       </div>
       ${ED.isChild ? "" : `<label class="checkline"><input type="checkbox" name="locked" ${it.locked ? "checked" : ""}><span>固定時間 🔒<small>航班、訂位等不能移動的行程。前面行程延後時，會停在這裡，不會把它推後。</small></span></label>`}
       ${showRipple ? `<label class="checkline"><input type="checkbox" name="ripple" checked><span>${rippleLabel}</span></label>` : ""}`}
@@ -3215,6 +3215,7 @@ document.addEventListener("click", async (e) => {
       commit(() => { const f = findItem(id); const v = V(f.item); v.photoModes = v.photoModes || {}; v.photoModes[t.dataset.photo] = t.dataset.mode; });
       break;
     case "close": closeSheet(); break;
+    case "time-clear": { const inp = t.parentElement.querySelector("input"); if (inp) { inp.value = ""; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); } break; }
     case "ed-save": saveEditor(); break;
     case "ed-to-child": {
       const prev = prevMainOf(); if (!prev) break;
