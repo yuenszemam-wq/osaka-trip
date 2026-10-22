@@ -432,12 +432,85 @@ async function load() {
   ls.set("trip.current", S.tripId);
   render(); syncUI();
   autoRate();
+  loadWeather();
+}
+// ---------- 天氣（Open-Meteo，免費、不用 API key） ----------
+const WX = [[[0], "☀️", "晴"], [[1], "🌤️", "大致晴朗"], [[2], "⛅", "部分多雲"], [[3], "☁️", "陰天"], [[45, 48], "🌫️", "有霧"],
+  [[51, 53, 55, 56, 57], "🌦️", "毛毛雨"], [[61, 63, 66], "🌧️", "有雨"], [[65, 67], "🌧️", "大雨"], [[71, 73, 75, 77], "🌨️", "下雪"],
+  [[80, 81], "🌦️", "驟雨"], [[82], "⛈️", "大驟雨"], [[85, 86], "🌨️", "陣雪"], [[95, 96, 99], "⛈️", "雷暴"]];
+const wxOf = (code) => WX.find(([c]) => c.includes(code)) || [[], "🌡️", ""];
+// 每一天的日期：用分頁上的「10.23」加上旅程年份
+function dayDate(d) {
+  if (d.date) return d.date;
+  const m = /^(\d{1,2})[.\/-](\d{1,2})$/.exec((d.sub || "").trim()); if (!m) return null;
+  const y = +((/(20\d\d)/.exec(S.doc.meta.dates || "") || [])[1] || new Date().getFullYear());
+  const days = S.doc.days.filter((x) => x.kind === "day");
+  const first = /^(\d{1,2})/.exec(days[0] && days[0].sub || "");
+  const yy = first && +m[1] < +first[1] ? y + 1 : y; // 跨年
+  return `${yy}-${String(m[1]).padStart(2, "0")}-${String(m[2]).padStart(2, "0")}`;
+}
+// 每一天的位置：當天已定位地點的中間點；沒有的話用整個旅程的地點
+function dayCoord(d, fallback) {
+  const pts = [];
+  for (const { item } of seq(d)) for (const x of [item, ...(item.children || [])]) { const g = coordOfItem(x); if (g && !V(x).type?.match(/flight/)) pts.push(g); }
+  if (!pts.length) return fallback;
+  const mid = (k) => pts.map((p) => p[k]).sort((a, b) => a - b)[pts.length >> 1];
+  return [mid(0), mid(1)];
+}
+let wxBusy = false;
+async function loadWeather(force) {
+  if (wxBusy || !S.doc) return;
+  const key = K("wx");
+  try { const c = JSON.parse(ls.get(key) || "null"); if (c && c.data) { const had = !!S.wx; S.wx = c.data; if (!had) render(); if (!force && Date.now() - c.t < 3 * 3600e3) return; } } catch {}
+  const days = S.doc.days.filter((x) => x.kind === "day");
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const inRange = (iso) => { const t = new Date(iso + "T00:00:00"); const diff = (t - today) / 864e5; return diff >= -60 && diff <= 15; };
+  // 全旅程的中間點（當天沒有地點時用）；都沒有就用旅程名稱搜尋城市
+  const all = days.map((d) => dayCoord(d, null)).filter(Boolean);
+  let base = all.length ? [all.map((p) => p[0]).sort((a, b) => a - b)[all.length >> 1], all.map((p) => p[1]).sort((a, b) => a - b)[all.length >> 1]] : null;
+  wxBusy = true;
+  try {
+    if (!base) {
+      const q = (S.doc.meta.name || S.doc.meta.title || "").replace(/[.。]|之旅|旅行|手帳/g, "").trim();
+      if (q) { const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&name=" + encodeURIComponent(q)); const j = await r.json(); if (j.results && j.results[0]) base = [j.results[0].latitude, j.results[0].longitude]; }
+    }
+    if (!base) return;
+    const out = { ...(S.wx || {}) };
+    // 按位置分組，一個位置一次請求
+    const groups = new Map();
+    for (const d of days) {
+      const iso = dayDate(d); if (!iso || !inRange(iso)) continue;
+      const c = dayCoord(d, base); const k = c.map((x) => x.toFixed(1)).join(",");
+      if (!groups.has(k)) groups.set(k, { c, list: [] });
+      groups.get(k).list.push([d, iso]);
+    }
+    for (const { c, list } of groups.values()) {
+      const isos = list.map(([, iso]) => iso).sort();
+      const u = `https://api.open-meteo.com/v1/forecast?latitude=${c[0].toFixed(3)}&longitude=${c[1].toFixed(3)}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&start_date=${isos[0]}&end_date=${isos[isos.length - 1]}`;
+      const r = await fetch(u); if (!r.ok) continue;
+      const j = await r.json(); const dl = j.daily || {};
+      for (const [d, iso] of list) {
+        const i = (dl.time || []).indexOf(iso); if (i < 0) continue;
+        out[d.id] = { iso, code: dl.weather_code[i], max: dl.temperature_2m_max[i], min: dl.temperature_2m_min[i], pop: dl.precipitation_probability_max ? dl.precipitation_probability_max[i] : null };
+      }
+    }
+    S.wx = out;
+    ls.set(key, JSON.stringify({ t: Date.now(), data: out }));
+    if (!$("#sheet") || $("#sheet").hidden) { if (S.dayId === DIARY) renderChrome(); else render(); }
+  } catch (e) { /* 沒有網絡時保留舊資料 */ } finally { wxBusy = false; }
+}
+const wxFor = (d) => { const w = S.wx && S.wx[d.id]; return w && w.iso === dayDate(d) && w.max != null ? w : null; };
+function wxChip(d) { const w = wxFor(d); return w ? `<span class="wx">${wxOf(w.code)[1]} ${Math.round(w.max)}°<i>/${Math.round(w.min)}°</i></span>` : ""; }
+function wxLine(d) {
+  const w = wxFor(d); if (!w) return "";
+  const [, e, t] = wxOf(w.code);
+  return `<div class="wxline"><span class="wx-ico">${e}</span><b>${t}</b><span>${Math.round(w.min)}° – ${Math.round(w.max)}°C</span>${w.pop != null ? `<span>☂ 降雨 ${w.pop}%</span>` : ""}</div>`;
 }
 async function switchTrip(id) {
   if (id === S.tripId) return;
   if (S.pending) await save();
   closeSheet();
-  S.tripId = id; S.doc = null; S.version = 0; S.undo = []; S.conflict = null; S.pending = false; S.q = ""; S.manage = false;
+  S.tripId = id; S.doc = null; S.wx = null; S.version = 0; S.undo = []; S.conflict = null; S.pending = false; S.q = ""; S.manage = false;
   S.open.clear(); S.expanded.clear();
   ls.set("trip.current", id);
   history.replaceState(null, "", "#t=" + id);
@@ -456,6 +529,7 @@ async function refresh() {
       persistLocal(false); render();
     }
     S.offline = false; syncUI();
+    loadWeather();
   } catch { S.offline = true; syncUI(); }
 }
 
@@ -567,7 +641,7 @@ function renderChrome() {
       <button class="addtab" data-act="add-day" data-kind="info" aria-label="新增備注頁">＋</button>
     </div>
     <div class="rowtabs" role="tablist" aria-label="旅遊日">
-      ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}</small></button>`).join("")}
+      ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}</small>${wxChip(x)}</button>`).join("")}
       <button class="addtab day" data-act="add-day" data-kind="day" aria-label="新增一天">＋</button>
     </div>
     ${!isSpecial(S.dayId) && day() ? `<div class="toprow3">
@@ -604,7 +678,7 @@ function render() {
 
   const d = day();
   const q = S.q.trim().toLowerCase();
-  html += `<div class="dayhead"><div style="min-width:0"><h2>${esc(d.title || d.label)}</h2>${d.subtitle ? `<div class="sub">${esc(d.subtitle)}</div>` : ""}</div>
+  html += `<div class="dayhead"><div style="min-width:0"><h2>${esc(d.title || d.label)}</h2>${d.subtitle ? `<div class="sub">${esc(d.subtitle)}</div>` : ""}${d.kind === "day" ? wxLine(d) : ""}</div>
     <div class="headtools">${S.manage ? `<button class="manage" data-act="edit-day">${icon("pencil")}${d.kind === "day" ? "這天" : "分頁"}</button>` : ""}
 </div></div>`;
 
@@ -1000,7 +1074,7 @@ function branchHTML(d, b, bi, cf, nums) {
     <button class="add" data-act="route-add" data-branch="${esc(b.id)}" aria-label="新增路線">＋</button></div>
     <div class="branch-body">${S.manage ? insertRow(-1, "在路線開頭加入", r.id) : ""}`;
   r.items.forEach((it, k) => { html += itemHTML(it, d, cf[it.id], { at: k, route: r.id, shared: false, num: nums[it.id] }); });
-  if (!r.items.length) html += `<div class="empty small">這條路線還沒有行程</div>`;
+  if (!r.items.length) html += `<div class="empty small" data-arr="r:${esc(r.id)}" data-dnd-empty="1">這條路線還沒有行程${S.manage ? "<br><small>可以把行程拖到這裡</small>" : ""}</div>`;
   html += `</div><div class="branch-end">${icon("branch")} 路線匯合 · 以下行程共用</div></div>`;
   if (S.manage) html += insertRow(bi, "在匯合後加入", "");
   return html;
@@ -2406,22 +2480,26 @@ function openBranchCreator(id) {
 }
 
 // ---------- 拖放調整次序 ----------
-// 把 id 移到同一組（共用行程或同一條分叉路線）中 beforeId 之前（null = 最後）
-function reorderItem(doc, dayId, key, id, beforeId) {
+// 把 id 移到 key 那一組（"top" = 共用行程，"r:路線id" = 分叉路線）中 refId 之前／之後（refId 空 = 最後）
+function moveItem(doc, dayId, id, key, refId, after) {
   const d = doc.days.find((x) => x.id === dayId); if (!d) return;
+  const f = locate(d, id); if (!f || f.parent) return;
   const arr = key === "top" ? d.items : (findRoute(d, key.slice(2)) || {}).route?.items;
   if (!arr) return;
-  const from = arr.findIndex((x) => x.id === id); if (from < 0) return;
-  const oldArr = arr.slice();
-  const [it] = arr.splice(from, 1);
-  let to = beforeId ? arr.findIndex((x) => x.id === beforeId) : arr.length;
-  if (to < 0) to = arr.length;
+  const isDay = d.kind === "day";
+  const listOld = isDay ? seq(d).map((e) => e.item) : null;
+  const it = f.arr.splice(f.index, 1)[0];
+  let to = refId ? arr.findIndex((x) => x.id === refId) : -1;
+  to = to < 0 ? arr.length : to + (after ? 1 : 0);
   arr.splice(to, 0, it);
-  if (d.kind !== "day" || from === to) return;
-  // 重新計算時間：保留原本每個位置之間的空檔，固定時間的行程不動
-  const lo = Math.min(from, to), hi = Math.max(from, to);
-  const timed = (a) => a.slice(lo, hi + 1).filter((x) => !isBranch(x) && x.start != null && !isInfo(x));
-  const slotsOld = timed(oldArr), slotsNew = timed(arr);
+  if (!isDay) return;
+  // 重新計算時間（按顯示次序）：保留原本每個位置之間的空檔，固定時間的行程不動
+  const listNew = seq(d).map((e) => e.item);
+  const from = listOld.indexOf(it), dest = listNew.indexOf(it);
+  if (from < 0 || dest < 0 || from === dest) return;
+  const lo = Math.min(from, dest), hi = Math.max(from, dest);
+  const timed = (a) => a.slice(lo, hi + 1).filter((x) => x.start != null && !isInfo(x));
+  const slotsOld = timed(listOld), slotsNew = timed(listNew);
   if (!slotsOld.length) return;
   const gaps = slotsOld.map((x, k) => k ? Math.max(0, x.start - endOf(slotsOld[k - 1])) : 0);
   const oldEnd = endOf(slotsOld[slotsOld.length - 1]);
@@ -2433,17 +2511,17 @@ function reorderItem(doc, dayId, key, id, beforeId) {
     cur = endOf(x);
   });
   const delta = cur - oldEnd;
-  if (delta > 0) rippleFrom(d, seq(d).findIndex((e) => e.item === slotsNew[slotsNew.length - 1]), delta);
+  if (delta > 0) rippleFrom(d, listNew.indexOf(slotsNew[slotsNew.length - 1]), delta);
 }
 let DRAG = null;
 document.addEventListener("pointerdown", (e) => {
   const h = e.target.closest(".dnd"); if (!h) return;
   const art = h.closest("[data-dnd]"); if (!art) return;
   e.preventDefault();
-  const key = art.dataset.arr;
-  const sibs = $$(`#main [data-arr="${CSS.escape(key)}"]`);
+  // 可以放到任何一組：共用行程、目前顯示的分叉路線
+  const sibs = $$("#main [data-arr]");
   const line = document.createElement("div"); line.className = "dnd-line"; document.body.appendChild(line);
-  DRAG = { art, key, sibs, y0: e.clientY, s0: window.scrollY, y: e.clientY, before: undefined, line, raf: 0 };
+  DRAG = { art, sibs, y0: e.clientY, s0: window.scrollY, y: e.clientY, target: null, line, raf: 0 };
   art.classList.add("dragging");
   try { h.setPointerCapture(e.pointerId); } catch {}
   dragMove(e.clientY);
@@ -2456,25 +2534,38 @@ function dragMove(y) {
   const g = DRAG; g.y = y;
   g.art.style.transform = `translateY(${y - g.y0 + window.scrollY - g.s0}px)`;
   const others = g.sibs.filter((x) => x !== g.art && x.offsetParent);
-  let before = null, lineY = null;
-  for (const x of others) { const r = x.getBoundingClientRect(); if (y < r.top + r.height / 2) { before = x; lineY = r.top - 5; break; } }
-  if (!before && others.length) lineY = others[others.length - 1].getBoundingClientRect().bottom + 5;
-  g.before = before;
-  const box = g.art.parentElement.getBoundingClientRect();
-  Object.assign(g.line.style, { top: lineY + "px", left: box.left + 8 + "px", width: box.width - 16 + "px" });
+  if (!others.length) return;
+  const rects = others.map((x) => x.getBoundingClientRect());
+  let k = rects.findIndex((r) => y < r.top + r.height / 2);
+  // A = 上面一項，B = 下面一項；兩項屬於不同組（例如分叉路線最後一項和匯合後第一項）時，按距離決定放進哪一組
+  const A = k === -1 ? others.length - 1 : k - 1, B = k;
+  let t;
+  if (B === -1) t = { el: others[A], after: true };
+  else if (A < 0) t = { el: others[B], after: false };
+  else if (others[A].dataset.arr !== others[B].dataset.arr) t = Math.abs(y - rects[A].bottom) < Math.abs(rects[B].top - y) ? { el: others[A], after: true } : { el: others[B], after: false };
+  else t = { el: others[B], after: false };
+  g.target = t;
+  const r = t.el.getBoundingClientRect();
+  const lineY = t.el.dataset.dndEmpty ? r.top + r.height / 2 : t.after ? r.bottom + 5 : r.top - 5;
+  Object.assign(g.line.style, { top: lineY + "px", left: r.left + 4 + "px", width: r.width - 8 + "px" });
+  $$(".dnd-into").forEach((x) => x.classList.remove("dnd-into"));
+  const br = t.el.closest(".branch"); if (br) br.classList.add("dnd-into");
 }
 document.addEventListener("pointermove", (e) => { if (DRAG) { e.preventDefault(); DRAG.y = e.clientY; } }, { passive: false });
 const endDrag = (cancel) => {
   if (!DRAG) return;
   const g = DRAG; DRAG = null;
   cancelAnimationFrame(g.raf); g.line.remove();
+  $$(".dnd-into").forEach((x) => x.classList.remove("dnd-into"));
   g.art.classList.remove("dragging"); g.art.style.transform = "";
-  if (cancel) return;
-  const id = g.art.dataset.dnd, beforeId = g.before ? g.before.dataset.dnd : null;
-  const idx = g.sibs.indexOf(g.art), nextId = g.sibs[idx + 1] ? g.sibs[idx + 1].dataset.dnd : null;
-  if (beforeId === nextId || beforeId === id) return;
+  if (cancel || !g.target) return;
+  const id = g.art.dataset.dnd, t = g.target, key = t.el.dataset.arr;
+  const refId = t.el.dataset.dndEmpty ? null : t.el.dataset.dnd;
+  // 位置沒有改變就不用儲存
+  const i = g.sibs.indexOf(g.art);
+  if (key === g.art.dataset.arr && ((!t.after && g.sibs[i + 1] === t.el) || (t.after && g.sibs[i - 1] === t.el))) return;
   const dayId = S.dayId;
-  commit((doc) => reorderItem(doc, dayId, g.key, id, beforeId));
+  commit((doc) => moveItem(doc, dayId, id, key, refId, t.after));
 };
 document.addEventListener("pointerup", () => endDrag(false));
 document.addEventListener("pointercancel", () => endDrag(true));
