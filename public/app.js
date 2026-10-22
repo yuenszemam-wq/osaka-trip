@@ -16,6 +16,7 @@ const S = {
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -44,15 +45,60 @@ function parseHHMM(v) {
 const V = (it) => it.variants[Math.min(it.active || 0, it.variants.length - 1)];
 const endOf = (it) => it.start == null ? null : it.start + (V(it).dur || 0);
 const day = () => S.doc.days.find((d) => d.id === S.dayId) || S.doc.days[0];
-function findItem(id) {
-  for (const d of S.doc.days) {
-    for (let i = 0; i < d.items.length; i++) {
-      const it = d.items[i];
-      if (it.id === id) return { day: d, item: it, index: i, parent: null };
+// 一天的行程結構：d.items 是共用行程；其中可以有「分叉」節點
+//   { id, branch: true, active: routeId, routes: [{ id, name, items: [...] }] }
+// 分叉之前、之後的行程所有路線共用；只有分叉內的行程會隨路線切換。
+const isBranch = (n) => !!(n && n.branch);
+const activeRoute = (b) => b.routes.find((r) => r.id === b.active) || b.routes[0];
+// 按顯示次序列出目前路線的所有主行程：{ item, arr, idx, branch }
+function seq(d) {
+  const out = [];
+  d.items.forEach((n, i) => {
+    if (isBranch(n)) activeRoute(n).items.forEach((it, k) => out.push({ item: it, arr: activeRoute(n).items, idx: k, branch: n }));
+    else out.push({ item: n, arr: d.items, idx: i, branch: null });
+  });
+  return out;
+}
+// 在一天裡找出行程（包括未使用的路線和子行程）
+function locate(d, id) {
+  const scan = (arr, branch, route) => {
+    for (let i = 0; i < arr.length; i++) {
+      const it = arr[i];
+      if (isBranch(it)) {
+        for (const r of it.routes) { const f = scan(r.items, it, r); if (f) return f; }
+        continue;
+      }
+      if (it.id === id) return { day: d, item: it, index: i, arr, parent: null, branch, route };
       const ci = (it.children || []).findIndex((c) => c.id === id);
-      if (ci >= 0) return { day: d, item: it.children[ci], index: ci, parent: it };
+      if (ci >= 0) return { day: d, item: it.children[ci], index: ci, arr: it.children, parent: it, branch, route };
     }
+    return null;
+  };
+  return scan(d.items, null, null);
+}
+function findItem(id) {
+  for (const d of S.doc.days) { const f = locate(d, id); if (f) return f; }
+  return null;
+}
+const findItemIn = locate;
+// 插入位置在顯示次序中的前一項（-1 = 最前面）
+function insertPos(d, route, at) {
+  const list = seq(d);
+  let p = -1;
+  if (route) {
+    const { branch, route: r } = findRoute(d, route);
+    if (at >= 0) return list.findIndex((x) => x.item === r.items[at]);
+    const bi = d.items.indexOf(branch);
+    list.forEach((x, k) => { if (x.arr === d.items && x.idx < bi) p = k; });
+    return p;
   }
+  if (at < 0) return -1;
+  list.forEach((x, k) => { const top = x.branch ? d.items.indexOf(x.branch) : x.idx; if (top <= at) p = k; });
+  return p;
+}
+function findBranch(d, id) { return d.items.find((n) => isBranch(n) && n.id === id); }
+function findRoute(d, rid) {
+  for (const n of d.items) if (isBranch(n)) { const r = n.routes.find((x) => x.id === rid); if (r) return { branch: n, route: r }; }
   return null;
 }
 function newItem(start, type = "place") {
@@ -65,12 +111,13 @@ function shiftItem(it, delta) {
   if (it.start != null) it.start += delta;
   for (const c of it.children || []) if (c.start != null) c.start += delta;
 }
-// 把 index 之後的主行程全部移動 delta 分鐘，遇到「固定時間」的行程就停
-function ripple(d, index, delta) {
+// 把顯示次序第 pos 項之後的主行程全部移動 delta 分鐘，遇到「固定時間」的行程就停
+function rippleFrom(d, pos, delta) {
   if (!delta) return 0;
+  const list = seq(d);
   let n = 0;
-  for (let j = index + 1; j < d.items.length; j++) {
-    const it = d.items[j];
+  for (let j = pos + 1; j < list.length; j++) {
+    const it = list[j].item;
     if (it.start == null) continue;
     if (it.locked) break;
     shiftItem(it, delta);
@@ -78,31 +125,19 @@ function ripple(d, index, delta) {
   }
   return n;
 }
+const posOf = (d, it) => seq(d).findIndex((x) => x.item === it);
+function ripple(d, it, delta) { return rippleFrom(d, posOf(d, it), delta); }
 function conflicts(d) {
   const out = {};
   let prevEnd = null, prevTitle = "";
-  for (const it of d.items) {
+  for (const { item: it } of seq(d)) {
     if (it.start == null) continue;
     if (prevEnd != null && it.start < prevEnd) out[it.id] = `與上一項「${prevTitle}」重疊 ${prevEnd - it.start} 分鐘`;
     prevEnd = endOf(it); prevTitle = V(it).title;
   }
   return out;
 }
-// ---------- 路線方案（整天或一段行程的不同安排） ----------
-// d.items 永遠是「使用中」方案的行程；其他方案存在 d.planItems[planId]
-function ensurePlans(d) {
-  if (!d.plans || !d.plans.length) { d.plans = [{ id: "plan-" + uid(), name: "方案 A" }]; d.activePlan = d.plans[0].id; }
-  d.planItems = d.planItems || {};
-}
-function switchPlan(d, pid) {
-  ensurePlans(d);
-  if (d.activePlan === pid || !d.planItems[pid]) return false;
-  d.planItems[d.activePlan] = d.items;
-  d.items = d.planItems[pid];
-  delete d.planItems[pid];
-  d.activePlan = pid;
-  return true;
-}
+// ---------- 分叉路線 ----------
 function copyItems(items) {
   return clone(items).map((it) => ({
     ...it, id: uid(), done: false,
@@ -111,6 +146,24 @@ function copyItems(items) {
   }));
 }
 const planLetter = (i) => String.fromCharCode(65 + i);
+function routeEnd(r) {
+  let e = null;
+  for (const it of r.items) { const x = endOf(it); if (x != null && (e == null || x > e)) e = x; }
+  return e;
+}
+// 切換路線：之後的共用行程按兩條路線的結束時間差移動
+function switchRoute(d, b, rid) {
+  const oldR = activeRoute(b), newR = b.routes.find((r) => r.id === rid);
+  if (!newR || oldR === newR) return 0;
+  const oe = routeEnd(oldR), ne = routeEnd(newR);
+  b.active = rid;
+  if (oe == null || ne == null || oe === ne) return { n: 0, delta: 0 };
+  const list = seq(d);
+  const bi = d.items.indexOf(b);
+  const firstAfter = list.findIndex((x) => x.arr === d.items && x.idx > bi);
+  if (firstAfter < 0) return { n: 0, delta: 0 };
+  return { n: rippleFrom(d, firstAfter - 1, ne - oe), delta: ne - oe };
+}
 
 const durText = (m) => m >= 60 ? `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}` : `${m} 分鐘`;
 
@@ -159,9 +212,11 @@ async function save(force = false) {
       S.savedAt = data.updatedAt;
       ls.del(LS_PENDING); persistLocal(false);
     }
+    S.saveError = null;
   } catch (e) {
     S.offline = !navigator.onLine || e instanceof TypeError;
     S.lastError = e.message;
+    if (!S.offline) { S.saveError = e.message; toast("雲端儲存失敗：" + e.message + "（會自動重試）"); }
   }
   S.saving = false;
   syncUI();
@@ -212,6 +267,7 @@ function syncUI() {
   if (S.saving) { cls = "busy"; text = "儲存中…"; }
   else if (S.conflict) { cls = "err"; text = "版本衝突"; }
   else if (S.pending && S.offline) { cls = "err"; text = "離線・修改未上傳"; }
+  else if (S.pending && S.saveError) { cls = "err"; text = "儲存失敗・按此重試"; }
   else if (S.pending) { cls = "busy"; text = "等待儲存…"; }
   else if (S.offline) { cls = "err"; text = "離線・顯示已存版本"; }
   else if (S.savedAt) text = "已同步 · " + new Date(S.savedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -272,7 +328,7 @@ function render() {
   ).join("") + `<button class="tab add" data-act="add-day" aria-label="新增一天">＋</button>`;
 
   const dayNo = S.doc.days.filter((x) => x.kind === "day").indexOf(d) + 1;
-  const all = d.items.flatMap((it) => [it, ...(it.children || [])]).filter((x) => !isInfo(x));
+  const all = seq(d).flatMap(({ item: it }) => [it, ...(it.children || [])]).filter((x) => !isInfo(x));
   const done = all.filter((x) => x.done).length;
   const cf = d.kind === "day" ? conflicts(d) : {};
   const q = S.q.trim().toLowerCase();
@@ -286,21 +342,27 @@ function render() {
     <div class="day-head"><h1>${d.kind === "day" ? `${esc(d.label)}<span class="sep"></span>` : ""}${esc(d.title)}</h1>
     <button class="btn" data-act="edit-day">✎ 編輯</button></div>
     ${d.subtitle ? `<p class="subtitle">${esc(d.subtitle)}</p>` : ""}
-    ${d.kind === "day" ? planBar(d) : ""}
     <div class="tools">
       ${all.length ? `<div class="progress">${done} / ${all.length} 已完成<div class="track"><i style="width:${all.length ? (done / all.length) * 100 : 0}%"></i></div></div>` : ""}
       <input class="search" type="search" placeholder="搜尋地點或交通…" value="${esc(S.q)}" data-act="search">
     </div>`;
 
-  const items = d.items.map((it, i) => ({ it, i })).filter(({ it }) => match(it) || (it.children || []).some(match));
+  const hit = (it) => match(it) || (it.children || []).some(match);
+  const items = seq(d).filter(({ item }) => hit(item));
   if (d.kind === "day") {
     html += `<div class="timeline">`;
-    if (!q) html += insertRow(-1, "在最前面加入");
-    for (const { it, i } of items) html += itemHTML(it, d, cf[it.id], q);
+    if (q) for (const { item, arr, idx, branch } of items) html += itemHTML(item, d, cf[item.id], q, { at: idx, route: branch ? activeRoute(branch).id : "", shared: !branch });
+    else {
+      html += insertRow(-1, "在最前面加入", "");
+      d.items.forEach((n, i) => {
+        if (isBranch(n)) html += branchHTML(d, n, i, cf);
+        else html += itemHTML(n, d, cf[n.id], q, { at: i, route: "", shared: true });
+      });
+    }
     if (!d.items.length) html += `<div class="empty">還沒有行程<br><button class="btn primary" data-act="add-main" data-at="-1" style="margin-top:10px">＋ 新增第一個行程</button></div>`;
     html += `</div>`;
   } else {
-    html += `<div class="info-list">${items.map(({ it }) => itemHTML(it, d, null, q)).join("")}</div>`;
+    html += `<div class="info-list">${items.map(({ item, idx }) => itemHTML(item, d, null, q, { at: idx, route: "", shared: false })).join("")}</div>`;
     html += `<div class="insert" style="margin-top:12px"><button data-act="add-main" data-at="${d.items.length - 1}">＋ 新增</button><button data-act="add-main" data-type="info" data-at="${d.items.length - 1}">ⓘ 加入資訊</button></div>`;
   }
   if (q && !items.length) html += `<div class="empty">找不到「${esc(S.q)}」</div>`;
@@ -312,14 +374,20 @@ function render() {
   syncUI();
 }
 
-function planBar(d) {
-  const plans = d.plans && d.plans.length ? d.plans : null;
-  if (!plans || plans.length < 2) {
-    return `<div class="plans single"><button class="plan-add" data-act="plan-add">＋ 建立另一個路線方案</button><span class="hint">例如「準時抵達」與「航班延誤」兩種安排</span></div>`;
-  }
-  return `<div class="plans"><div class="plans-label">路線方案<button class="plan-edit" data-act="plan-edit">✎ 改名／刪除</button></div>
-    <div class="plan-chips">${plans.map((p, i) => `<button class="plan ${p.id === d.activePlan ? "on" : ""}" data-act="plan" data-id="${esc(p.id)}"><b>${planLetter(i)}</b><span>${esc(p.name.replace(/^方案\s*[A-Z][：:]?\s*/, "") || p.name)}</span></button>`).join("")}
-    <button class="plan add" data-act="plan-add" aria-label="新增方案">＋</button></div></div>`;
+// 分叉路線：在分叉點顯示路線選擇，只有分叉內的行程會切換
+function branchHTML(d, b, bi, cf) {
+  const r = activeRoute(b);
+  const chips = b.routes.map((x, i) => `<button class="plan ${x.id === r.id ? "on" : ""}" data-act="route" data-branch="${esc(b.id)}" data-id="${esc(x.id)}"><b>${planLetter(i)}</b><span>${esc(x.name || "路線 " + planLetter(i))}</span></button>`).join("");
+  let html = `<div class="branch"><div class="branch-head"><span class="dot fork">⑂</span>
+    <div class="plans"><div class="plans-label">分叉路線 · 選擇其中一條<button class="plan-edit" data-act="branch-edit" data-id="${esc(b.id)}">✎ 管理</button></div>
+    <div class="plan-chips">${chips}<button class="plan add" data-act="route-add" data-branch="${esc(b.id)}" aria-label="新增路線">＋</button></div></div></div>
+    <div class="branch-body">`;
+  html += insertRow(-1, "在路線開頭加入", r.id);
+  r.items.forEach((it, k) => { html += itemHTML(it, d, cf[it.id], "", { at: k, route: r.id, shared: false }); });
+  if (!r.items.length) html += `<div class="empty small">這條路線還沒有行程</div>`;
+  html += `</div><div class="branch-end"><span class="dot fork">⑂</span><span>路線匯合 · 以下行程共用</span></div></div>`;
+  html += insertRow(bi, "在匯合後加入", "");
+  return html;
 }
 
 // 每張圖片的顯示方式：圖片自己的設定 → 行程的設定 → 底部按鈕的整體設定
@@ -365,8 +433,9 @@ function timeLabel(it) {
   return v.dur ? `${fmt(it.start)}–${fmt(it.start + v.dur)}` : fmt(it.start);
 }
 
-function insertRow(at, label) {
-  return `<div class="insert"><button data-act="add-main" data-at="${at}">＋ ${label}主行程</button><button data-act="add-main" data-type="info" data-at="${at}">ⓘ 資訊</button></div>`;
+function insertRow(at, label, route) {
+  const r = route ? ` data-route="${esc(route)}"` : "";
+  return `<div class="insert"><button data-act="add-main" data-at="${at}"${r}>＋ ${label}主行程</button><button data-act="add-main" data-type="info" data-at="${at}"${r}>ⓘ 資訊</button></div>`;
 }
 
 // 資訊卡：編輯按鈕在右上角，不用打卡、沒有下排按鈕、內容不摺疊
@@ -384,7 +453,7 @@ function foldBtn(it) {
   return `<button class="fold" data-act="fold" data-id="${esc(it.id)}">${c ? "展開 ▾" : "收起 ▴"}</button>`;
 }
 
-function itemHTML(it, d, warn, q) {
+function itemHTML(it, d, warn, q, pos = { at: 0, route: "", shared: false }) {
   const v = V(it);
   const id = esc(it.id);
   const kids = (it.children || []).map((c) => {
@@ -399,7 +468,7 @@ function itemHTML(it, d, warn, q) {
       <div class="actions"><button data-act="edit" data-id="${esc(c.id)}">✎ 編輯</button><button data-act="quick-photo" data-id="${esc(c.id)}">📷 加圖片</button></div>
     </div>`;
   }).join("");
-  const after = d.kind === "day" && !q ? insertRow(d.items.indexOf(it), "在這之後加入") : "";
+  const after = d.kind === "day" && !q ? insertRow(pos.at, "在這之後加入", pos.route) : "";
   if (isInfo(it)) {
     return `<div class="item info ${q ? "hit" : ""}" data-item="${id}">${d.kind === "day" ? `<span class="dot"></span>` : ""}
       <div class="card">${infoCard(it, false)}${kids ? `<div class="children">${kids}</div>` : ""}</div>${after}</div>`;
@@ -425,6 +494,7 @@ function itemHTML(it, d, warn, q) {
         <button data-act="edit" data-id="${id}">✎ 編輯</button>
         <button data-act="add-child" data-id="${id}">＋ 子行程</button>
         <button data-act="quick-photo" data-id="${id}">📷 加圖片</button>
+        ${d.kind === "day" && pos.shared ? `<button data-act="branch-new" data-id="${id}">⑂ 分叉</button>` : ""}
       </div>
     </div>
     ${after}
@@ -441,8 +511,11 @@ function openEditor(opts) {
     const f = findItem(opts.id);
     draft = clone(f.item); isChild = !!f.parent;
   } else if (opts.mode === "new-main") {
-    const prevTimed = d.items.slice(0, opts.at + 1).reverse().find((x) => x.start != null);
-    const firstTimed = d.items.find((x) => x.start != null);
+    // 找出插入位置前面最近一個有時間的行程（跨越分叉也可以）
+    const list = seq(d);
+    const pos = insertPos(d, opts.route, opts.at);
+    const prevTimed = list.slice(0, pos + 1).reverse().map((x) => x.item).find((x) => x.start != null);
+    const firstTimed = list.map((x) => x.item).find((x) => x.start != null);
     let start = info ? null : prevTimed ? endOf(prevTimed) : (firstTimed ? firstTimed.start : 9 * 60);
     if (!info && start == null) start = 9 * 60;
     if (opts.type === "info") start = null;
@@ -485,8 +558,8 @@ function readForm() {
   if (v.type === "info") { ED.draft.start = null; v.dur = 0; ED.draft.locked = false; ED.draft.done = false; }
   else if (!ED.info && ED.draft.start == null && !ED.isChild && !f.start) {
     // 由「資訊」改回一般行程：給一個預設時間
-    const d = day(); const i = d.items.findIndex((x) => x.id === ED.draft.id);
-    const prev = d.items.slice(0, i < 0 ? ED.at + 1 : i).reverse().find((x) => x.start != null);
+    const d = day(); const list = seq(d).map((x) => x.item); const i = list.findIndex((x) => x.id === ED.draft.id);
+    const prev = list.slice(0, i < 0 ? list.length : i).reverse().find((x) => x.start != null);
     ED.draft.start = prev ? endOf(prev) : 9 * 60; if (!v.dur) v.dur = 60;
   }
   if (f.photoMode.value === "auto") delete ED.draft.photoMode; else ED.draft.photoMode = f.photoMode.value;
@@ -543,56 +616,82 @@ function closeSheet() {
   document.body.style.overflow = "";
 }
 
-function saveEditor() {
-  readForm();
-  const it = ED.draft;
-  it.active = ED.k;
-  const ripOn = $("#edForm [name=ripple]") ? $("#edForm [name=ripple]").checked : false;
-  const v = V(it);
-  if (!v.title) { toast("請輸入標題"); return; }
-  const E = ED;
-  closeSheet();
-  commit((doc) => {
-    const d = doc.days.find((x) => x.id === E.dayId);
-    if (E.mode === "new-main") {
-      const at = E.at + 1;
-      d.items.splice(at, 0, it);
-      if (!E.info && ripOn && it.start != null) {
-        const next = d.items.slice(at + 1).find((x) => x.start != null);
-        const delta = next ? endOf(it) - next.start : 0;
-        if (delta > 0) { const n = ripple(d, at, delta); if (n) return { msg: `已加入，之後 ${n} 項延後 ${durText(delta)}` }; }
-      }
-      return { msg: isInfo(it) ? "已加入資訊（時間不變）" : "已加入行程" };
-    }
-    if (E.mode === "new-child") {
-      const p = d.items.find((x) => x.id === E.parentId);
-      (p.children = p.children || []).push(it);
-      return { msg: "已加入子行程（其他時間不變）" };
-    }
-    // edit
-    const f = findItemIn(d, it.id);
-    if (f.parent) { f.parent.children[f.index] = it; return; }
-    const oldEnd = endOf(E.orig);
-    const oldStart = E.orig.start;
-    d.items[f.index] = it;
-    // 主行程的開始時間改變時，子行程跟著移動
-    if (oldStart != null && it.start != null && it.start !== oldStart) {
-      const dd = it.start - oldStart;
-      for (const c of it.children || []) if (c.start != null && (E.orig.children || []).some((o) => o.id === c.id && o.start === c.start)) c.start += dd;
-    }
-    if (!E.info && ripOn && oldEnd != null && endOf(it) != null) {
-      const delta = endOf(it) - oldEnd;
-      const n = ripple(d, f.index, delta);
-      if (n) return { msg: `已儲存，之後 ${n} 項${delta > 0 ? "延後" : "提前"} ${durText(Math.abs(delta))}` };
-    }
-    return { msg: "已儲存" };
-  });
+function fieldError(name, msg) {
+  const f = $("#edForm"); const el = f && f[name];
+  $$(".field-err").forEach((x) => x.remove());
+  $$(".invalid").forEach((x) => x.classList.remove("invalid"));
+  if (el) {
+    el.classList.add("invalid");
+    const lab = el.closest(".field") || el.parentElement;
+    lab.insertAdjacentHTML("beforeend", `<small class="field-err">⚠ ${esc(msg)}</small>`);
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setTimeout(() => el.focus(), 250);
+  }
+  toast("未能儲存：" + msg);
 }
-function findItemIn(d, id) {
-  for (let i = 0; i < d.items.length; i++) {
-    if (d.items[i].id === id) return { item: d.items[i], index: i, parent: null };
-    const ci = (d.items[i].children || []).findIndex((c) => c.id === id);
-    if (ci >= 0) return { item: d.items[i].children[ci], index: ci, parent: d.items[i] };
+function validate() {
+  const it = ED.draft, v = V(it);
+  if (!v.title) return ["title", "請輸入標題"];
+  const f = $("#edForm");
+  if (f.start && !ED.isChild && v.type !== "info" && !ED.info && !f.start.value) return ["start", "請輸入開始時間（主行程需要時間）"];
+  if (f.start && f.end.value && !f.start.value) return ["start", "已填結束時間，請同時填開始時間"];
+  return null;
+}
+
+function saveEditor() {
+  try {
+    readForm();
+    const it = ED.draft;
+    it.active = ED.k;
+    const ripOn = $("#edForm [name=ripple]") ? $("#edForm [name=ripple]").checked : false;
+    const bad = validate();
+    if (bad) { fieldError(bad[0], bad[1]); return; }
+    // 其他備選方案沒有標題
+    const emptyAlt = it.variants.findIndex((x) => !x.title);
+    if (emptyAlt >= 0) { ED.k = emptyAlt; renderEditor(); fieldError("title", `備選方案 ${planLetter(emptyAlt)} 未填標題`); return; }
+    const E = ED;
+    closeSheet();
+    commit((doc) => {
+      const d = doc.days.find((x) => x.id === E.dayId);
+      if (E.mode === "new-main") {
+        const arr = E.route ? findRoute(d, E.route).route.items : d.items;
+        const at = E.at + 1;
+        arr.splice(at, 0, it);
+        if (!E.info && ripOn && it.start != null) {
+          const list = seq(d), p = list.findIndex((x) => x.item === it);
+          const next = list.slice(p + 1).map((x) => x.item).find((x) => x.start != null);
+          const delta = next ? endOf(it) - next.start : 0;
+          if (delta > 0) { const n = rippleFrom(d, p, delta); if (n) return { msg: `已加入，之後 ${n} 項延後 ${durText(delta)}` }; }
+        }
+        return { msg: isInfo(it) ? "已加入資訊（時間不變）" : "已加入行程" };
+      }
+      if (E.mode === "new-child") {
+        const p = locate(d, E.parentId).item;
+        (p.children = p.children || []).push(it);
+        return { msg: "已加入子行程（其他時間不變）" };
+      }
+      // edit
+      const f = locate(d, it.id);
+      if (!f) throw new Error("找不到這個行程，可能已被其他裝置刪除");
+      if (f.parent) { f.arr[f.index] = it; return { msg: "已儲存" }; }
+      const oldEnd = endOf(E.orig);
+      const oldStart = E.orig.start;
+      f.arr[f.index] = it;
+      // 主行程的開始時間改變時，子行程跟著移動
+      if (oldStart != null && it.start != null && it.start !== oldStart) {
+        const dd = it.start - oldStart;
+        for (const c of it.children || []) if (c.start != null && (E.orig.children || []).some((o) => o.id === c.id && o.start === c.start)) c.start += dd;
+      }
+      if (!E.info && ripOn && oldEnd != null && endOf(it) != null) {
+        const delta = endOf(it) - oldEnd;
+        const n = ripple(d, it, delta);
+        if (n) return { msg: `已儲存，之後 ${n} 項${delta > 0 ? "延後" : "提前"} ${durText(Math.abs(delta))}` };
+      }
+      return { msg: "已儲存" };
+    });
+  } catch (err) {
+    console.error(err);
+    toast("儲存失敗：" + (err.message || err));
   }
 }
 
@@ -609,11 +708,13 @@ function doDelete(pull) {
   const E = ED; closeSheet();
   commit((doc) => {
     const d = doc.days.find((x) => x.id === E.dayId);
-    const f = findItemIn(d, E.orig.id);
+    const f = locate(d, E.orig.id);
+    if (!f) return { msg: "這個行程已不存在" };
     if (f.parent) { f.parent.children.splice(f.index, 1); return { msg: "已刪除子行程" }; }
     const dur = endOf(f.item) != null ? V(f.item).dur : 0;
-    d.items.splice(f.index, 1);
-    if (pull && dur) { const n = ripple(d, f.index - 1, -dur); if (n) return { msg: `已刪除，之後 ${n} 項提前 ${durText(dur)}` }; }
+    const p = posOf(d, f.item);
+    f.arr.splice(f.index, 1);
+    if (pull && dur && p >= 0) { const n = rippleFrom(d, p - 1, -dur); if (n) return { msg: `已刪除，之後 ${n} 項提前 ${durText(dur)}` }; }
     return { msg: "已刪除" };
   });
 }
@@ -638,16 +739,37 @@ function openDayEditor(isNew) {
 }
 
 // ---------- 選單 ----------
-function openPlanEditor() {
-  const d = day(); ensurePlans(d);
-  const i = d.plans.findIndex((p) => p.id === d.activePlan);
-  const p = d.plans[i];
+function openBranchEditor(bid) {
+  const d = day(); const b = findBranch(d, bid); if (!b) return;
+  const r = activeRoute(b), i = b.routes.indexOf(r);
   const sheet = $("#sheet");
-  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>路線方案 ${planLetter(i)}</h2><button class="btn ghost" data-act="close">✕</button></div>
-    <form id="planForm" onsubmit="return false"><label class="field"><span>方案名稱</span><input type="text" name="name" value="${esc(p.name)}"></label></form>
-    <p class="hint">每個路線方案是一套獨立的行程，修改其中一個不會影響其他方案。只改單一行程時，可以在行程的「編輯」裡加入備選方案。</p>
-    <div class="sheet-foot">${d.plans.length > 1 ? `<button class="btn danger" data-act="plan-delete">刪除此方案</button>` : ""}<span class="grow"></span>
-    <button class="btn" data-act="close">取消</button><button class="btn primary" data-act="plan-save">儲存</button></div></div>`;
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>分叉路線 ${planLetter(i)}</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="routeForm" onsubmit="return false"><label class="field"><span>路線名稱</span><input type="text" name="name" value="${esc(r.name || "")}" placeholder="例如：先參拜，再喫茶"></label></form>
+    <p class="hint">分叉前後的行程所有路線共用，只有分叉內的行程會隨路線切換。<br>「解除分叉」會保留目前這條路線的行程，其他路線會刪除。</p>
+    <div class="menu-list" style="margin-top:12px">
+      <button data-act="route-add" data-branch="${esc(b.id)}">＋ 複製目前路線成新路線</button>
+      ${b.routes.length > 1 ? `<button data-act="route-delete" data-branch="${esc(b.id)}">🗑 刪除這條路線</button>` : ""}
+      <button data-act="branch-dissolve" data-branch="${esc(b.id)}">⑂ 解除分叉（保留目前路線）</button>
+    </div>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="route-save" data-branch="${esc(b.id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function openBranchCreator(id) {
+  const d = day();
+  const i = d.items.findIndex((x) => x.id === id);
+  const rest = d.items.slice(i).filter((x) => !isBranch(x));
+  let opts = "";
+  for (let k = i; k < d.items.length; k++) {
+    const n = d.items[k]; if (isBranch(n)) break;
+    opts += `<label class="checkline"><input type="radio" name="end" value="${k}" ${k === i ? "checked" : ""}><span>${n.start != null ? `<b class="time">${fmt(n.start)}</b> ` : ""}${esc(V(n).title)}</span></label>`;
+  }
+  const sheet = $("#sheet");
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>⑂ 從這裡分叉</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">由「${esc(V(d.items[i]).title)}」開始分叉。請選擇分叉到哪一項為止，之後的行程會共用。<br>建立後會多一條「路線 B」（內容先複製路線 A），直接修改就可以。</p>
+    <form id="branchForm" onsubmit="return false"><label class="field"><span>路線 B 名稱</span><input type="text" name="nameB" placeholder="例如：先參拜，再喫茶"></label>
+    <label class="field"><span>路線 A（目前）名稱</span><input type="text" name="nameA" placeholder="例如：先喫茶，後參拜"></label>
+    <div class="field"><span>分叉包括到：</span>${opts}</div></form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="branch-create" data-id="${esc(id)}">建立分叉</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 
@@ -693,43 +815,70 @@ document.addEventListener("click", async (e) => {
     case "edit-day": openDayEditor(false); break;
     case "done": S.expanded.delete(id); commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
     case "toggle": S.open.has(id) ? S.open.delete(id) : S.open.add(id); render(); break;
-    case "plan": {
-      const d = day(); const i = d.plans.findIndex((p) => p.id === id);
-      commit((doc) => { switchPlan(doc.days.find((x) => x.id === d.id), id); }, `已切換到路線方案 ${planLetter(i)}`);
-      break;
-    }
-    case "plan-add": {
-      const did = day().id;
+    case "route": {
+      const d = day(); const b = findBranch(d, t.dataset.branch); const k = b.routes.findIndex((r) => r.id === id);
       commit((doc) => {
-        const d = doc.days.find((x) => x.id === did); ensurePlans(d);
-        const pid = "plan-" + uid();
-        const letter = planLetter(d.plans.length);
-        d.plans.push({ id: pid, name: "方案 " + letter });
-        d.planItems[pid] = copyItems(d.items);
-        switchPlan(d, pid);
-        return { msg: `已複製成方案 ${letter}，修改它不會影響原本的方案` };
+        const dd = doc.days.find((x) => x.id === d.id); const bb = findBranch(dd, b.id);
+        const res = switchRoute(dd, bb, id);
+        const name = `路線 ${planLetter(k)}`;
+        return { msg: res && res.n ? `已切換到${name}，匯合後 ${res.n} 項${res.delta > 0 ? "延後" : "提前"} ${durText(Math.abs(res.delta))}` : `已切換到${name}` };
       });
       break;
     }
-    case "plan-edit": openPlanEditor(); break;
-    case "plan-save": {
-      const name = $("#planForm").name.value.trim(); const did = day().id;
-      closeSheet();
-      commit((doc) => { const d = doc.days.find((x) => x.id === did); d.plans.find((p) => p.id === d.activePlan).name = name || "未命名方案"; }, "已儲存");
+    case "route-add": {
+      const did = day().id, bid = t.dataset.branch; closeSheet();
+      commit((doc) => {
+        const d = doc.days.find((x) => x.id === did); const b = findBranch(d, bid);
+        const r = activeRoute(b); const letter = planLetter(b.routes.length);
+        const nr = { id: "r-" + uid(), name: "", items: copyItems(r.items) };
+        b.routes.push(nr); b.active = nr.id;
+        return { msg: `已複製成路線 ${letter}，修改它不會影響其他路線` };
+      });
       break;
     }
-    case "plan-delete": {
-      if (!t.dataset.sure) { t.textContent = "再按一次確定刪除"; t.dataset.sure = "1"; break; }
+    case "branch-edit": openBranchEditor(id); break;
+    case "branch-new": openBranchCreator(id); break;
+    case "branch-create": {
+      const f = $("#branchForm"); const endIdx = +f.querySelector("[name=end]:checked").value;
+      const nameA = f.nameA.value.trim(), nameB = f.nameB.value.trim();
       const did = day().id; closeSheet();
       commit((doc) => {
         const d = doc.days.find((x) => x.id === did);
-        const cur = d.activePlan;
-        const other = d.plans.find((p) => p.id !== cur);
-        switchPlan(d, other.id);
-        d.plans = d.plans.filter((p) => p.id !== cur);
-        delete d.planItems[cur];
-        return { msg: "已刪除方案" };
+        const i = d.items.findIndex((x) => x.id === id);
+        const seg = d.items.slice(i, endIdx + 1);
+        const b = { id: "br-" + uid(), branch: true, routes: [
+          { id: "r-" + uid(), name: nameA, items: seg },
+          { id: "r-" + uid(), name: nameB, items: copyItems(seg) },
+        ] };
+        b.active = b.routes[1].id;
+        d.items.splice(i, seg.length, b);
+        return { msg: "已建立分叉，現在顯示路線 B，可以直接修改" };
       });
+      break;
+    }
+    case "route-save": {
+      const name = $("#routeForm").name.value.trim(); const did = day().id, bid = t.dataset.branch;
+      closeSheet();
+      commit((doc) => { const b = findBranch(doc.days.find((x) => x.id === did), bid); activeRoute(b).name = name; }, "已儲存");
+      break;
+    }
+    case "route-delete": {
+      if (!t.dataset.sure) { t.textContent = "再按一次確定刪除這條路線"; t.dataset.sure = "1"; break; }
+      const did = day().id, bid = t.dataset.branch; closeSheet();
+      commit((doc) => {
+        const d = doc.days.find((x) => x.id === did); const b = findBranch(d, bid);
+        const cur = activeRoute(b); const other = b.routes.find((r) => r !== cur);
+        switchRoute(d, b, other.id);
+        b.routes = b.routes.filter((r) => r !== cur);
+        if (b.routes.length === 1) { d.items.splice(d.items.indexOf(b), 1, ...b.routes[0].items); return { msg: "已刪除路線，只剩一條路線，已解除分叉" }; }
+        return { msg: "已刪除路線" };
+      });
+      break;
+    }
+    case "branch-dissolve": {
+      if (!t.dataset.sure) { t.textContent = "再按一次確定解除（其他路線會刪除）"; t.dataset.sure = "1"; break; }
+      const did = day().id, bid = t.dataset.branch; closeSheet();
+      commit((doc) => { const d = doc.days.find((x) => x.id === did); const b = findBranch(d, bid); d.items.splice(d.items.indexOf(b), 1, ...activeRoute(b).items); }, "已解除分叉");
       break;
     }
     case "variant": {
@@ -743,14 +892,14 @@ document.addEventListener("click", async (e) => {
         const label = `已切換到方案 ${String.fromCharCode(65 + k)}`;
         if (!g.parent && g.day.kind === "day" && oldEnd != null) {
           const delta = endOf(g.item) - oldEnd;
-          const n = ripple(g.day, g.index, delta);
+          const n = ripple(g.day, g.item, delta);
           if (n && delta) return { msg: `${label}，之後 ${n} 項${delta > 0 ? "延後" : "提前"} ${durText(Math.abs(delta))}` };
         }
         return { msg: label };
       });
       break;
     }
-    case "add-main": openEditor({ mode: "new-main", at: +t.dataset.at, type: t.dataset.type }); break;
+    case "add-main": openEditor({ mode: "new-main", at: +t.dataset.at, type: t.dataset.type, route: t.dataset.route || "" }); break;
     case "fold": S.expanded.has(id) ? S.expanded.delete(id) : S.expanded.add(id); render(); break;
     case "add-child": openEditor({ mode: "new-child", id }); break;
     case "edit": openEditor({ mode: "edit", id }); break;
@@ -865,6 +1014,7 @@ document.addEventListener("click", async (e) => {
 });
 
 $("#undoBtn").addEventListener("click", undo);
+$("#syncText").addEventListener("click", () => { if (S.pending) { S.saveError = null; save(); } });
 function setPhotoMode(m) {
   S.photoMode = m; ls.set("trip.photoMode", m);
   const b = $("#photoModeBtn");
@@ -879,6 +1029,7 @@ $("#photoModeBtn").addEventListener("click", () => {
 });
 $("#menuBtn").addEventListener("click", openMenu);
 document.addEventListener("input", (e) => {
+  if (e.target.classList && e.target.classList.contains("invalid")) { e.target.classList.remove("invalid"); const er = e.target.closest(".field")?.querySelector(".field-err"); if (er) er.remove(); }
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
 });
 document.addEventListener("change", async (e) => {

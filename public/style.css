@@ -79,6 +79,21 @@ button { cursor: pointer; }
 .plan.on b { background: var(--accent); color: #fff; }
 .plan.add { flex: 0 0 auto; font-size: 18px; color: var(--accent); padding: 8px 14px; }
 
+/* 分叉路線 */
+.branch { position: relative; margin: 8px 0; }
+.branch .dot.fork { position: absolute; left: -31px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 15px; font-weight: 700; }
+.branch-head { position: relative; }
+.branch-head .dot.fork { top: 14px; }
+.branch-head .plans { margin: 4px 0 0; border-color: var(--accent-soft); background: var(--lav); }
+.branch-head .plan { background: var(--card); }
+.branch-body { border-left: 3px solid var(--accent-soft); margin-left: -18px; padding-left: 15px; margin-top: 4px; }
+.branch-end { position: relative; display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 13px; font-weight: 600; padding: 10px 0 4px; }
+.branch-end .dot.fork { position: absolute; left: -31px; top: 6px; }
+.empty.small { padding: 14px; margin-top: 6px; font-size: 14px; }
+/* 表單錯誤 */
+.field-err { display: block; color: #b3412b; font-size: 13px; margin-top: 4px; }
+.invalid { border-color: #d98a72 !important; background: #fff6f3 !important; }
+
 /* timeline */
 .timeline { position: relative; margin-top: 14px; padding-left: 26px; }
 .timeline::before { content: ""; position: absolute; left: 8px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
@@ -164,7 +179,7 @@ button { cursor: pointer; }
 .bar-actions { display: flex; gap: 4px; }
 #menuBtn { font-size: 20px; line-height: 1; padding: 4px 12px; }
 
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + var(--safe-b)); z-index: 30; background: var(--ink); color: #fff; padding: 10px 12px 10px 16px; border-radius: 14px; display: flex; gap: 12px; align-items: center; font-size: 14px; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px rgba(30,20,50,.2); }
+.toast { z-index: 70 !important; position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + var(--safe-b)); z-index: 30; background: var(--ink); color: #fff; padding: 10px 12px 10px 16px; border-radius: 14px; display: flex; gap: 12px; align-items: center; font-size: 14px; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px rgba(30,20,50,.2); }
 .toast button { border: 0; background: rgba(255,255,255,.16); color: #fff; border-radius: 8px; padding: 4px 10px; font-size: 13px; white-space: nowrap; }
 
 /* sheet (modal) */
