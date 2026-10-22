@@ -665,14 +665,24 @@ function costHTML(v, it) {
     return `<span class="tag">${label} <b>${money(n, cur)}</b>${hk != null ? `<span class="hk">≈${money(hk, "HKD")}</span>` : ""}</span>`;
   };
   const over = c.plan != null && c.actual != null && c.actual > c.plan;
-  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預算</span>` : ""}</button>`;
+  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預計</span>` : ""}</button>`;
 }
+// 詳情一直放在頁面上，用 CSS 動畫展開／摺疊（不用重畫整頁）
 function detailHTML(it, v, forceOpen) {
-  const open = forceOpen || S.open.has(it.id);
-  if (!open) return "";
   const links = linksHTML(v);
-  return `${v.details ? `<div class="detailtext">${esc(v.details)}</div>` : !links && !forceOpen ? `<div class="detailtext hint">尚未填寫詳情</div>` : ""}
+  const inner = `${v.details ? `<div class="detailtext">${esc(v.details)}</div>` : !links && !forceOpen ? `<div class="detailtext hint">尚未填寫詳情</div>` : ""}
     <div class="quick">${links}${!v.cost || (v.cost.plan == null && v.cost.actual == null) ? `<button data-act="cost-edit" data-id="${esc(it.id)}">${icon("wallet")}記錄消費</button>` : ""}</div>`;
+  if (forceOpen) return inner;
+  return `<div class="dwrap ${S.open.has(it.id) ? "open" : ""}" data-dw="${esc(it.id)}"><div class="dinner">${inner}</div></div>`;
+}
+function toggleOpen(id) {
+  const open = !S.open.has(id);
+  open ? S.open.add(id) : S.open.delete(id);
+  const dw = $(`[data-dw="${CSS.escape(id)}"]`);
+  if (!dw) { render(); return; }
+  dw.classList.toggle("open", open);
+  $$(`[data-tid="${CSS.escape(id)}"]`).forEach((x) => x.classList.toggle("is-open", open));
+  $$(`[data-act=toggle][data-id="${CSS.escape(id)}"]`).forEach((x) => x.setAttribute("aria-expanded", open));
 }
 function altsHTML(it) {
   if (it.variants.length < 2) return "";
@@ -706,10 +716,11 @@ function childHTML(c, d) {
   const v = V(c);
   if (collapsed(c)) return `<div class="child done"><div class="folded">${c.start != null ? `<span class="time">${fmt(c.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${foldBtn(c)}${checkBtn(c)}</div></div>`;
   const info = isInfo(c);
-  return `<div class="child ${c.done ? "done" : ""}" style="--c:${catVar(v.type)}"><div class="crow"><div class="cbody">
+  return `<div class="child ${c.done ? "done" : ""} ${S.open.has(c.id) ? "is-open" : ""}" data-tid="${esc(c.id)}" style="--c:${catVar(v.type)}"><div class="crow"><div class="cbody">
+      <div class="taphead" ${info ? "" : `data-act="toggle" data-id="${esc(c.id)}" role="button" aria-expanded="${S.open.has(c.id)}"`}>
       ${c.start != null ? `<div class="time">${timeLabel(c)}</div>` : ""}
-      <button class="ctitle" data-act="toggle" data-id="${esc(c.id)}">↳ ${esc(v.title || "（未命名）")}</button>
-      ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}
+      <div class="ctitle">↳ ${esc(v.title || "（未命名）")}${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
+      ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
       ${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${altsHTML(c)}
     </div>${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || d.kind !== "day" ? "" : checkBtn(c)}</div></div>`;
 }
@@ -721,7 +732,8 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
   const warnHTML = warn ? `<div class="warn">⚠ ${esc(warn)}</div>` : "";
   const origin = listPage && it.from ? `<span class="origin">· 原本 ${esc(it.from)}</span>` : "";
   const style = `style="--c:${catVar(type)}"`;
-  const chev = `<span class="chev">${icon(S.open.has(it.id) ? "up" : "down")}</span>`;
+  const chev = `<span class="chev">${icon("down")}</span>`;
+  const openCls = S.open.has(it.id) ? "is-open" : "";
 
   if (collapsed(it)) {
     return `<article class="${type === "transport" ? "transport" : "place"} done" ${style}><div class="folded">
@@ -738,7 +750,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     </article>${after}`;
   }
   if (type === "transport" && !listPage) {
-    return `<article class="transport ${it.done ? "done" : ""}" ${style}>
+    return `<article class="transport ${it.done ? "done" : ""} ${openCls}" data-tid="${esc(it.id)}" ${style}>
       <div class="transportline"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
         ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " · 固定" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
         ${S.manage ? editTop(it) : ""}${foldBtn(it)}${checkBtn(it)}</div>
@@ -748,13 +760,14 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     </article>${after}`;
   }
   const num = listPage ? icon(cat[1]) : pos.num != null ? pos.num : icon(cat[1]);
-  return `<article class="place ${it.done ? "done" : ""}" ${style}>
+  return `<article class="place ${it.done ? "done" : ""} ${openCls}" data-tid="${esc(it.id)}" ${style}>
+    <div class="taphead" data-act="toggle" data-id="${esc(it.id)}" role="button" aria-expanded="${S.open.has(it.id)}">
     <div class="itemtop"><span class="number">${num}</span>
       <div class="itemmeta">${!listPage && it.start != null ? `<div class="time">${timeLabelLocked(it)}</div>` : ""}<div class="category">${icon(cat[1])}${cat[0]}${origin}</div></div>
       ${S.manage ? editTop(it) : ""}${foldBtn(it)}${listPage ? "" : checkBtn(it)}</div>
     ${warnHTML}
-    <div class="itemtitle"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${esc(v.title || "（未命名）")}</button>${chev}</div>
-    ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}
+    <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${chev}</div>
+    ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
     ${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
     ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
     ${S.manage ? toolsHTML(it, d, pos) : ""}
@@ -1023,6 +1036,20 @@ function moneyHTML() {
   const diff = act.s - plan.s;
   let html = `<div class="dayhead"><div><h2>旅行支出表</h2><div class="sub">預計與實際消費 · 以港幣合計</div></div>
     <div class="headtools"><button class="manage" data-act="trip-settings">${icon("gear")}設定</button></div></div><div class="money">`;
+  // 整個行程預算（手動設定）
+  const b = m.budget;
+  const bHK = b && b.amount ? toHKD(b.amount, b.cur || "HKD") : null;
+  if (bHK != null) {
+    const pctA = Math.min(100, (act.s / bHK) * 100), pctP = Math.min(100, (plan.s / bHK) * 100);
+    const left = bHK - act.s;
+    html += `<div class="mcard budget"><h3>${icon("wallet")} 行程預算<span class="right"><button class="btn small" data-act="budget-edit">${icon("pencil")}修改</button></span></h3>
+      <div class="bnum"><b>${money(b.amount, b.cur || "HKD")}</b>${(b.cur || "HKD") !== "HKD" ? `<span class="hint">≈ ${money(bHK, "HKD")}</span>` : ""}</div>
+      <div class="bbar"><i class="p" style="width:${pctP}%"></i><i class="a ${act.s > bHK ? "over" : ""}" style="width:${pctA}%"></i></div>
+      <div class="blegend"><span><i class="a"></i>實際 ${money(act.s, "HKD")}（${Math.round((act.s / bHK) * 100)}%）</span><span><i class="p"></i>預計 ${money(plan.s, "HKD")}（${Math.round((plan.s / bHK) * 100)}%）</span></div>
+      <div class="bleft ${left < 0 ? "over" : ""}">${left < 0 ? `已超出預算 ${money(-left, "HKD")}` : `尚餘 ${money(left, "HKD")}`}${plan.s > bHK ? `<small>預計消費已超出預算 ${money(plan.s - bHK, "HKD")}</small>` : ""}</div></div>`;
+  } else {
+    html += `<div class="mcard budget empty-b"><h3>${icon("wallet")} 行程預算</h3><p class="hint" style="margin:0 0 10px">設定整個行程的總預算，就可以看到已用多少、還剩多少。</p><button class="btn primary" data-act="budget-edit">${icon("plus")}設定預算</button></div>`;
+  }
   // 匯率
   html += `<div class="mcard"><div class="rate">${icon("swap")}
     ${cur === "HKD" ? `<span>旅程貨幣為港幣，不需要換算。</span>` : m.rate ? `<span>1 ${cur} = <b>${m.rate.toFixed(4)}</b> HKD</span><span class="muted">（${m.rateManual ? "手動輸入" : "自動"} · ${m.rateDate ? new Date(m.rateDate).toLocaleDateString("zh-HK") : ""}）</span>` : `<span>未取得 ${CUR_NAME[cur] || cur} 匯率</span>`}
@@ -1032,7 +1059,7 @@ function moneyHTML() {
   html += `<div class="mcard"><h3>${icon("wallet")} 總計</h3><div class="stats">
     <div class="stat"><div class="k">預計</div><div class="v">${money(plan.s, "HKD")}</div><div class="s">${cur !== "HKD" ? money(sumLocal(rows, "plan"), cur) : ""}</div></div>
     <div class="stat"><div class="k">實際</div><div class="v">${money(act.s, "HKD")}</div><div class="s">${cur !== "HKD" ? money(sumLocal(rows, "actual"), cur) : ""}</div></div>
-    <div class="stat ${diff > 0 ? "over" : ""}"><div class="k">${diff > 0 ? "超出預計" : "未用預算"}</div><div class="v">${money(Math.abs(diff), "HKD")}</div><div class="s">${rows.length} 項</div></div>
+    <div class="stat ${diff > 0 ? "over" : ""}"><div class="k">${diff > 0 ? "實際多於預計" : "實際少於預計"}</div><div class="v">${money(Math.abs(diff), "HKD")}</div><div class="s">${rows.length} 項</div></div>
     </div>${plan.missing + act.missing ? `<p class="hint" style="margin:8px 0 0">⚠ 有 ${plan.missing + act.missing} 筆使用其他貨幣、未能換算，未計入合計。</p>` : ""}</div>`;
   if (!rows.length) {
     html += `<div class="empty">還沒有消費紀錄。<br>在行程的「編輯 → 消費」輸入預計和實際金額，<br>或按下方「＋ 新增支出」加入其他支出（例如交通卡、手信）。</div></div>`;
@@ -1079,6 +1106,22 @@ function openCostEditor(id) {
   sheet.hidden = false; document.body.style.overflow = "hidden";
   updateCostPreview();
   setTimeout(() => { const i = $("#costForm [name=" + (v.cost && v.cost.plan != null ? "costActual" : "costPlan") + "]"); if (i) i.focus(); }, 80);
+}
+
+// ---------- 整個行程預算 ----------
+function openBudgetEditor() {
+  const b = (S.doc.meta || {}).budget || {};
+  const curs = [...new Set(["HKD", localCur()])];
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>行程預算</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="budgetForm" onsubmit="return false"><div class="grid2">
+      <label class="field"><span>整個行程預算</span><input type="text" inputmode="decimal" name="amount" value="${b.amount ?? ""}" placeholder="例如：8000"></label>
+      <label class="field"><span>貨幣</span><select name="cur">${curs.map((k) => `<option value="${k}" ${k === (b.cur || "HKD") ? "selected" : ""}>${k === "HKD" ? "港幣 HK$" : (CUR_NAME[k] || k) + " " + (CUR[k] || "")}</option>`).join("")}</select></label>
+    </div><p class="hint">支出表會以港幣比較「預算」、「預計」和「實際」。</p></form>
+    <div class="sheet-foot">${b.amount ? `<button class="btn danger" data-act="budget-clear">清除預算</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="budget-save">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  setTimeout(() => $("#budgetForm [name=amount]").focus(), 80);
 }
 
 // ---------- 其他支出（不屬於任何行程） ----------
@@ -1235,7 +1278,7 @@ function handbookHTML(o) {
   }
   const css = `@page{size:A4;margin:14mm 13mm}*{box-sizing:border-box}body{margin:0;font:10.5pt/1.6 -apple-system,"PingFang TC","Noto Sans TC",sans-serif;color:#2f2838;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .bar{position:sticky;top:0;display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;background:#f6f4f0;border-bottom:1px solid #e9e2eb;font-size:14px;z-index:2}
-  .bar button{border:0;background:#72598e;color:#fff;border-radius:10px;padding:10px 16px;font-size:15px}
+  .bar button{border:0;background:#72598e;color:#fff;border-radius:10px;padding:10px 14px;font-size:15px;white-space:nowrap}.bar .back{background:#fff;color:#72598e;border:1px solid #e9e2eb}.bar .bt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
   .wrap{max-width:780px;margin:0 auto;padding:16px}
   .cover{padding:40px 0 24px;border-bottom:2px solid #72598e;margin-bottom:10px;page-break-after:always}
   .cover .k{letter-spacing:3px;font-size:9pt;color:#877d8d}.cover h1{font:400 46pt/1.1 Georgia,serif;margin:10px 0 6px}.cover .s{color:#72598e;letter-spacing:3px}
@@ -1255,7 +1298,7 @@ function handbookHTML(o) {
   table{width:100%;border-collapse:collapse;font-size:9.5pt}th,td{border-bottom:1px solid #eee8f0;padding:6px 4px;text-align:left}th{color:#877d8d;font-weight:500}td:nth-child(3),td:nth-child(4),th:nth-child(3),th:nth-child(4){text-align:right;white-space:nowrap}
   @media print{.bar{display:none}.wrap{padding:0;max-width:none}}`;
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(m.title || "旅行手冊")}</title><style>${css}</style></head>
-    <body><div class="bar"><span>${esc(m.title || "旅行手冊")} · 預覽</span><button onclick="window.print()">列印／儲存為 PDF</button></div><div class="wrap">${html}</div>
+    <body><div class="bar"><button class="back" onclick="if(window.opener){window.close()}setTimeout(function(){location.href='${location.origin}/'},150)">← 返回行程</button><span class="bt">${esc(m.title || "旅行手冊")}</span><button onclick="window.print()">列印／儲存為 PDF</button></div><div class="wrap">${html}</div>
     <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})<\/script></body></html>`;
 }
 function makeHandbook() {
@@ -1876,6 +1919,15 @@ document.addEventListener("click", async (e) => {
     case "rate-refresh": updateRate(true); break;
     case "map-filter": S.mapFilter = id; render(); break;
     case "pdf-open": openPdfOptions(); break;
+    case "budget-edit": openBudgetEditor(); break;
+    case "budget-save": {
+      const f = $("#budgetForm"); const amount = numOrNull(f.amount.value);
+      if (amount == null || amount <= 0) { fieldErrorIn(f, "amount", "請輸入預算金額"); break; }
+      const cur = f.cur.value; closeSheet();
+      commit((doc) => { doc.meta = doc.meta || {}; doc.meta.budget = { amount, cur }; }, "已設定行程預算");
+      break;
+    }
+    case "budget-clear": closeSheet(); commit((doc) => { if (doc.meta) delete doc.meta.budget; }, "已清除預算"); break;
     case "pdf-make": makeHandbook(); break;
     case "add": addFromBottom(); break;
     case "refresh": forceRefresh(); break;
@@ -1951,7 +2003,7 @@ document.addEventListener("click", async (e) => {
     case "add-day": openDayEditor(true, t.dataset.kind); break;
     case "edit-day": openDayEditor(false); break;
     case "done": S.expanded.delete(id); commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
-    case "toggle": S.open.has(id) ? S.open.delete(id) : S.open.add(id); render(); break;
+    case "toggle": toggleOpen(id); break;
     case "route": {
       const d = day(); const b = findBranch(d, t.dataset.branch); const k = b.routes.findIndex((r) => r.id === id);
       commit((doc) => {
