@@ -1054,6 +1054,8 @@ async function drawRouteMap(d, noGeocode) {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(S.map);
     S.layer = L.layerGroup().addTo(S.map);
+    // 按地圖空白位置：收起地點名稱的彈出標籤
+    S.map.on("click", () => { (S.markers || []).forEach((m) => m && m.unbindTooltip()); });
   }
   S.layer.clearLayers();
   S.markers = [];
@@ -1528,7 +1530,7 @@ function openEditor(opts) {
 function readForm() {
   const f = $("#edForm"); if (!f) return;
   const v = ED.draft.variants[ED.k];
-  v.title = f.title.value.trim();
+  v.title = f.tfrom ? joinRoute(f.tfrom.value, f.tto.value) : f.title.value.trim();
   v.summary = f.summary.value.trim();
   const cost = readCost(f); if (cost) v.cost = cost; else delete v.cost;
   v.type = f.type.value;
@@ -1536,13 +1538,15 @@ function readForm() {
   v.links = readLinkRows();
   if (f.level) ED.level = f.level.value;
   if (!ED.info && f.start) {
-    const s = parseHHMM(f.start.value), e = parseHHMM(f.end.value);
+    const s = parseHHMM(f.start.value), e = f.end ? parseHHMM(f.end.value) : null;
+    if (f.tdur) { const m = parseInt(f.tdur.value, 10); v.dur = m >= 0 ? m : 0; }
     if (s == null) ED.draft.start = null;
     else {
       const base = ED.orig && ED.orig.start != null && ED.orig.start >= 1440 ? 1440 : 0;
       ED.draft.start = s + base;
     }
-    if (s != null && e != null) { let dur = e - s; if (dur < 0) dur += 1440; v.dur = dur; }
+    if (f.tdur) { /* 交通：用「交通時間」 */ }
+    else if (s != null && e != null) { let dur = e - s; if (dur < 0) dur += 1440; v.dur = dur; }
     else if (e == null) v.dur = 0;
     if (f.locked) ED.draft.locked = f.locked.checked;
   }
@@ -1556,9 +1560,20 @@ function readForm() {
   if (f.photoMode.value === "auto") delete ED.draft.photoMode; else ED.draft.photoMode = f.photoMode.value;
 }
 
+// 交通：標題拆成「起點 → 終點」
+function splitRoute(t) {
+  const parts = (t || "").split(/\s*(?:→|->|⇒|➡|➔|＞)\s*/);
+  return [parts[0] || "", parts.slice(1).join(" → ")];
+}
+const joinRoute = (a, b) => (a = a.trim(), b = b.trim(), a && b ? `${a} → ${b}` : a || b);
+function arrText(start, dur) {
+  if (start == null || !(dur > 0)) return "填出發時間和交通時間，會自動計算到達時間；之後改出發時間，到達時間也會跟著變。";
+  return `到達時間：<b>${fmt(start + dur)}</b>（${durText(dur)}）`;
+}
 function renderEditor() {
   const it = ED.draft, v = it.variants[ED.k];
   const typeInfo = v.type === "info";
+  const isTr = v.type === "transport";
   const title = typeInfo ? (ED.mode === "edit" ? "編輯資訊" : "新增資訊") : ED.mode === "edit" ? (ED.isChild ? "編輯子行程" : "編輯行程") : ED.mode === "new-child" ? "新增子行程" : "新增主行程";
   const isMainInDay = !ED.info && !ED.isChild && !typeInfo;
   const showRipple = isMainInDay;
@@ -1572,13 +1587,18 @@ function renderEditor() {
       ${it.variants.length > 1 || ED.mode === "edit" ? `<div class="box"><div class="box-title"><span>備選方案</span><button type="button" class="btn small" data-act="ed-add-variant">＋ 新增方案</button></div>
         <div class="vtabs">${it.variants.map((x, k) => `<button type="button" class="chip ${k === ED.k ? "on" : ""}" data-act="ed-variant" data-k="${k}">${String.fromCharCode(65 + k)}・${esc(x.title || "未命名")}</button>`).join("")}</div>
         <p class="hint">儲存時，目前正在編輯的方案會設為「使用中」。${it.variants.length > 1 ? `<button type="button" class="btn small danger" data-act="ed-del-variant" style="margin-left:6px">刪除此方案</button>` : ""}</p></div>` : ""}
-      <label class="field"><span>標題</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：大阪城公園"></label>
+      ${isTr ? (() => { const [a, b] = splitRoute(v.title); return `<div class="field"><span>路線（起點 → 終點）</span><div class="trow">
+        <input type="text" name="tfrom" value="${esc(a)}" placeholder="起點，例如：酒店"><span class="tarrow">→</span><input type="text" name="tto" value="${esc(b)}" placeholder="終點，例如：KITTE大阪"></div></div>`; })()
+        : `<label class="field"><span>標題</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：大阪城公園"></label>`}
       <label class="field"><span>簡介（顯示在標題下面，可留空）</span><input type="text" name="summary" value="${esc(v.summary || "")}" placeholder="例如：梅田・神社參拜與御守"></label>
       ${levelField()}
       <label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === v.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field"><span>這個行程的圖片顯示方式（個別圖片可再按下方標籤設定）</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       ${typeInfo ? `<p class="hint">資訊不佔時間，不會影響前後行程的時間。</p>` : ""}
-      ${ED.info || typeInfo ? "" : `<div class="grid2">
+      ${ED.info || typeInfo ? "" : isTr ? `<div class="grid2">
+        <label class="field"><span>出發時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="start" value="${hhmm(it.start)}"></label>
+        <label class="field"><span>交通時間（分鐘）</span><input type="number" name="tdur" inputmode="numeric" min="0" step="1" value="${v.dur || ""}" placeholder="例如：25"></label>
+      </div><p class="hint" id="arrHint">${arrText(it.start, v.dur)}</p>` : `<div class="grid2">
         <label class="field"><span>開始時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="start" value="${hhmm(it.start)}"></label>
         <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"></label>
       </div>
@@ -1593,8 +1613,8 @@ function renderEditor() {
     </form>
     <div class="sheet-foot">
       ${ED.mode === "edit" ? `<button class="btn danger" data-act="ed-delete">刪除</button>` : ""}
-      ${ED.mode === "edit" && !ED.isChild ? (ED.info ? `<button class="btn" data-act="move-in" data-id="${esc(ED.draft.id)}">↩ 加回行程</button>` : `<button class="btn" data-act="move-out" data-id="${esc(ED.draft.id)}">↘ 移到備選</button>`) : ""}
-      ${prevMainOf() ? `<button class="btn" data-act="ed-to-child" title="併入「${esc(V(prevMainOf()).title)}」">↳ 移到子行程<small class="hint" style="margin-left:4px">併入「${esc(V(prevMainOf()).title).slice(0, 10)}」</small></button>` : ""}
+      ${ED.mode === "edit" && !ED.isChild ? (ED.info ? `<button class="btn" data-act="move-in" data-id="${esc(ED.draft.id)}">↩ 加回</button>` : `<button class="btn" data-act="move-out" data-id="${esc(ED.draft.id)}" aria-label="移到備選">↘ 備選</button>`) : ""}
+      ${prevMainOf() ? `<button class="btn" data-act="ed-to-child" aria-label="移到子行程：併入「${esc(V(prevMainOf()).title)}」">↳ 子行程</button>` : ""}
       <span class="grow"></span>
       <button class="btn" data-act="close">取消</button>
       <button class="btn primary" data-act="ed-save">儲存</button>
@@ -1687,10 +1707,10 @@ function fieldError(name, msg) {
 }
 function validate() {
   const it = ED.draft, v = V(it);
-  if (!v.title) return ["title", "請輸入標題"];
   const f = $("#edForm");
+  if (!v.title) return f.tfrom ? ["tfrom", "請輸入起點和終點"] : ["title", "請輸入標題"];
   if (f.start && !ED.isChild && (!ED.level || ED.level === "main") && v.type !== "info" && !ED.info && !f.start.value) return ["start", "請輸入開始時間（主行程需要時間）"];
-  if (f.start && f.end.value && !f.start.value) return ["start", "已填結束時間，請同時填開始時間"];
+  if (f.start && f.end && f.end.value && !f.start.value) return ["start", "已填結束時間，請同時填開始時間"];
   for (const l of v.links || []) {
     if (!l.url) return [l._row.querySelector(".l-url"), l.kind === "map" ? "地圖網址格式不正確" : (l._raw ? "網址格式不正確（需要 https:// 開頭）" : "請填寫連結網址")];
   }
@@ -2448,6 +2468,10 @@ document.addEventListener("input", (e) => {
   if (e.target.classList && e.target.classList.contains("invalid")) { e.target.classList.remove("invalid"); const er = e.target.closest(".field")?.querySelector(".field-err"); if (er) er.remove(); }
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
   if (/^cost(Plan|Actual)$/.test(e.target.name || "")) updateCostPreview();
+  if ((e.target.name === "start" || e.target.name === "tdur") && e.target.form && e.target.form.id === "edForm" && $("#arrHint")) {
+    const f = e.target.form, st = parseHHMM(f.start.value), m = parseInt(f.tdur.value, 10);
+    $("#arrHint").innerHTML = arrText(st, m);
+  }
 });
 
 document.addEventListener("change", async (e) => {

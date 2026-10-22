@@ -511,3 +511,17 @@ html, body { overflow-x: clip; }
 
 .lrow .l-addr { margin-top: 6px; }
 .st-addr { display: block; font-size: 12px; color: var(--muted); }
+
+/* 路線列表：地址只顯示一行 */
+.st-addr { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.stops li .st-body { overflow: hidden; }
+/* 編輯畫面底部保持一行 */
+#sheet .sheet-foot { flex-wrap: nowrap; gap: 6px; }
+#sheet .sheet-foot .btn { white-space: nowrap; flex: none; padding-left: 12px; padding-right: 12px; }
+#sheet .sheet-foot .grow { flex: 1 1 0; min-width: 0; }
+/* 交通：起點 → 終點 */
+.trow { display: flex; align-items: center; gap: 6px; }
+.trow input { flex: 1; min-width: 0; }
+.tarrow { color: var(--purple); font-weight: 700; flex: none; }
+#arrHint { margin: -4px 0 10px; }
+#arrHint b { color: var(--purple); }
