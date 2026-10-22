@@ -42,6 +42,9 @@ const ICONS = {
   ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   grip: '<circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>',
   cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
+  phone: '<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/>',
+  monitor: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m12 7 5 5"/><path d="M19 2v3M20.5 3.5h-3M5 3v3M6.5 4.5h-3"/>',
   book: '<path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19"/><path d="M8 7h7M8 11h5"/>',
   wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3M21 12v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M17 12h4v4h-4a2 2 0 0 1 0-4z"/>',
@@ -409,6 +412,7 @@ async function load() {
   if (S.doc) render();
   try {
     const r = await fetch(API(), { cache: "no-store" });
+    if (r.status === 401) { needAuth(); return; }
     const data = await r.json();
     if (id !== S.tripId) return;
     if (r.status === 404) {
@@ -506,6 +510,12 @@ function wxLine(d) {
   const [, e, t] = wxOf(w.code);
   return `<div class="wxline"><span class="wx-ico">${e}</span><b>${t}</b><span>${Math.round(w.min)}° – ${Math.round(w.max)}°C</span>${w.pop != null ? `<span>☂ 降雨 ${w.pop}%</span>` : ""}</div>`;
 }
+// 這部裝置未認證（或已被移除）：重新載入就會顯示認證頁
+function needAuth() {
+  try { if (sessionStorage.getItem("authReload")) return; sessionStorage.setItem("authReload", "1"); } catch {}
+  location.reload();
+}
+try { sessionStorage.removeItem("authReload"); } catch {}
 async function switchTrip(id) {
   if (id === S.tripId) return;
   if (S.pending) await save();
@@ -522,6 +532,7 @@ async function refresh() {
   if (S.pending || S.saving || document.hidden || !S.tripId) return;
   try {
     const r = await fetch(API(), { cache: "no-store" });
+    if (r.status === 401) { needAuth(); return; }
     if (!r.ok) return;
     const data = await r.json();
     if (data.version !== S.version && !S.pending && !$("#sheet:not([hidden])")) {
@@ -1583,6 +1594,8 @@ function openMenu() {
         <button data-act="export">${icon("download")}匯出行程 JSON</button>
         <button data-act="import">${icon("upload")}匯入行程 JSON</button>
         <button data-act="reload">${icon("refresh")}重新載入最新版本</button>
+        <button data-act="offline-prep">${icon("download")}準備離線使用（下載全部圖片）</button>
+        <button data-act="auth-open">${icon("lock")}裝置認證</button>
         ${trips.length > 1 ? `<button data-act="trip-delete">${icon("trash")}刪除這個旅程</button>` : ""}
       </div>
     </details>
@@ -1590,10 +1603,86 @@ function openMenu() {
     <div class="menu-sec">外觀</div>
     <div class="seg">${[["light", "sun", "淺色"], ["dark", "moon", "深色"], ["auto", "auto", "跟隨系統"]].map(([k, i, t]) => `<button data-act="theme" data-id="${k}" aria-pressed="${S.theme === k}">${icon(i)}${t}</button>`).join("")}</div>
     <div class="seg" style="margin-top:8px">${[["thumb", "image", "圖片縮圖"], ["full", "image", "圖片大圖"]].map(([k, i, t]) => `<button data-act="photo-mode" data-id="${k}" aria-pressed="${S.photoMode === k}">${icon(i)}${t}</button>`).join("")}</div>
-    <p class="hint" style="margin-top:14px">這個網站是公開的，任何人有網址都可以查看和編輯。所有修改都會留下版本紀錄。</p>
+    <p class="hint" style="margin-top:14px" id="authHint">所有修改都會留下版本紀錄。</p>
     <input type="file" id="importFile" accept="application/json,.json" hidden></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
+  fetch("/api/auth/status").then((r) => r.json()).then((j) => { const h = $("#authHint"); if (h) h.textContent = j.enabled ? `已啟用裝置認證：只有已認證的裝置可以開啟。${j.device ? "這部裝置：" + j.device.name : ""}` : "未啟用裝置認證：任何人有網址都可以查看和編輯（可在「行程管理 → 裝置認證」啟用）。所有修改都會留下版本紀錄。"; }).catch(() => {});
   loadTrips().then(() => { if (!sheet.hidden && sheet.classList.contains("drawer") && S.trips.length !== trips.length) openMenu(); });
+}
+
+// ---------- 裝置認證 ----------
+const devName = () => { const ua = navigator.userAgent; return (/iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android 手機" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows 電腦" : "裝置") + (matchMedia("(display-mode: standalone)").matches ? "（主畫面 App）" : ""); };
+const ago = (t) => { const m = (Date.now() - t) / 60000; return m < 60 ? "剛剛" : m < 1440 ? Math.floor(m / 60) + " 小時前" : Math.floor(m / 1440) + " 天前"; };
+async function authApi(path, method = "GET", body) {
+  const r = await fetch("/api/auth/" + path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+async function openAuth() {
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("lock")} 裝置認證</h2><button class="btn ghost" data-act="close">✕</button></div><p class="hint">載入中…</p></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  let st, devs = [];
+  try { st = await authApi("status"); if (st.enabled && st.device) devs = (await authApi("devices")).devices; }
+  catch (e) { sheet.querySelector(".sheet-body").insertAdjacentHTML("beforeend", `<p class="field-err">⚠ ${esc(e.message)}（需要網絡）</p>`); return; }
+  if (sheet.hidden) return;
+  const body = !st.enabled ? `
+    <p>啟用後，只有輸入過密碼的裝置才可以開啟這個網站，其他人有網址也看不到內容。</p>
+    <ul class="hint auth-ul"><li>每部裝置只需認證一次，之後不會過期。</li><li>這部裝置會自動成為第一部已認證的裝置。</li><li>iPhone 上「加入主畫面」的 App 和 Safari 分開記錄，App 內要再認證一次。</li></ul>
+    <form id="authForm" onsubmit="return false">
+      <label class="field"><span>設定密碼（最少 6 個字）</span><input type="password" name="pass" autocomplete="new-password"></label>
+      <label class="field"><span>再輸入一次</span><input type="password" name="pass2" autocomplete="new-password"></label>
+      <label class="field"><span>這部裝置的名稱</span><input type="text" name="name" value="${esc(devName())}"></label>
+    </form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="auth-setup">啟用裝置認證</button></div>`
+  : `<p>已啟用：只有下面的裝置可以開啟這個網站。新裝置開啟網址時，輸入密碼就可以認證。</p>
+    <div class="field"><span>已認證的裝置（${devs.length}）</span><div class="devlist">${devs.map((d) => `<div class="devrow"><div>${icon(/iPhone|Android|iPad/.test(d.name) ? "phone" : "monitor")}</div><div class="devinfo"><b>${esc(d.name)}${d.me ? ` <span class="me">這部裝置</span>` : ""}</b><small>認證於 ${new Date(d.created_at).toLocaleDateString("zh-HK")} · 最後使用 ${ago(d.last_seen)}</small></div>
+      <button class="btn small ${d.me ? "" : "danger"}" data-act="auth-remove" data-id="${esc(d.id)}" data-me="${d.me ? 1 : ""}">移除</button></div>`).join("")}</div></div>
+    <details class="box"><summary>更改密碼</summary><form id="pwForm" onsubmit="return false" style="margin-top:10px">
+      <label class="field"><span>目前的密碼</span><input type="password" name="old" autocomplete="current-password"></label>
+      <label class="field"><span>新密碼（最少 6 個字）</span><input type="password" name="pass" autocomplete="new-password"></label>
+      <button class="btn primary" data-act="auth-password">更改密碼</button><small class="hint">已認證的裝置不受影響。</small></form></details>
+    <details class="box"><summary>停用裝置認證</summary><form id="offForm" onsubmit="return false" style="margin-top:10px">
+      <p class="hint">停用後任何人有網址都可以開啟，所有裝置的認證紀錄會刪除。</p>
+      <label class="field"><span>輸入密碼確認</span><input type="password" name="pass" autocomplete="current-password"></label>
+      <button class="btn danger" data-act="auth-disable">停用</button></form></details>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">完成</button></div>`;
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("lock")} 裝置認證</h2><button class="btn ghost" data-act="close">✕</button></div>${body}</div>`;
+}
+// ---------- 離線使用：預先下載所有旅程和圖片 ----------
+async function prepareOffline() {
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("download")} 準備離線使用</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" id="offMsg">準備中…</p><div class="track wide"><div class="fill" id="offBar" style="width:0"></div></div>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">完成</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  const msg = (t, f) => { const m = $("#offMsg"), b = $("#offBar"); if (m) m.innerHTML = t; if (b && f != null) b.style.width = Math.round(f * 100) + "%"; };
+  let persisted = false;
+  try { persisted = navigator.storage && navigator.storage.persist ? await navigator.storage.persist() : false; } catch {}
+  try {
+    // 所有旅程
+    const list = (await (await fetch("/api/trips", { cache: "no-store" })).json()).trips || [];
+    const docs = [];
+    for (const t of list) {
+      msg(`下載旅程「${esc(t.title)}」…`);
+      const r = await fetch("/api/trips/" + encodeURIComponent(t.id), { cache: "no-store" }); if (!r.ok) continue;
+      const data = await r.json(); docs.push(data.doc);
+      if (t.id !== S.tripId || !S.pending) { ls.set(`trip.${t.id}.doc`, JSON.stringify(data.doc)); ls.set(`trip.${t.id}.version`, String(data.version)); }
+    }
+    // 所有圖片（旅行相片、行程圖片）
+    const ids = new Set();
+    JSON.stringify(docs, (k, v) => { if ((k === "photos") && Array.isArray(v)) v.forEach((x) => ids.add(x)); return v; });
+    const all = [...ids];
+    // 地圖程式庫
+    await Promise.all(["https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js", "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"].map((u) => fetch(u).catch(() => null)));
+    let done = 0, fail = 0;
+    const next = async () => { while (all.length) { const id = all.shift(); try { const r = await fetch(photoUrl(id)); if (!r.ok) fail++; await r.blob(); } catch { fail++; } done++; msg(`下載圖片 ${done} / ${ids.size}…`, done / Math.max(1, ids.size)); } };
+    await Promise.all([next(), next(), next(), next()]);
+    msg(`✓ 完成：${list.length} 個旅程、${ids.size - fail} 張圖片已存在這部裝置。<br>沒有網絡時也可以開啟網站查看行程和圖片；離線時的修改會在恢復連線後自動上傳。<br><small>地圖底圖只會保存看過的範圍。${persisted ? "" : "瀏覽器長時間不用時有機會清除快取，出發前可以再按一次。"}</small>`, 1);
+  } catch (e) { msg(`⚠ 未能完成：${esc(e.message)}（需要網絡）`); }
 }
 
 // ---------- PDF 手冊（排版好的列印頁，用系統「列印 → 儲存為 PDF」） ----------
@@ -2661,6 +2750,33 @@ document.addEventListener("click", async (e) => {
     }
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
     case "sched-open": openScheduler(); break;
+    case "offline-prep": prepareOffline(); break;
+    case "auth-open": openAuth(); break;
+    case "auth-setup": {
+      const f = $("#authForm");
+      if (f.pass.value.length < 6) { fieldErrorIn(f, "pass", "密碼最少 6 個字"); break; }
+      if (f.pass.value !== f.pass2.value) { fieldErrorIn(f, "pass2", "兩次輸入的密碼不一樣"); break; }
+      t.disabled = true;
+      try { await authApi("setup", "POST", { pass: f.pass.value, name: f.name.value }); openAuth(); }
+      catch (err) { t.disabled = false; fieldErrorIn(f, "pass", err.message); }
+      break;
+    }
+    case "auth-remove": {
+      if (!t.dataset.sure) { t.textContent = t.dataset.me ? "確定移除這部？" : "確定移除？"; t.dataset.sure = "1"; break; }
+      try { await authApi("devices/" + id, "DELETE"); if (t.dataset.me) { location.reload(); break; } openAuth(); } catch (err) { t.textContent = err.message; }
+      break;
+    }
+    case "auth-password": {
+      const f = $("#pwForm");
+      try { await authApi("password", "POST", { old: f.old.value, pass: f.pass.value }); t.textContent = "✓ 已更改"; f.old.value = f.pass.value = ""; }
+      catch (err) { fieldErrorIn(f, /目前/.test(err.message) ? "old" : "pass", err.message); }
+      break;
+    }
+    case "auth-disable": {
+      const f = $("#offForm");
+      try { await authApi("disable", "POST", { pass: f.pass.value }); openAuth(); } catch (err) { fieldErrorIn(f, "pass", err.message); }
+      break;
+    }
     case "shop-filter": S.shopFilter = id; render(); break;
     case "shop-quick": {
       const f = $("#shopAdd"), name = f.q.value.trim();
