@@ -890,6 +890,7 @@ function shopHTML() {
     for (const x of groups.get(k).sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0))) {
       const cur = x.cur || localCur(), amt = x.done && x.actual != null ? x.actual : x.plan;
       html += `<div class="shop-row ${x.done ? "done" : ""}"><button class="check ${x.done ? "on" : ""}" data-act="shop-done" data-id="${esc(x.id)}" aria-label="${x.done ? "改為未買" : "已買"}：${esc(x.name)}">${x.done ? "✓" : ""}</button>
+        ${(x.photos || []).length ? `<button class="shop-thumb" data-act="shop-photo" data-id="${esc(x.id)}" data-photo="${esc(x.photos[0])}"><img src="${esc(photoUrl(x.photos[0]))}" loading="lazy" alt="">${x.photos.length > 1 ? `<b>${x.photos.length}</b>` : ""}</button>` : ""}
         <button class="shop-body" data-act="shop-edit" data-id="${esc(x.id)}"><span class="shop-name">${esc(x.name)}${x.qty > 1 ? `<small> ×${x.qty}</small>` : ""}</span>
           ${x.forWho || x.note ? `<small>${[x.forWho ? "給 " + esc(x.forWho) : "", esc(x.note || "")].filter(Boolean).join(" · ")}</small>` : ""}</button>
         ${amt != null ? `<span class="shop-amt">${money(amt, cur)}${cur !== "HKD" && toHKD(amt, cur, x.pay) != null ? `<small>≈${money(toHKD(amt, cur, x.pay), "HKD")}</small>` : ""}</span>` : ""}</div>`;
@@ -898,9 +899,16 @@ function shopHTML() {
   }
   return html + `<p class="hint" style="margin-top:14px">已買而且有填金額的東西，會自動計入「支出」。</p></div>`;
 }
+let SHOPED = null; // 編輯中的購物項目照片
+function shopPhotosHTML() {
+  return (SHOPED.photos || []).map((p, i) => `<div class="ep"><img src="${esc(photoUrl(p))}" alt=""><button type="button" class="x" data-act="shop-del-photo" data-i="${i}">✕</button></div>`).join("")
+    + (SHOPED.uploading ? `<div class="ep"><div class="ph">上傳中 ${SHOPED.uploading}</div></div>` : "")
+    + `<button type="button" class="addphoto" data-act="shop-add-photo">＋ 照片</button>`;
+}
 function openShopEditor(id) {
   const x = id ? (S.doc.shopping || []).find((e) => e.id === id) : { id: "", name: "", qty: 1, where: "", forWho: "", note: "", plan: null, actual: null, cur: localCur() };
   if (!x) return;
+  SHOPED = { photos: [...(x.photos || [])], uploading: null };
   const curs = [...new Set([localCur(), "HKD", x.cur].filter(Boolean))];
   const titles = [...new Set(placeTitles().map(([t]) => t))];
   const sheet = $("#sheet");
@@ -913,6 +921,8 @@ function openShopEditor(id) {
       <label class="field"><span>在哪裡買（可留空）</span><input type="text" name="where" list="shopWhere" value="${esc(x.where || "")}" placeholder="可揀行程中的地點，或自己輸入"><datalist id="shopWhere">${titles.map((t) => `<option value="${esc(t)}">`).join("")}</datalist></label>
       ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur, pay: x.pay, share: x.share }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(x.note || "")}" placeholder="顏色、尺寸、款式…"></label>
+      <div class="field"><span>照片（例如貨品樣子、包裝、價錢牌）</span><div class="edit-photos" id="shopPhotos">${shopPhotosHTML()}</div></div>
+      <input type="file" id="shopFile" accept="image/*" multiple hidden>
       ${id ? `<label class="checkline"><input type="checkbox" name="done" ${x.done ? "checked" : ""}><span>已買</span></label>` : ""}
     </form>
     <div class="sheet-foot">${id ? `<button class="btn danger" data-act="shop-delete" data-id="${esc(id)}">刪除</button>` : ""}<span class="grow"></span>
@@ -2982,13 +2992,22 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "shop-done": commit((doc) => { const x = (doc.shopping || []).find((e) => e.id === id); if (x) x.done = !x.done; }); break;
-    case "shop-edit": openShopEditor(id); break;
+    case "shop-edit": $("#lightbox").hidden = true; openShopEditor(id); break;
+    case "shop-add-photo": { const inp = $("#shopFile"); inp.value = ""; inp.click(); break; }
+    case "shop-del-photo": SHOPED.photos.splice(+t.dataset.i, 1); $("#shopPhotos").innerHTML = shopPhotosHTML(); break;
+    case "shop-photo": {
+      const x = (S.doc.shopping || []).find((e) => e.id === id); if (!x) break;
+      const lb = $("#lightbox");
+      lb.innerHTML = `<img src="${esc(photoUrl(t.dataset.photo))}" alt=""><button data-act="lb-close">✕</button>
+        <div class="lb-tools">${x.photos.length > 1 ? x.photos.map((p, i) => `<button data-act="shop-photo" data-id="${esc(id)}" data-photo="${esc(p)}" ${p === t.dataset.photo ? 'style="background:#72598e"' : ""}>${i + 1}</button>`).join("") : ""}<button data-act="shop-edit" data-id="${esc(id)}">編輯項目</button></div>`;
+      lb.hidden = false; break;
+    }
     case "shop-save": {
       const f = $("#shopForm");
       const name = f.name.value.trim();
       if (!name) { fieldErrorIn(f, "name", "請輸入要買甚麼"); break; }
       const c = readCost(f) || { plan: null, actual: null, cur: f.costCur.value };
-      const vals = { name, qty: Math.max(1, parseInt(f.qty.value, 10) || 1), forWho: f.forWho.value.trim(), where: f.where.value.trim(), note: f.note.value.trim(), share: undefined, ...c };
+      const vals = { name, qty: Math.max(1, parseInt(f.qty.value, 10) || 1), forWho: f.forWho.value.trim(), where: f.where.value.trim(), note: f.note.value.trim(), share: undefined, ...c, photos: SHOPED && SHOPED.photos.length ? SHOPED.photos.slice() : undefined };
       if (f.done) vals.done = f.done.checked;
       closeSheet();
       commit((doc) => {
@@ -3461,6 +3480,15 @@ document.addEventListener("change", async (e) => {
       ED.uploading = null; ED.draft.variants[ED.k].photos.push(...ids);
       $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]);
     } catch (err) { if (ED) { ED.uploading = null; $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]); } toast("圖片上傳失敗：" + err.message); }
+  }
+  if (e.target.id === "shopFile") {
+    const files = [...e.target.files]; if (!files.length || !SHOPED) return;
+    try {
+      const ids = await uploadFiles(files, (i, n) => { SHOPED.uploading = `${i + 1}/${n}`; const el = $("#shopPhotos"); if (el) el.innerHTML = shopPhotosHTML(); });
+      SHOPED.uploading = null; SHOPED.photos.push(...ids);
+    } catch (err) { SHOPED.uploading = null; }
+    const el = $("#shopPhotos"); if (el) el.innerHTML = shopPhotosHTML();
+    return;
   }
   if (e.target.id === "quickPhoto") {
     const files = [...e.target.files], id = e.target.dataset.id, memo = e.target.dataset.memo === "1"; if (!files.length) return;

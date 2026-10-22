@@ -752,3 +752,8 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .stayperiod { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--ink-2); background: color-mix(in srgb, var(--c-stay) 14%, var(--w)); border-radius: 9px; padding: 4px 10px; }
 .stayperiod svg.i { width: 15px; height: 15px; color: var(--c-stay); }
 .stayperiod b { color: var(--c-stay); font-weight: 700; }
+
+/* 購物清單照片 */
+.shop-thumb { position: relative; flex: none; width: 48px; height: 48px; border: 0; padding: 0; border-radius: 10px; overflow: hidden; background: var(--soft); }
+.shop-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shop-thumb b { position: absolute; right: 2px; bottom: 2px; font-size: 10px; background: #000a; color: #fff; border-radius: 6px; padding: 0 4px; }
