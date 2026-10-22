@@ -146,6 +146,14 @@ function copyItems(items) {
   }));
 }
 const planLetter = (i) => String.fromCharCode(65 + i);
+// 連結分兩類：地圖（kind: "map"）和一般連結；舊資料按網址判斷
+const MAP_RE = /google\.[^/]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps|maps\.apple\.com/;
+const isMapLink = (l) => l.kind ? l.kind === "map" : MAP_RE.test(l.url || "");
+function normUrl(u) {
+  u = String(u || "").trim(); if (!u) return "";
+  if (!/^[a-z]+:\/\//i.test(u) && /^[\w.-]+\.[a-z]{2,}/i.test(u)) u = "https://" + u;
+  return safeUrl(u) || null;
+}
 function routeEnd(r) {
   let e = null;
   for (const it of r.items) { const x = endOf(it); if (x != null && (e == null || x > e)) e = x; }
@@ -403,10 +411,10 @@ function bodyHTML(it, isChild) {
   const v = V(it);
   const open = S.open.has(it.id);
   const long = v.type !== "info" && ((v.details || "").split("\n").length > 4 || (v.details || "").length > 160);
-  const links = (v.links || []).map((l) => {
+  const all = v.links || [];
+  const links = [...all.filter(isMapLink), ...all.filter((l) => !isMapLink(l))].map((l) => {
     const u = safeUrl(l.url); if (!u) return "";
-    const map = /google\.[^/]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/.test(u);
-    return `<a href="${esc(u)}" target="_blank" rel="noopener">${map ? "📍 " : "↗ "}${esc(l.label || u)}</a>`;
+    return `<a href="${esc(u)}" target="_blank" rel="noopener">${isMapLink(l) ? "📍 " : "↗ "}${esc(l.label || u)}</a>`;
   }).join("");
   // 連續的縮圖排成一行橫向捲動；大圖獨立一行，保持原本次序
   let photos = "", run = "";
@@ -537,13 +545,7 @@ function readForm() {
   v.title = f.title.value.trim();
   v.type = f.type.value;
   v.details = f.details.value.replace(/\s+$/, "");
-  v.links = f.links.value.split("\n").map((line) => {
-    line = line.trim(); if (!line) return null;
-    const p = line.split(/\s*[|｜]\s*/);
-    if (p.length >= 2 && safeUrl(p[p.length - 1])) return { label: p.slice(0, -1).join(" | "), url: p[p.length - 1] };
-    if (safeUrl(line)) return { label: line.replace(/^https?:\/\/(www\.)?/, "").split("/")[0], url: line };
-    return null;
-  }).filter(Boolean);
+  v.links = readLinkRows();
   if (!ED.info && f.start) {
     const s = parseHHMM(f.start.value), e = parseHHMM(f.end.value);
     if (s == null) ED.draft.start = null;
@@ -591,7 +593,8 @@ function renderEditor() {
       ${ED.isChild ? "" : `<label class="checkline"><input type="checkbox" name="locked" ${it.locked ? "checked" : ""}><span>固定時間 🔒<small>航班、訂位等不能移動的行程。前面行程延後時，會停在這裡，不會把它推後。</small></span></label>`}
       ${showRipple ? `<label class="checkline"><input type="checkbox" name="ripple" checked><span>${rippleLabel}</span></label>` : ""}`}
       <label class="field"><span>詳情</span><textarea name="details" placeholder="地址、交通、營業時間、備註…">${esc(v.details)}</textarea></label>
-      <label class="field"><span>連結（每行一個，格式：名稱 | 網址）</span><textarea name="links" style="min-height:80px" placeholder="官方網站 | https://…">${esc((v.links || []).map((l) => `${l.label} | ${l.url}`).join("\n"))}</textarea></label>
+      ${linkSection(v, "map")}
+      ${linkSection(v, "web")}
       <div class="field"><span>圖片</span><div class="edit-photos" id="edPhotos">${editPhotos(v)}</div></div>
       <input type="file" id="edFile" accept="image/*" multiple hidden>
     </form>
@@ -605,6 +608,33 @@ function renderEditor() {
   sheet.hidden = false;
   document.body.style.overflow = "hidden";
 }
+// 地圖、連結：每行分開填「名稱」和「網址」
+function linkSection(v, kind) {
+  const rows = (v.links || []).filter((l) => (kind === "map") === isMapLink(l));
+  if (!rows.length) rows.push({ label: "", url: "", _blank: true });
+  const isMap = kind === "map";
+  return `<div class="field linkbox"><span>${isMap ? "📍 地圖" : "↗ 連結"}</span>
+    ${rows.map((l) => `<div class="lrow" data-kind="${kind}">
+      <input type="text" class="l-label" value="${esc(l.label || "")}" placeholder="${isMap ? "地點名稱（例如：露天神社）" : "連結名稱（例如：官方網站）"}">
+      <div class="l-url-row"><input type="url" class="l-url" inputmode="url" autocapitalize="off" value="${esc(l.url || "")}" placeholder="${isMap ? "Google 地圖網址（可留空）" : "https://…"}">
+      <button type="button" class="l-del" data-act="link-del" aria-label="刪除">✕</button></div></div>`).join("")}
+    <button type="button" class="btn small" data-act="link-add" data-kind="${kind}">＋ 新增${isMap ? "地圖" : "連結"}</button>
+    ${isMap ? `<small class="hint">只填地點名稱、網址留空時，會自動用 Google 地圖搜尋這個名稱。</small>` : ""}</div>`;
+}
+function readLinkRows() {
+  const out = [];
+  for (const row of $$("#edForm .lrow")) {
+    const kind = row.dataset.kind;
+    const label = row.querySelector(".l-label").value.trim();
+    const raw = row.querySelector(".l-url").value.trim();
+    if (!label && !raw) continue;
+    let url = normUrl(raw);
+    if (kind === "map" && !raw && label) url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(label);
+    out.push({ kind, label: label || (url ? url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : ""), url: url || "", _raw: raw, _row: row });
+  }
+  return out;
+}
+
 function editPhotos(v) {
   return (v.photos || []).map((p, i) => { const m = (v.photoModes && v.photoModes[p]) || "auto";
     return `<div class="ep"><img src="${esc(photoUrl(p))}" alt=""><button type="button" class="x" data-act="ed-del-photo" data-i="${i}">✕</button><button type="button" class="pm ${m}" data-act="ed-photo-mode" data-i="${i}">${MODE_LABEL[m]}</button></div>`; }).join("")
@@ -617,7 +647,7 @@ function closeSheet() {
 }
 
 function fieldError(name, msg) {
-  const f = $("#edForm"); const el = f && f[name];
+  const f = $("#edForm"); const el = typeof name === "string" ? f && f[name] : name;
   $$(".field-err").forEach((x) => x.remove());
   $$(".invalid").forEach((x) => x.classList.remove("invalid"));
   if (el) {
@@ -635,6 +665,9 @@ function validate() {
   const f = $("#edForm");
   if (f.start && !ED.isChild && v.type !== "info" && !ED.info && !f.start.value) return ["start", "請輸入開始時間（主行程需要時間）"];
   if (f.start && f.end.value && !f.start.value) return ["start", "已填結束時間，請同時填開始時間"];
+  for (const l of v.links || []) {
+    if (!l.url) return [l._row.querySelector(".l-url"), l.kind === "map" ? "地圖網址格式不正確" : (l._raw ? "網址格式不正確（需要 https:// 開頭）" : "請填寫連結網址")];
+  }
   return null;
 }
 
@@ -647,6 +680,7 @@ function saveEditor() {
     const bad = validate();
     if (bad) { fieldError(bad[0], bad[1]); return; }
     // 其他備選方案沒有標題
+    for (const x of it.variants) x.links = (x.links || []).map(({ kind, label, url }) => ({ kind: kind || (MAP_RE.test(url) ? "map" : "web"), label, url }));
     const emptyAlt = it.variants.findIndex((x) => !x.title);
     if (emptyAlt >= 0) { ED.k = emptyAlt; renderEditor(); fieldError("title", `備選方案 ${planLetter(emptyAlt)} 未填標題`); return; }
     const E = ED;
@@ -941,6 +975,21 @@ document.addEventListener("click", async (e) => {
     case "ed-del-variant":
       if (ED.draft.variants.length > 1) { ED.draft.variants.splice(ED.k, 1); ED.k = Math.max(0, ED.k - 1); renderEditor(); }
       break;
+    case "link-add": {
+      readForm();
+      const v = ED.draft.variants[ED.k];
+      v.links = (v.links || []).map(({ kind, label, url }) => ({ kind, label, url }));
+      v.links.push({ kind: t.dataset.kind, label: "", url: "", _new: true });
+      const y = $(".sheet-body").scrollTop; renderEditor(); $(".sheet-body").scrollTop = y;
+      const rows = $$(`#edForm .lrow[data-kind="${t.dataset.kind}"]`); rows[rows.length - 1].querySelector(".l-label").focus();
+      break;
+    }
+    case "link-del": {
+      const row = t.closest(".lrow"); const box = row.parentElement;
+      if (box.querySelectorAll(".lrow").length > 1) row.remove();
+      else row.querySelectorAll("input").forEach((x) => (x.value = ""));
+      break;
+    }
     case "ed-add-photo": $("#edFile").value = ""; $("#edFile").click(); break;
     case "ed-photo-mode": {
       const v = ED.draft.variants[ED.k], p = v.photos[+t.dataset.i];

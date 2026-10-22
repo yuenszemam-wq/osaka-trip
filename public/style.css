@@ -90,6 +90,18 @@ button { cursor: pointer; }
 .branch-end { position: relative; display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 13px; font-weight: 600; padding: 10px 0 4px; }
 .branch-end .dot.fork { position: absolute; left: -31px; top: 6px; }
 .empty.small { padding: 14px; margin-top: 6px; font-size: 14px; }
+/* 地圖／連結欄位 */
+.linkbox { background: var(--card); border: 1.5px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+.linkbox > span { color: var(--ink-2) !important; font-weight: 600; }
+.lrow { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.lrow:last-of-type { border-bottom: 0; margin-bottom: 6px; }
+.lrow input { width: 100%; border: 1.5px solid var(--line); border-radius: 10px; background: var(--bg); padding: 8px 10px; font-size: 16px; outline: none; }
+.lrow input:focus { border-color: var(--accent-soft); background: #fff; }
+.l-url-row { display: flex; gap: 6px; margin-top: 6px; }
+.l-url-row input { flex: 1; min-width: 0; }
+.l-del { flex: 0 0 auto; width: 38px; border: 0; background: var(--bg); color: var(--muted); border-radius: 10px; }
+.linkbox .hint { display: block; margin-top: 6px; }
+
 /* 表單錯誤 */
 .field-err { display: block; color: #b3412b; font-size: 13px; margin-top: 4px; }
 .invalid { border-color: #d98a72 !important; background: #fff6f3 !important; }
