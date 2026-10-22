@@ -10,6 +10,7 @@ const S = {
   doc: null, version: 0, dayId: null, q: "",
   saving: false, pending: false, timer: null, conflict: null, offline: false,
   undo: [], open: new Set(),
+  photoMode: null,
 };
 
 // ---------- helpers ----------
@@ -231,15 +232,15 @@ async function compress(file) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-    let max = 1600, q = 0.82, blob;
+    let maxW = 1300, maxH = 3400, q = 0.82, blob;
     for (let attempt = 0; attempt < 4; attempt++) {
-      const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const s = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
       const c = document.createElement("canvas");
       c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
       blob = await new Promise((r) => c.toBlob(r, "image/jpeg", q));
       if (blob.size < 1_200_000) break;
-      max = Math.round(max * 0.75); q -= 0.08;
+      maxW = Math.round(maxW * 0.8); maxH = Math.round(maxH * 0.8); q -= 0.08;
     }
     return blob;
   } finally { URL.revokeObjectURL(url); }
@@ -332,6 +333,7 @@ function bodyHTML(it, isChild) {
   const hasMap = (v.links || []).some((l) => /maps/.test(l.url || ""));
   const autoMap = !hasMap && v.title && (v.type === "place" || v.type === "food")
     ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.title)}" target="_blank" rel="noopener">📍 地圖</a>` : "";
+  const mode = it.photoMode === "full" || it.photoMode === "thumb" ? it.photoMode : S.photoMode;
   const photos = (v.photos || []).map((p) => `<img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="photo" data-id="${esc(it.id)}" data-photo="${esc(p)}">`).join("");
   const chips = it.variants.length > 1
     ? `<div class="alt-label">備選方案（點選切換）</div><div class="variants">${it.variants.map((x, k) =>
@@ -339,7 +341,7 @@ function bodyHTML(it, isChild) {
   const H = isChild ? "h3" : "h2";
   return `${chips}<${H}>${esc(v.title || "（未命名）")}</${H}>
     ${v.details ? `<div class="details ${long && !open ? "clamp" : ""}">${esc(v.details)}</div>${long ? `<button class="more" data-act="toggle" data-id="${esc(it.id)}">${open ? "收起" : "展開全部"}</button>` : ""}` : ""}
-    ${photos ? `<div class="photos">${photos}</div>` : ""}
+    ${photos ? `<div class="photos ${mode === "full" ? "full" : ""}">${photos}</div>` : ""}
     ${links || autoMap ? `<div class="links">${links}${autoMap}</div>` : ""}`;
 }
 
@@ -431,6 +433,7 @@ function readForm() {
     else if (e == null) v.dur = 0;
     if (f.locked) ED.draft.locked = f.locked.checked;
   }
+  if (f.photoMode.value === "auto") delete ED.draft.photoMode; else ED.draft.photoMode = f.photoMode.value;
 }
 
 function renderEditor() {
@@ -449,6 +452,7 @@ function renderEditor() {
         <p class="hint">儲存時，目前正在編輯的方案會設為「使用中」。${it.variants.length > 1 ? `<button type="button" class="btn small danger" data-act="ed-del-variant" style="margin-left:6px">刪除此方案</button>` : ""}</p></div>` : ""}
       <label class="field"><span>標題</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：大阪城公園"></label>
       <label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === v.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="field"><span>圖片顯示方式</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       ${ED.info ? "" : `<div class="grid2">
         <label class="field"><span>開始時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="start" value="${hhmm(it.start)}"></label>
         <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"></label>
@@ -784,6 +788,18 @@ document.addEventListener("click", async (e) => {
 });
 
 $("#undoBtn").addEventListener("click", undo);
+function setPhotoMode(m) {
+  S.photoMode = m; ls.set("trip.photoMode", m);
+  const b = $("#photoModeBtn");
+  b.textContent = m === "full" ? "🖼 大圖" : "▦ 縮圖";
+  b.setAttribute("aria-label", "圖片顯示：" + (m === "full" ? "大圖" : "縮圖") + "（按一下切換）");
+}
+setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
+$("#photoModeBtn").addEventListener("click", () => {
+  setPhotoMode(S.photoMode === "full" ? "thumb" : "full");
+  render();
+  toast(S.photoMode === "full" ? "圖片改為大圖顯示" : "圖片改為縮圖顯示");
+});
 $("#menuBtn").addEventListener("click", openMenu);
 document.addEventListener("input", (e) => {
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
