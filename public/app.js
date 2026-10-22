@@ -40,6 +40,7 @@ const ICONS = {
   branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="7" r="2.5"/><path d="M6 8.5v7M18 9.5c0 4.5-6 3.5-10.5 7"/>',
   nav: '<path d="m3 11 19-9-9 19-2-8z"/>',
   ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  book: '<path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19"/><path d="M8 7h7M8 11h5"/>',
   wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3M21 12v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M17 12h4v4h-4a2 2 0 0 1 0-4z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
@@ -91,6 +92,7 @@ const S = {
   photoMode: null, ideaFilter: "all", mapFilter: "all", mapSel: 0, mapDay: null, markers: [], view: "list", map: null, manage: false, theme: "auto",
 };
 const MONEY = "__money";
+const DIARY = "__diary";
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -507,30 +509,40 @@ function renderChrome() {
       <button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button>
       ${notes.map((x) => `<button class="ntab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${icon(noteIcon(x))}${esc(x.label)}</button>`).join("")}
       <button class="ntab" data-act="tab" data-id="${MONEY}" aria-pressed="${S.dayId === MONEY}">${icon("wallet")}支出</button>
+      <button class="ntab" data-act="tab" data-id="${DIARY}" aria-pressed="${S.dayId === DIARY}">${icon("book")}日記</button>
       <button class="addtab" data-act="add-day" data-kind="info" aria-label="新增備注頁">＋</button>
     </div>
     <div class="rowtabs" role="tablist" aria-label="旅遊日">
       ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}</small></button>`).join("")}
       <button class="addtab day" data-act="add-day" data-kind="day" aria-label="新增一天">＋</button>
     </div>
-    ${S.dayId !== MONEY && day() ? `<div class="toprow3">
+    ${S.dayId !== MONEY && S.dayId !== DIARY && day() ? `<div class="toprow3">
       ${day().kind === "day" ? `<div class="switch"><button data-act="view" data-id="list" aria-pressed="${S.view !== "map"}">${icon("list")} 行程</button><button data-act="view" data-id="map" aria-pressed="${S.view === "map"}">${icon("map")} 是日路線</button></div>` : `<div class="grow"></div>`}
       <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
       <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>`
-    : S.dayId === MONEY ? `<div class="toprow3"><div class="grow"></div><button class="manage add" data-act="add">${icon("plus")}新增支出</button></div>` : ""}`;
+    : S.dayId === MONEY ? `<div class="toprow3"><div class="grow"></div><button class="manage add" data-act="add">${icon("plus")}新增支出</button></div>`
+    : S.dayId === DIARY ? `<div class="toprow3"><div class="switch"><button data-act="diary-filter" data-id="done" aria-pressed="${S.diaryAll !== true}">${icon("check")} 已完成</button><button data-act="diary-filter" data-id="all" aria-pressed="${S.diaryAll === true}">${icon("list")} 全部行程</button></div></div>` : ""}`;
   const on = $("#tabs [aria-pressed=true]"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
-  document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : day() ? " · " + day().label : ""}`;
+  document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : S.dayId === DIARY ? " · 日記" : day() ? " · " + day().label : ""}`;
 }
 
 function render() {
   if (!S.doc) return;
-  if (S.dayId !== MONEY && !S.doc.days.some((d) => d.id === S.dayId)) S.dayId = (S.doc.days.find((d) => d.kind === "day") || S.doc.days[0]).id;
+  if (S.dayId !== MONEY && S.dayId !== DIARY && !S.doc.days.some((d) => d.id === S.dayId)) S.dayId = (S.doc.days.find((d) => d.kind === "day") || S.doc.days[0]).id;
   ls.set(K("day"), S.dayId);
   renderChrome();
   let html = "";
   if (S.conflict) html += `<div class="banner"><b>行程已在其他裝置更新。</b><br>這部手機也有未上傳的修改，請選擇保留哪一個版本。
     <div class="row"><button class="btn" data-act="take-server">載入最新版本</button><button class="btn" data-act="force-save">用我的版本覆蓋</button></div></div>`;
   if (S.dayId === MONEY) { finishRender(html + moneyHTML()); return; }
+  if (S.dayId === DIARY) {
+    // 正在寫日記時重畫（例如同步），保留輸入位置
+    const ae = document.activeElement, key = ae && ae.dataset ? (ae.dataset.journal ? `[data-journal="${ae.dataset.journal}"]` : ae.dataset.memo && ae.classList.contains("de-note") ? `textarea[data-memo="${ae.dataset.memo}"]` : "") : "";
+    const sel = key ? [ae.selectionStart, ae.selectionEnd] : null;
+    finishRender(html + diaryHTML()); autosizeAll();
+    if (key) { const n = $(key); if (n) { n.focus({ preventScroll: true }); n.setSelectionRange(sel[0], sel[1]); } }
+    return;
+  }
 
   const d = day();
   const q = S.q.trim().toLowerCase();
@@ -652,6 +664,80 @@ function linksHTML(v) {
     return `<a href="${esc(u)}" target="_blank" rel="noopener">${icon(isMapLink(l) ? "nav" : "ext")}<span>${esc(l.label || u)}</span></a>`;
   }).join("");
 }
+// ---------- 旅程日記 ----------
+// 旅行相片和感受存在行程本身（it.memo），每天的日記存在 day.journal
+const memoOf = (it) => it.memo || { photos: [], note: "" };
+const memoPhotosHTML = (it) => (memoOf(it).photos || []).map((p) => `<img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="memo-view" data-id="${esc(it.id)}" data-photo="${esc(p)}">`).join("");
+// 完成後的摺疊行：相機按鈕
+function memoBtn(it) {
+  const n = (memoOf(it).photos || []).length;
+  return `<button class="memo-btn" data-act="memo-photo" data-id="${esc(it.id)}" aria-label="加入旅行相片">${icon("camera")}${n ? `<b>${n}</b>` : ""}</button>`;
+}
+function memoStrip(it) {
+  const m = memoOf(it);
+  if (!(m.photos || []).length && !m.note) return "";
+  return `<div class="memo-strip">${m.note ? `<p class="memo-note" data-act="diary-open" data-id="${esc(it.id)}">${esc(m.note)}</p>` : ""}${(m.photos || []).length ? `<div class="memo-photos">${memoPhotosHTML(it)}</div>` : ""}</div>`;
+}
+// 展開的卡：已完成或已有回憶時顯示「旅行回憶」
+function memoSection(it) {
+  const m = memoOf(it);
+  if (!it.done && !(m.photos || []).length && !m.note) return "";
+  return `<div class="memo-sec"><div class="memo-head">${icon("book")}<span>旅行回憶</span>
+    <button class="btn small" data-act="memo-photo" data-id="${esc(it.id)}">${icon("camera")}加相片</button>
+    <button class="btn small" data-act="diary-open" data-id="${esc(it.id)}">${icon("pencil")}寫日記</button></div>
+    ${m.note ? `<p class="memo-note">${esc(m.note)}</p>` : ""}${(m.photos || []).length ? `<div class="memo-photos">${memoPhotosHTML(it)}</div>` : ""}</div>`;
+}
+function diaryHTML() {
+  const m = S.doc.meta || {};
+  const days = S.doc.days.filter((x) => x.kind === "day");
+  let nDone = 0, nPhotos = 0, nWords = 0;
+  const sections = days.map((d) => {
+    const items = [];
+    for (const { item } of seq(d)) for (const x of [item, ...(item.children || [])]) {
+      if (isInfo(x)) continue;
+      const mm = memoOf(x);
+      if (x.done) nDone++;
+      nPhotos += (mm.photos || []).length;
+      nWords += (mm.note || "").length;
+      if (S.diaryAll || x.done || (mm.photos || []).length || mm.note) items.push([x, x !== item]);
+    }
+    nWords += (d.journal || "").length;
+    const list = items.map(([x, sub]) => {
+      const v = V(x), mm = memoOf(x), cat = catOf(v.type || "place");
+      return `<li class="dentry ${sub ? "sub" : ""} ${x.done ? "done" : "todo"}" id="de-${esc(x.id)}" style="--c:${catVar(v.type || "place")}">
+        <div class="de-dot">${icon(cat[1])}</div>
+        <div class="de-body">
+          <div class="de-top">${x.start != null ? `<b class="time">${fmt(x.start)}</b>` : ""}<span class="de-cat">${cat[0]}</span>${x.done ? `<span class="de-ok">✓ 已完成</span>` : ""}</div>
+          <div class="de-title">${esc(v.title || "（未命名）")}</div>
+          ${(mm.photos || []).length ? `<div class="de-photos">${memoPhotosHTML(x)}</div>` : ""}
+          <textarea class="de-note" data-memo="${esc(x.id)}" rows="1" placeholder="這一站的感受、吃了甚麼、發生了甚麼…">${esc(mm.note || "")}</textarea>
+          <button class="btn small" data-act="memo-photo" data-id="${esc(x.id)}">${icon("camera")}加相片</button>
+        </div></li>`;
+    }).join("");
+    return `<section class="dday" id="dd-${esc(d.id)}">
+      <div class="dday-head"><div><div class="kicker">${esc(d.label)}${d.sub ? " · " + esc(d.sub) : ""}</div><h3>${esc(d.title || d.label)}</h3></div></div>
+      <textarea class="journal" data-journal="${esc(d.id)}" rows="3" placeholder="寫下今天的旅程經歷…">${esc(d.journal || "")}</textarea>
+      ${list ? `<ol class="dlist">${list}</ol>` : `<p class="hint dempty">${S.diaryAll ? "這天未有行程。" : "完成打卡後，這天的行程和旅行相片會出現在這裡。"}</p>`}
+    </section>`;
+  }).join("");
+  return `<div class="diary">
+    <div class="dcover"><div class="kicker">${esc(m.dates || "")}</div><h2>${esc(m.title || "旅程日記")}</h2>
+      <div class="dstats"><span><b>${nDone}</b> 站已完成</span><span><b>${nPhotos}</b> 張相片</span><span><b>${nWords}</b> 字</span></div>
+      <div class="djump">${days.map((d) => `<button class="chip" data-act="diary-jump" data-id="${esc(d.id)}">${esc(d.label)}</button>`).join("")}</div>
+      <p class="hint">日記會自動儲存。行程打卡完成後，可以在行程頁按 ${icon("camera")} 加入旅行相片。</p></div>
+    ${sections}</div>`;
+}
+function autosize(t) { t.style.height = "auto"; t.style.height = Math.max(t.scrollHeight + 2, 0) + "px"; }
+function autosizeAll() { $$("#main textarea.journal, #main textarea.de-note").forEach(autosize); }
+// 日記文字：不重畫頁面，停止輸入後自動儲存
+let diaryTimer = null, diaryUndo = false;
+function diaryWrite(fn) {
+  if (!diaryUndo) { S.undo.push(JSON.stringify(S.doc)); if (S.undo.length > 40) S.undo.shift(); diaryUndo = true; }
+  fn(S.doc);
+  persistLocal(true);
+  clearTimeout(diaryTimer);
+  diaryTimer = setTimeout(() => { diaryUndo = false; scheduleSave(); syncUI(); }, 700);
+}
 function photosHTML(it, v) {
   let photos = "", run = "";
   const flush = () => { if (run) { photos += `<div class="photos">${run}</div>`; run = ""; } };
@@ -721,14 +807,14 @@ function toolsHTML(it, d, pos) {
 }
 function childHTML(c, d) {
   const v = V(c);
-  if (collapsed(c)) return `<div class="child done"><div class="folded">${c.start != null ? `<span class="time">${fmt(c.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${foldBtn(c)}${checkBtn(c)}</div></div>`;
+  if (collapsed(c)) return `<div class="child done"><div class="folded">${c.start != null ? `<span class="time">${fmt(c.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${d.kind === "day" ? memoBtn(c) : ""}${foldBtn(c)}${checkBtn(c)}</div>${d.kind === "day" ? memoStrip(c) : ""}</div>`;
   const info = isInfo(c);
   return `<div class="child ${c.done ? "done" : ""} ${S.open.has(c.id) ? "is-open" : ""}" data-tid="${esc(c.id)}" style="--c:${catVar(v.type)}"><div class="crow"><div class="cbody">
       <div class="taphead" ${info ? "" : `data-act="toggle" data-id="${esc(c.id)}" role="button" aria-expanded="${S.open.has(c.id)}"`}>
       ${c.start != null ? `<div class="time">${timeLabel(c)}</div>` : ""}
       <div class="ctitle">↳ ${esc(v.title || "（未命名）")}${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
-      ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${altsHTML(c)}
+      ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${d.kind === "day" ? memoSection(c) : ""}${altsHTML(c)}
     </div>${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || d.kind !== "day" ? "" : checkBtn(c)}</div></div>`;
 }
 function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
@@ -744,7 +830,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
 
   if (collapsed(it)) {
     return `<article class="${type === "transport" ? "transport" : "place"} done" ${style}><div class="folded">
-      ${it.start != null && !listPage ? `<span class="time">${fmt(it.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${foldBtn(it)}${checkBtn(it)}</div></article>${after}`;
+      ${it.start != null && !listPage ? `<span class="time">${fmt(it.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${listPage ? "" : memoBtn(it)}${foldBtn(it)}${checkBtn(it)}</div>${listPage ? "" : memoStrip(it)}</article>${after}`;
   }
   if (type === "info") {
     return `<article class="place info" ${style}>
@@ -761,7 +847,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
       <div class="transportline"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
         ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " · 固定" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
         ${S.manage ? editTop(it) : ""}${foldBtn(it)}${checkBtn(it)}</div>
-      ${warnHTML}${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
+      ${warnHTML}${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${memoSection(it)}
       ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
       ${S.manage ? toolsHTML(it, d, pos) : ""}
     </article>${after}`;
@@ -775,7 +861,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     ${warnHTML}
     <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${chev}</div>
     ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
-    ${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
+    ${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${listPage ? "" : memoSection(it)}
     ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
     ${S.manage ? toolsHTML(it, d, pos) : ""}
   </article>${after}`;
@@ -2274,8 +2360,31 @@ document.addEventListener("click", async (e) => {
     case "add-child": openEditor({ mode: "new-child", id }); break;
     case "edit": closeSheet(); openEditor({ mode: "edit", id }); break;
     case "quick-photo": {
-      const inp = $("#quickPhoto"); inp.dataset.id = id; inp.value = ""; inp.click(); break;
+      const inp = $("#quickPhoto"); inp.dataset.id = id; inp.dataset.memo = ""; inp.value = ""; inp.click(); break;
     }
+    case "memo-photo": {
+      const inp = $("#quickPhoto"); inp.dataset.id = id; inp.dataset.memo = "1"; inp.value = ""; inp.click(); break;
+    }
+    case "memo-view": {
+      const lb = $("#lightbox");
+      lb.innerHTML = `<img src="${esc(photoUrl(t.dataset.photo))}" alt=""><button data-act="lb-close">✕</button>
+        <div class="lb-tools"><button data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(t.dataset.photo)}">移除這張旅行相片</button></div>`;
+      lb.hidden = false; break;
+    }
+    case "memo-del":
+      $("#lightbox").hidden = true;
+      commit(() => { const f = findItem(id); if (!f || !f.item.memo) return; f.item.memo.photos = f.item.memo.photos.filter((p) => p !== t.dataset.photo); });
+      break;
+    case "diary-open": {
+      S.dayId = DIARY; S.manage = false;
+      const f = findItem(id); if (f && !f.item.done) S.diaryAll = true;
+      render(); window.scrollTo(0, 0);
+      const el = document.getElementById("de-" + id);
+      if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); const ta = el.querySelector("textarea"); setTimeout(() => ta && ta.focus({ preventScroll: true }), 350); }
+      break;
+    }
+    case "diary-jump": { const el = document.getElementById("dd-" + id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - ($("#tabs").offsetHeight || 0) - 8, behavior: "smooth" }); break; }
+    case "diary-filter": S.diaryAll = id === "all"; ls.set("trip.diaryAll", S.diaryAll ? "1" : ""); render(); break;
     case "photo": {
       const lb = $("#lightbox");
       const f = findItem(id), pv = V(f.item), cur = photoModeOf(f.item, pv, t.dataset.photo);
@@ -2421,6 +2530,7 @@ function fieldErrorIn(form, name, msg) {
 function addFromBottom() {
   if (!S.doc) return;
   if (S.dayId === MONEY) { openExpenseEditor(""); return; }
+  if (S.dayId === DIARY) return;
   const d = day();
   if (d.kind === "day") {
     const last = d.items.length - 1;
@@ -2461,6 +2571,7 @@ async function forceRefresh() {
 setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
 S.view = ls.get("trip.view") === "map" ? "map" : "list";
 S.cardOff = ls.get("trip.cardOff") === "1";
+S.diaryAll = ls.get("trip.diaryAll") === "1";
 S.theme = ls.get("trip.theme") === "dark" ? "dark" : ls.get("trip.theme") === "light" ? "light" : "auto";
 setTheme(S.theme);
 
@@ -2468,6 +2579,8 @@ document.addEventListener("input", (e) => {
   if (e.target.classList && e.target.classList.contains("invalid")) { e.target.classList.remove("invalid"); const er = e.target.closest(".field")?.querySelector(".field-err"); if (er) er.remove(); }
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
   if (/^cost(Plan|Actual)$/.test(e.target.name || "")) updateCostPreview();
+  if (e.target.dataset && e.target.dataset.journal) { const id = e.target.dataset.journal, val = e.target.value; autosize(e.target); diaryWrite((doc) => { const d = doc.days.find((x) => x.id === id); if (d) { if (val.trim()) d.journal = val; else delete d.journal; } }); }
+  if (e.target.dataset && e.target.dataset.memo && e.target.classList.contains("de-note")) { const id = e.target.dataset.memo, val = e.target.value; autosize(e.target); diaryWrite(() => { const f = findItem(id); if (!f) return; f.item.memo = f.item.memo || { photos: [] }; f.item.memo.note = val; }); }
   if ((e.target.name === "start" || e.target.name === "tdur") && e.target.form && e.target.form.id === "edForm" && $("#arrHint")) {
     const f = e.target.form, st = parseHHMM(f.start.value), m = parseInt(f.tdur.value, 10);
     $("#arrHint").innerHTML = arrText(st, m);
@@ -2489,9 +2602,10 @@ document.addEventListener("change", async (e) => {
     } catch (err) { if (ED) { ED.uploading = null; $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]); } toast("圖片上傳失敗：" + err.message); }
   }
   if (e.target.id === "quickPhoto") {
-    const files = [...e.target.files], id = e.target.dataset.id; if (!files.length) return;
+    const files = [...e.target.files], id = e.target.dataset.id, memo = e.target.dataset.memo === "1"; if (!files.length) return;
     try {
       const ids = await uploadFiles(files);
+      if (memo) { commit(() => { const f = findItem(id); if (!f) return; f.item.memo = f.item.memo || { photos: [], note: "" }; f.item.memo.photos = [...(f.item.memo.photos || []), ...ids]; }); return; }
       commit(() => { const f = findItem(id); V(f.item).photos.push(...ids); });
     } catch (err) { toast("圖片上傳失敗：" + err.message); }
   }

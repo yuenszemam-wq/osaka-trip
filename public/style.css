@@ -525,3 +525,47 @@ html, body { overflow-x: clip; }
 .tarrow { color: var(--purple); font-weight: 700; flex: none; }
 #arrHint { margin: -4px 0 10px; }
 #arrHint b { color: var(--purple); }
+
+/* ---------- 旅程日記 ---------- */
+.memo-btn { border: 1px solid var(--line); background: var(--p); color: var(--purple); border-radius: 999px; height: 30px; min-width: 30px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; flex: none; font-size: 12px; }
+.memo-btn svg.i { width: 15px; height: 15px; }
+.memo-strip { margin: 8px 0 2px; }
+.memo-photos, .de-photos { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.memo-photos::-webkit-scrollbar, .de-photos::-webkit-scrollbar { display: none; }
+.memo-photos img { flex: none; width: 64px; height: 64px; object-fit: cover; border-radius: 9px; background: var(--soft); }
+.memo-note { margin: 0 0 6px; font-size: 13px; color: var(--ink-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.memo-sec { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.memo-head { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--purple); font-weight: 600; margin-bottom: 8px; flex-wrap: wrap; }
+.memo-head > span { flex: 1; }
+.memo-head svg.i { width: 15px; height: 15px; }
+.diary { padding: 0 16px 40px; }
+.dcover { background: var(--w); border: 1px solid var(--line); border-radius: 20px; padding: 18px; margin: 14px 0 18px; }
+.dcover h2 { margin: 4px 0 10px; font-size: 22px; }
+.dstats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.dstats b { color: var(--purple); font-size: 18px; margin-right: 2px; }
+.djump { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 12px 0 8px; }
+.djump .chip { flex: none; }
+.dday { margin-bottom: 26px; scroll-margin-top: 200px; }
+.dday-head h3 { margin: 2px 0 10px; font-size: 18px; }
+.journal, .de-note { width: 100%; border: 1px solid var(--line); background: var(--w); color: var(--ink); border-radius: 14px; padding: 12px 14px; font-size: 16px; line-height: 1.7; resize: none; outline: none; overflow: hidden; }
+.journal { min-height: 96px; font-family: inherit; }
+.journal:focus, .de-note:focus { border-color: var(--purple); }
+.dlist { list-style: none; margin: 14px 0 0; padding: 0; position: relative; }
+.dlist::before { content: ""; position: absolute; left: 15px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
+.dentry { display: flex; gap: 12px; margin-bottom: 16px; position: relative; scroll-margin-top: 220px; }
+.dentry.sub { margin-left: 18px; }
+.dentry.todo { opacity: .6; }
+.dentry.flash .de-body { box-shadow: 0 0 0 2px var(--purple); }
+.de-dot { width: 32px; height: 32px; border-radius: 50%; background: color-mix(in srgb, var(--c) 20%, var(--w)); color: var(--c); display: grid; place-items: center; flex: none; z-index: 1; border: 2px solid var(--p); }
+.de-dot svg.i { width: 15px; height: 15px; }
+.de-body { flex: 1; min-width: 0; background: var(--w); border: 1px solid var(--line); border-radius: 16px; padding: 12px; transition: box-shadow .3s; }
+.de-top { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.de-top .time { color: var(--purple); font-size: 13px; }
+.de-cat { color: var(--c); }
+.de-ok { margin-left: auto; color: var(--purple); }
+.de-title { font-weight: 700; margin: 3px 0 8px; line-height: 1.4; }
+.de-photos { margin-bottom: 8px; }
+.de-photos img { flex: none; width: 104px; height: 104px; object-fit: cover; border-radius: 10px; background: var(--soft); }
+.de-photos img:only-child { width: 100%; height: auto; max-height: 360px; }
+.de-note { font-size: 15px; padding: 9px 11px; border-radius: 11px; background: var(--p); margin-bottom: 8px; min-height: 42px; }
+.dempty { margin: 10px 4px; }
