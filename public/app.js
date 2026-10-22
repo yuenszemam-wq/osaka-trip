@@ -876,7 +876,8 @@ function geoCandidates(s) {
     const out = [];
     let x = b.replace(/\s*(\d+|[一二三四五六七八九十]+)\s*(F|樓|楼|階)(?![a-z]).*$/i, "");
     out.push(x);
-    if (/\d/.test(x)) { x = x.split(/[\s　]/)[0]; out.push(x); } // 只有像地址的才去掉大廈名
+    // 只有像地址的才去掉大廈名和門牌（例如 3-2-2、丁目、市／区）
+    if (/\d+[-‐ー－−]\d+|丁目|番地|[市区區町村縣県路街道]/.test(x)) { x = x.split(/[\s　]/)[0]; out.push(x); }
     else return out;
     for (let k = 0; k < 6; k++) {
       const y = x.replace(/[-‐ー－−の]?\d+(番地|番|号|號|丁目)?$/, "");
