@@ -670,7 +670,8 @@ function altsHTML(it) {
   if (it.variants.length < 2) return "";
   const k0 = it.active || 0;
   return `<details class="alternatives" ${S.altOpen.has(it.id) ? "open" : ""} data-alt="${esc(it.id)}"><summary>${icon("swap")} ${it.variants.length} 個備選方案 · 目前 ${planLetter(k0)} · 點選切換</summary>
-    ${it.variants.map((x, k) => `<button class="alt" data-act="variant" data-id="${esc(it.id)}" data-k="${k}" aria-pressed="${k === k0}"><b>${planLetter(k)}</b>${esc(x.title || "未命名")}</button>`).join("")}</details>`;
+    ${it.variants.map((x, k) => `<div class="altrow"><button class="alt" data-act="variant" data-id="${esc(it.id)}" data-k="${k}" aria-pressed="${k === k0}"><b>${planLetter(k)}</b>${esc(x.title || "未命名")}</button>${k === k0 ? "" : `<button class="altadd" data-act="variant-out" data-id="${esc(it.id)}" data-k="${k}" aria-label="把 ${esc(x.title)} 加入行程">${icon("plus")}加入行程</button>`}</div>`).join("")}
+    <div class="hint" style="margin-top:6px">按方案＝切換（取代目前方案）；按「加入行程」＝拆出成獨立一站，放在這項之後。</div></details>`;
 }
 const checkBtn = (it) => `<span class="checkwrap"><button class="check ${it.done ? "on" : ""}" data-act="done" data-id="${esc(it.id)}" aria-label="${it.done ? "取消完成" : "標記完成"}：${esc(V(it).title)}">${it.done ? "✓" : ""}</button></span>`;
 const editTop = (it) => `<button class="edit-top" data-act="edit" data-id="${esc(it.id)}">${icon("pencil")}編輯</button>`;
@@ -1725,6 +1726,31 @@ document.addEventListener("click", async (e) => {
     case "theme": setTheme(id); openMenu(); break;
     case "rate-refresh": updateRate(true); break;
     case "map-filter": S.mapFilter = id; render(); break;
+    case "variant-out": {
+      const k = +t.dataset.k;
+      commit(() => {
+        const f = findItem(id); if (!f) return { msg: "找不到這個行程" };
+        const it = f.item;
+        if (it.variants.length < 2 || k === (it.active || 0)) return;
+        const v = it.variants.splice(k, 1)[0];
+        if ((it.active || 0) > k) it.active -= 1;
+        const d = f.day;
+        const timed = d.kind === "day" && v.type !== "info" && !f.parent;
+        const start = timed ? (endOf(it) ?? it.start) : f.parent ? endOf(it) : null;
+        const ni = { id: uid(), start, locked: false, done: false, active: 0, variants: [v] };
+        if (!f.parent) ni.children = [];
+        if (timed && !v.dur) v.dur = 60;
+        f.arr.splice(f.index + 1, 0, ni);
+        if (timed && start != null) {
+          const list = seq(d), p = list.findIndex((x) => x.item === ni);
+          const next = list.slice(p + 1).map((x) => x.item).find((x) => x.start != null);
+          const delta = next ? endOf(ni) - next.start : 0;
+          if (delta > 0) { const n = rippleFrom(d, p, delta); if (n) return { msg: `已把「${v.title}」加入行程（${fmt(start)}），之後 ${n} 項延後 ${durText(delta)}` }; }
+        }
+        return { msg: `已把「${v.title}」加入行程${start != null ? `（${fmt(start)}）` : ""}` };
+      });
+      break;
+    }
     case "map-sel": selectStop(day(), +t.dataset.i, true); $("#routeMap") && $("#routeMap").scrollIntoView({ block: "center", behavior: "smooth" }); break;
     case "map-step": { const n = routeStops(day()).length; selectStop(day(), Math.max(0, Math.min(n - 1, (S.mapSel || 0) + +t.dataset.dir)), true); break; }
     case "map-goto": {

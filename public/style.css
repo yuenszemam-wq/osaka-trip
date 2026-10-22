@@ -147,6 +147,10 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
 .alternatives > summary::-webkit-details-marker { display: none; }
 .alternatives button.alt { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--p); padding: 9px 10px; border-radius: 9px; margin-top: 7px; font-size: 13px; color: var(--ink); }
 .alternatives button.alt[aria-pressed="true"] { border-color: var(--purple); color: var(--purple); font-weight: 650; }
+.altrow { display: flex; gap: 6px; align-items: stretch; margin-top: 7px; }
+.altrow .alt { margin-top: 0 !important; flex: 1; min-width: 0; }
+.altadd { flex: 0 0 auto; border: 1px dashed var(--purple); background: transparent; color: var(--purple); border-radius: 9px; padding: 0 10px; font-size: 12px; display: inline-flex; gap: 3px; align-items: center; white-space: nowrap; }
+.altadd svg.i { width: 13px; height: 13px; }
 .alternatives button.alt b { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--purple); font-size: 12px; flex-shrink: 0; }
 
 /* 交通 */
