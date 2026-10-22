@@ -1301,26 +1301,29 @@ function routeViewHTML(d) {
     <p class="hint" id="geoStatus"></p>
     <div class="route-actions">${chunks.map((c, i) => `<a class="btn" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("map")} Google 地圖${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
     ${hasBranch ? `<p class="hint">地圖顯示目前選擇的分叉路線，可以在上面切換其他路線。</p>` : ""}
-    <p class="hint">按圓圈數字在地圖上查看；按行程可以直接修改地點。</p>
+    <p class="hint">${S.manage ? "按住 ⠿ 拖放調整行程次序，行程頁會同步更新；時間會自動重新計算。" : "按圓圈數字在地圖上查看；按行程可以直接修改地點。按「整理」可以拖放調整次序。"}</p>
     <ol class="stops">`;
   // 列出這天所有行程（資訊卡除外），沒有地點的也列出
-  const all = [];
-  for (const { item } of seq(d)) { all.push([item, false]); for (const c of item.children || []) all.push([c, true]); }
+  const all = [], keyOf = new Map();
+  for (const { item, branch } of seq(d)) { all.push([item, false]); keyOf.set(item, branch ? "r:" + activeRoute(branch).id : "top"); for (const c of item.children || []) all.push([c, true]); }
   let si = 0;
   for (const [it, sub] of all) {
     const v = V(it);
+    // 整理模式：主行程可以拖放調整次序（和行程頁同一份資料）
+    const dnd = !sub ? `data-dnd="${esc(it.id)}" data-arr="${esc(keyOf.get(it))}"` : "";
+    const handle = S.manage && !sub && !it.locked ? `<span class="dnd" data-act="dnd" role="button" aria-label="按住拖放調整次序">${icon("grip")}</span>` : "";
     if ((v.type || "place") === "info") continue;
     const s = stops[si] && stops[si].it === it ? stops[si] : null;
     if (s) {
       const i = si++;
       if (i > 0) html += `<li class="leg"><a href="${esc(gmapsLeg(stops[i - 1], s))}" target="_blank" rel="noopener">${icon("train")} ${i} → ${i + 1} 交通路線</a></li>`;
-      html += `<li class="${sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="place-edit" data-id="${esc(it.id)}" data-i="${i}"><span class="num" data-act="map-sel" data-i="${i}">${i + 1}</span><div class="st-body">
+      html += `<li class="${sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="place-edit" data-id="${esc(it.id)}" data-i="${i}" ${dnd}>${handle}<span class="num" data-act="map-sel" data-i="${i}">${i + 1}</span><div class="st-body">
         <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
         <span class="st-place">${icon(catOf(s.type)[1])} ${esc(s.link.label || s.q)}</span>${s.link.addr ? `<span class="st-addr">${esc(s.link.addr)}</span>` : ""}
         <span class="st-geo" data-i="${i}"></span></div><span class="st-edit">${icon("pencil")}</span></li>`;
     } else {
       const ty = v.type || "place";
-      html += `<li class="${sub ? "sub" : ""} noplace ${S.mapFilter !== "all" && ty !== S.mapFilter ? "dim" : ""}" style="--c:${catVar(ty)}" data-act="place-edit" data-id="${esc(it.id)}"><span class="num">·</span><div class="st-body">
+      html += `<li class="${sub ? "sub" : ""} noplace ${S.mapFilter !== "all" && ty !== S.mapFilter ? "dim" : ""}" style="--c:${catVar(ty)}" data-act="place-edit" data-id="${esc(it.id)}" ${dnd}>${handle}<span class="num">·</span><div class="st-body">
         <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
         <span class="st-place add">＋ 加入地點</span></div></li>`;
     }

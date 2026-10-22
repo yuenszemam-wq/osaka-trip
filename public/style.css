@@ -710,3 +710,6 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .toprow1 > .ntab.menu { flex: none; margin: 2px 0 2px 2px; }
 .toprow1 > .rowtabs { flex: 1; min-width: 0; }
 .toprow1 + .rowtabs { margin-top: 6px; }
+
+.stops li > .dnd { align-self: center; margin: 0 -4px 0 -6px; }
+.stops li.dragging { max-height: none; }
