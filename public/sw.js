@@ -1,6 +1,6 @@
 // 離線支援：網站外殼用「網絡優先」，圖片用「快取優先」
-const SHELL = "shell-v27", PHOTOS = "photos-v1";
-const FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest", "/icon.svg"];
+const SHELL = "shell-v29", PHOTOS = "photos-v1";
+const FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest", "/icon-192.png", "/icon-180.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

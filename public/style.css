@@ -569,3 +569,22 @@ html, body { overflow-x: clip; }
 .de-photos img:only-child { width: 100%; height: auto; max-height: 360px; }
 .de-note { font-size: 15px; padding: 9px 11px; border-radius: 11px; background: var(--p); margin-bottom: 8px; min-height: 42px; }
 .dempty { margin: 10px 4px; }
+
+/* 自動排程 */
+.sched-bar { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: color-mix(in srgb, var(--purple) 12%, var(--w)); border: 1px solid color-mix(in srgb, var(--purple) 35%, var(--line)); color: var(--ink); border-radius: 16px; padding: 12px 14px; margin-bottom: 12px; }
+.sched-bar > svg.i { color: var(--purple); width: 22px; height: 22px; flex: none; }
+.sched-bar span { flex: 1; display: flex; flex-direction: column; }
+.sched-bar small { color: var(--muted); font-size: 12px; }
+.sc-cat { color: var(--c); display: inline-flex; vertical-align: -2px; }
+.sc-cat svg.i { width: 15px; height: 15px; }
+.sched-res { margin-top: 6px; }
+.sres { border-left: 3px solid var(--c, var(--line)); padding: 8px 10px; margin: 8px 0; background: var(--p); border-radius: 0 10px 10px 0; display: flex; flex-direction: column; gap: 2px; }
+.sres small { color: var(--muted); font-size: 12.5px; }
+.sres small.warn { color: #d9822b; }
+.sres small.good { color: var(--purple); }
+.sres.fail { border-left-color: var(--line); opacity: .75; }
+.sres-top { display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+.sres-day { background: var(--soft); border-radius: 6px; padding: 1px 7px; color: var(--ink-2); }
+.sres-top .time { color: var(--purple); }
+.flash-new { animation: flashnew 2.4s ease; }
+@keyframes flashnew { 0%, 60% { box-shadow: 0 0 0 3px var(--purple); } 100% { box-shadow: 0 0 0 0 transparent; } }

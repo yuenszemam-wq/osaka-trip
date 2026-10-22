@@ -40,6 +40,7 @@ const ICONS = {
   branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="7" r="2.5"/><path d="M6 8.5v7M18 9.5c0 4.5-6 3.5-10.5 7"/>',
   nav: '<path d="m3 11 19-9-9 19-2-8z"/>',
   ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m12 7 5 5"/><path d="M19 2v3M20.5 3.5h-3M5 3v3M6.5 4.5h-3"/>',
   book: '<path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19"/><path d="M8 7h7M8 11h5"/>',
   wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3M21 12v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M17 12h4v4h-4a2 2 0 0 1 0-4z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
@@ -630,6 +631,7 @@ function listPageHTML(d, q) {
   }
   const shown = d.items.map((it, idx) => ({ it, idx })).filter(({ it }) => hit(it) && (f === "all" || (V(it).type || "place") === f));
   html += `<div class="listpage">`;
+  if (isIdeas(d) && d.items.some((x) => !isInfo(x))) html += `<button class="sched-bar" data-act="sched-open">${icon("wand")}<span><b>自動排程</b><small>揀選地點，按距離和空檔放進行程</small></span>${icon("arrow")}</button>`;
   html += shown.map(({ it, idx }) => itemHTML(it, d, null, { at: idx, route: "", shared: false })).join("");
   if (!shown.length) html += `<div class="empty">${q ? `找不到「${esc(S.q)}」` : d.items.length ? "這個類型還沒有項目" : isIdeas(d) ? "還沒有項目。<br>在行程「整理」中按「備選」就會放到這裡。" : "還沒有內容。"}</div>`;
   if (S.manage || !d.items.length) {
@@ -777,12 +779,13 @@ function toggleOpen(id) {
   $$(`[data-tid="${CSS.escape(id)}"]`).forEach((x) => x.classList.toggle("is-open", open));
   $$(`[data-act=toggle][data-id="${CSS.escape(id)}"]`).forEach((x) => x.setAttribute("aria-expanded", open));
 }
-function altsHTML(it) {
+function altsHTML(it, d) {
   if (it.variants.length < 2) return "";
   const k0 = it.active || 0;
+  const canIdea = !(d && isIdeas(d));
   return `<details class="alternatives" ${S.altOpen.has(it.id) ? "open" : ""} data-alt="${esc(it.id)}"><summary>${icon("swap")} ${it.variants.length} 個備選方案 · 目前 ${planLetter(k0)} · 點選切換</summary>
-    ${it.variants.map((x, k) => `<div class="altrow"><button class="alt" data-act="variant" data-id="${esc(it.id)}" data-k="${k}" aria-pressed="${k === k0}"><b>${planLetter(k)}</b>${esc(x.title || "未命名")}</button>${k === k0 ? "" : `<button class="altadd" data-act="variant-out" data-id="${esc(it.id)}" data-k="${k}" aria-label="把 ${esc(x.title)} 加入行程">${icon("plus")}加入行程</button>`}</div>`).join("")}
-    <div class="hint" style="margin-top:6px">按方案＝切換（取代目前方案）；按「加入行程」＝拆出成獨立一站，放在這項之後。</div></details>`;
+    ${it.variants.map((x, k) => `<div class="altrow"><button class="alt" data-act="variant" data-id="${esc(it.id)}" data-k="${k}" aria-pressed="${k === k0}"><b>${planLetter(k)}</b>${esc(x.title || "未命名")}</button>${k === k0 ? "" : `<button class="altadd" data-act="variant-out" data-id="${esc(it.id)}" data-k="${k}" aria-label="把 ${esc(x.title)} 加入行程">${icon("plus")}加入行程</button>`}${canIdea ? `<button class="altadd" data-act="variant-idea" data-id="${esc(it.id)}" data-k="${k}" aria-label="把 ${esc(x.title)} 移到備選地點">${icon("archive")}備選</button>` : ""}</div>`).join("")}
+    <div class="hint" style="margin-top:6px">按方案＝切換（取代目前方案）；「加入行程」＝拆出成獨立一站，放在這項之後；「備選」＝只把這個方案移到備選地點。</div></details>`;
 }
 const checkBtn = (it) => S.manage ? "" : `<span class="checkwrap"><button class="check ${it.done ? "on" : ""}" data-act="done" data-id="${esc(it.id)}" aria-label="${it.done ? "取消完成" : "標記完成"}：${esc(V(it).title)}">${it.done ? "✓" : ""}</button></span>`;
 const editTop = (it) => `<button class="edit-top" data-act="edit" data-id="${esc(it.id)}">${icon("pencil")}編輯</button>`;
@@ -814,7 +817,7 @@ function childHTML(c, d) {
       ${c.start != null ? `<div class="time">${timeLabel(c)}</div>` : ""}
       <div class="ctitle">↳ ${esc(v.title || "（未命名）")}${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
-      ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${d.kind === "day" ? memoSection(c) : ""}${altsHTML(c)}
+      ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${d.kind === "day" ? memoSection(c) : ""}${altsHTML(c, d)}
     </div>${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || d.kind !== "day" ? "" : checkBtn(c)}</div></div>`;
 }
 function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
@@ -838,22 +841,22 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
       <div class="itemtitle"><button>${esc(v.title || "（未命名）")}</button></div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}
       ${detailHTML(it, v, true)}${costHTML(v, it)}${photosHTML(it, v)}
-      ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
+      ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it, d)}
       ${S.manage ? toolsHTML(it, d, pos) : ""}
     </article>${after}`;
   }
   if (type === "transport" && !listPage) {
-    return `<article class="transport ${it.done ? "done" : ""} ${openCls}" data-tid="${esc(it.id)}" ${style}>
+    return `<article class="transport ${it.done ? "done" : ""} ${openCls} ${S.flash && S.flash.has(it.id) ? "flash-new" : ""}" data-tid="${esc(it.id)}" ${style}>
       <div class="transportline"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
         ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " · 固定" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
         ${S.manage ? editTop(it) : ""}${foldBtn(it)}${checkBtn(it)}</div>
       ${warnHTML}${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${memoSection(it)}
-      ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
+      ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it, d)}
       ${S.manage ? toolsHTML(it, d, pos) : ""}
     </article>${after}`;
   }
   const num = listPage ? icon(cat[1]) : pos.num != null ? pos.num : icon(cat[1]);
-  return `<article class="place ${it.done ? "done" : ""} ${openCls}" data-tid="${esc(it.id)}" ${style}>
+  return `<article class="place ${it.done ? "done" : ""} ${openCls} ${S.flash && S.flash.has(it.id) ? "flash-new" : ""}" data-tid="${esc(it.id)}" ${style}>
     <div class="taphead" data-act="toggle" data-id="${esc(it.id)}" role="button" aria-expanded="${S.open.has(it.id)}">
     <div class="itemtop"><span class="number">${num}</span>
       <div class="itemmeta metaline">${!listPage && it.start != null ? `<span class="time">${timeLabelLocked(it)}</span>` : ""}<span class="category">${icon(cat[1])}${cat[0]}${origin}</span></div>
@@ -862,7 +865,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${chev}</div>
     ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
     ${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${listPage ? "" : memoSection(it)}
-    ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
+    ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it, d)}
     ${S.manage ? toolsHTML(it, d, pos) : ""}
   </article>${after}`;
 }
@@ -986,6 +989,20 @@ function geoCandidates(s) {
   return steps.filter((c) => { const k = (c.photon ? "P" : "N") + c.q; if (c.q.length < 2 || seen.has(k)) return false; seen.add(k); return true; });
 }
 const kmBetween = (a, b) => Math.hypot((a[0] - b[0]) * 111, (a[1] - b[1]) * 111 * Math.cos(a[0] * Math.PI / 180));
+// 定位一個地點；all = 同一組的其他地點（用來排除去了別的城市的結果）
+async function geocodeStop(s, all) {
+  const known = all.map((x) => x !== s && x.link.geo && x.link.geo.lat != null ? [x.link.geo.lat, x.link.geo.lng] : coordsFromUrl(x.link.url)).filter(Boolean);
+  const mid = known.length ? [known.map((p) => p[0]).sort((a, b) => a - b)[known.length >> 1], known.map((p) => p[1]).sort((a, b) => a - b)[known.length >> 1]] : null;
+  const ok = (p, approx) => p && (!mid || known.length < 2 || kmBetween(p, mid) < (approx ? 60 : 400));
+  let hit = null, by = null, approx = false;
+  for (const c of geoCandidates(s)) {
+    const p = c.photon ? await geocodePhoton(c.q, mid).catch(() => null) : await geocode(c.q).catch(() => null);
+    await sleep(c.photon ? 300 : 1100);
+    if (ok(p, !!c.approx)) { hit = p; by = c.q; approx = !!c.approx; break; }
+  }
+  s.link.geo = hit ? { q: s.key, lat: hit[0], lng: hit[1], ...(approx ? { approx: true, by } : {}) } : { q: s.key, fail: true, v: 2 };
+}
+const needsGeo = (s) => { const g0 = s.link.geo; return !(coordsFromUrl(s.link.url) || (g0 && g0.q === s.key && (g0.lat != null || (g0.fail && g0.v >= 2)))); };
 async function geocodeMissing(d) {
   if (geoBusy) return;
   geoBusy = true;
@@ -993,20 +1010,9 @@ async function geocodeMissing(d) {
   try {
     const all = routeStops(d);
     for (const s of all) {
-      const g0 = s.link.geo;
-      if (coordsFromUrl(s.link.url) || (g0 && g0.q === s.key && (g0.lat != null || (g0.fail && g0.v >= 2)))) continue;
+      if (!needsGeo(s)) continue;
       const st = $("#geoStatus"); if (st) st.textContent = `正在定位「${s.q}」…`;
-      // 其他已定位地點的中心，用來排除去了別的城市的結果
-      const known = all.map((x) => x !== s && x.link.geo && x.link.geo.lat != null ? [x.link.geo.lat, x.link.geo.lng] : coordsFromUrl(x.link.url)).filter(Boolean);
-      const mid = known.length ? [known.map((p) => p[0]).sort((a, b) => a - b)[known.length >> 1], known.map((p) => p[1]).sort((a, b) => a - b)[known.length >> 1]] : null;
-      const ok = (p, approx) => p && (!mid || known.length < 2 || kmBetween(p, mid) < (approx ? 60 : 400));
-      let hit = null, by = null, approx = false;
-      for (const c of geoCandidates(s)) {
-        const p = c.photon ? await geocodePhoton(c.q, mid).catch(() => null) : await geocode(c.q).catch(() => null);
-        await sleep(c.photon ? 300 : 1100);
-        if (ok(p, !!c.approx)) { hit = p; by = c.q; approx = !!c.approx; break; }
-      }
-      s.link.geo = hit ? { q: s.key, lat: hit[0], lng: hit[1], ...(approx ? { approx: true, by } : {}) } : { q: s.key, fail: true, v: 2 };
+      await geocodeStop(s, all);
       changed = true;
       if (S.view === "map" && day() === d) drawRouteMap(d, true);
     }
@@ -1031,13 +1037,16 @@ function timeLabel(it) {
 }
 
 // ---------- 是日路線（新版畫面） ----------
+function stopOf(it, sub) {
+  const v = V(it);
+  const link = (v.links || []).find(isMapLink);
+  if (!link) return null;
+  const q = placeQuery(link);
+  return { it, v, link, sub, q, key: link.addr ? q + "｜" + link.addr : q, type: v.type || "place" };
+}
 function routeStops(d) {
   const stops = [];
-  const add = (it, sub) => {
-    const v = V(it);
-    const link = (v.links || []).find(isMapLink);
-    if (link) { const q = placeQuery(link); stops.push({ it, v, link, sub, q, key: link.addr ? q + "｜" + link.addr : q, type: v.type || "place" }); }
-  };
+  const add = (it, sub) => { const s = stopOf(it, sub); if (s) stops.push(s); };
   for (const { item } of seq(d)) { add(item, false); for (const c of item.children || []) add(c, true); }
   estimateMissing(stops);
   return stops;
@@ -1968,6 +1977,164 @@ function doMoveOut(id, pull) {
     return { msg: `已移到「備選地點」${n ? `，之後 ${n} 項提前 ${durText(dur)}` : ""}` };
   });
 }
+// ---------- 自動排程：把備選地點按距離和空檔放進行程 ----------
+function coordOfItem(it) {
+  for (const x of [it, ...(it.children || [])]) {
+    const s = stopOf(x); if (!s) continue;
+    const g = coordsFromUrl(s.link.url) || (s.link.geo && s.link.geo.q === s.key && s.link.geo.lat != null ? [s.link.geo.lat, s.link.geo.lng] : null);
+    if (g) return g;
+  }
+  return null;
+}
+const roadKm = (a, b) => kmBetween(a, b) * 1.3;
+// 交通時間估算：1.2 公里內步行，否則以公共交通估算（每 5 分鐘進位）
+function travelMin(a, b) {
+  if (!a || !b) return 15;
+  const km = roadKm(a, b);
+  const m = km <= 1.2 ? km / 4.5 * 60 : 10 + km / 25 * 60;
+  return Math.max(5, Math.ceil(m / 5) * 5);
+}
+const up5 = (m) => Math.ceil(m / 5) * 5;
+function bestSlot(it, days, opt) {
+  const v = V(it), dur = v.dur || 60, type = v.type || "place";
+  const x = coordOfItem(it);
+  let best = null;
+  for (const d of days) {
+    const L = seq(d).filter((e) => e.item.start != null && !isInfo(e.item));
+    for (let p = -1; p < L.length; p++) {
+      const prev = L[p] && L[p].item, next = L[p + 1] && L[p + 1].item;
+      if (prev && V(prev).type === "transport") continue; // 不要插在交通和目的地之間
+      const earliest = prev ? endOf(prev) : opt.dayStart;
+      const pc = prev ? coordOfItem(prev) : null, nc = next ? coordOfItem(next) : null;
+      const tin = prev ? travelMin(pc, x) : 0, tout = next ? travelMin(x, nc) : 0;
+      const st = up5(Math.max(earliest + tin, prev ? 0 : opt.dayStart)), en = st + dur;
+      if (!prev && next && en + tout > next.start) continue; // 第一項之前放不下就不放
+      if (en > 24 * 60) continue;
+      const limit = next ? next.start : opt.dayEnd;
+      const over = en + tout - limit;
+      if (over > 0 && next) {
+        if (next.locked) continue;
+        // 延後會撞到之後的固定時間行程嗎？
+        let k = p + 2; while (k < L.length && !L[k].item.locked) k++;
+        if (k < L.length && over > L[k].item.start - endOf(L[k - 1].item)) continue;
+      }
+      if (!next && en > opt.dayEnd + 60) continue;
+      const detour = x && pc && nc ? roadKm(pc, x) + roadKm(x, nc) - roadKm(pc, nc) : x && (pc || nc) ? roadKm(x, pc || nc) : 6;
+      let score = detour + (over > 0 ? 3 + over / 6 : 0); // 要推後其他行程：盡量避免
+      if (en > opt.dayEnd) score += 4 + (en - opt.dayEnd) / 6; // 超過每天的結束時間
+      if (st < opt.dayStart) score += 4 + (opt.dayStart - st) / 6;
+      if (type === "food") score += Math.min(Math.abs(st - 12 * 60), Math.abs(st - 18 * 60 - 30)) / 60 * 2.5;
+      if (!best || score < best.score) best = { d, prev, next, st, en, over, tin, tout, detour, score, gap: limit - earliest, km: x && pc ? roadKm(pc, x) : null };
+    }
+  }
+  return best;
+}
+// 在 doc 上執行排程（預覽時用複本，套用時用真正的資料；結果一樣）
+function planSchedule(doc, ids, opt) {
+  const ideas = ideasDayOf(doc, false);
+  const days = doc.days.filter((d) => d.kind === "day" && (opt.dayId === "auto" || d.id === opt.dayId));
+  const out = [];
+  for (const id of ids) {
+    const f = ideas && locate(ideas, id); if (!f) continue;
+    const it = f.item;
+    const slot = bestSlot(it, days, opt);
+    if (!slot) { out.push({ id, title: V(it).title, fail: true }); continue; }
+    f.arr.splice(f.index, 1);
+    const d = slot.d, list = seq(d);
+    let arr = d.items, at = 0;
+    if (slot.prev) { const e = list.find((x) => x.item === slot.prev); arr = e.arr; at = e.idx + 1; }
+    const old = it.start;
+    it.start = slot.st;
+    for (const c of it.children || []) if (c.start != null) c.start += old != null ? slot.st - old : 0;
+    if (!V(it).dur) V(it).dur = 60;
+    delete it.from; delete it.fromDay; delete it.fromStart; it.done = false;
+    arr.splice(at, 0, it);
+    let n = 0, delta = 0;
+    if (slot.next) {
+      delta = slot.en + slot.tout - slot.next.start;
+      if (delta > 0) { const l2 = seq(d); n = rippleFrom(d, l2.findIndex((x) => x.item === it), delta); }
+    }
+    out.push({ id, title: V(it).title, type: V(it).type || "place", day: d.label, dayId: d.id, st: slot.st, en: slot.en,
+      prev: slot.prev ? V(slot.prev).title : "", next: slot.next ? V(slot.next).title : "", gap: slot.gap, km: slot.km, tin: slot.tin, pushed: n, delta: Math.max(0, delta), late: slot.en > opt.dayEnd });
+  }
+  return out;
+}
+function schedOpt() {
+  const f = $("#schedForm");
+  return { dayId: f.day.value, dayStart: parseHHMM(f.dstart.value) ?? 540, dayEnd: parseHHMM(f.dend.value) ?? 1320 };
+}
+const schedIds = () => $$("#schedForm [name=pick]:checked").map((x) => x.value);
+function openScheduler() {
+  const ideas = ideasDayOf(S.doc, false);
+  const items = (ideas ? ideas.items : []).filter((x) => !isInfo(x));
+  const days = S.doc.days.filter((d) => d.kind === "day");
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("wand")} 自動排程</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">揀選要排進行程的地點，會按地點之間的距離和行程中的空檔，找出最順路的位置。餐飲會盡量放在午餐或晚餐時間。</p>
+    <form id="schedForm" onsubmit="return false">
+      <div class="field"><span>揀選地點（${items.length}）</span><div class="pos-list">${items.length ? items.map((it) => { const v = V(it), c = catOf(v.type || "place");
+        return `<label class="checkline"><input type="checkbox" name="pick" value="${esc(it.id)}"><span style="--c:${catVar(v.type || "place")}"><b class="sc-cat">${icon(c[1])}</b> ${esc(v.title || "（未命名）")}<small>停留約 ${durText(v.dur || 60)}${stopOf(it) ? "" : "・未有地點，只按空檔安排"}</small></span></label>`; }).join("") : `<p class="hint">備選地點還沒有項目。</p>`}</div></div>
+      <label class="field"><span>排到</span><select name="day"><option value="auto">自動選擇最順路的日子</option>${days.map((d) => `<option value="${esc(d.id)}">${esc(d.label)}　${esc(d.title || "")}</option>`).join("")}</select></label>
+      <div class="grid2"><label class="field"><span>每天最早</span><input type="time" name="dstart" value="09:00"></label><label class="field"><span>每天最晚</span><input type="time" name="dend" value="22:00"></label></div>
+    </form>
+    <div id="schedOut"></div>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="sched-calc" id="schedGo">計算建議</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+async function schedCalc() {
+  const out = $("#schedOut"), ids = schedIds();
+  if (!ids.length) { out.innerHTML = `<p class="field-err">⚠ 請先揀選最少一個地點</p>`; return; }
+  const opt = schedOpt();
+  // 先定位：揀選的地點＋相關日子的行程
+  const ideas = ideasDayOf(S.doc, false);
+  const days = S.doc.days.filter((d) => d.kind === "day" && (opt.dayId === "auto" || d.id === opt.dayId));
+  const stops = [];
+  for (const id of ids) { const f = locate(ideas, id); const s = f && stopOf(f.item); if (s) stops.push(s); }
+  for (const d of days) for (const { item } of seq(d)) { const s = stopOf(item); if (s) stops.push(s); }
+  const todo = stops.filter(needsGeo);
+  $("#schedGo").disabled = true;
+  if (todo.length && !geoBusy) {
+    geoBusy = true;
+    try {
+      for (let i = 0; i < todo.length; i++) {
+        if (!$("#schedOut")) return;
+        out.innerHTML = `<p class="hint">定位中 ${i + 1} / ${todo.length}：${esc(todo[i].q)}…（地圖服務每秒只能查一次）</p>`;
+        await geocodeStop(todo[i], stops);
+      }
+    } finally { geoBusy = false; persistLocal(true); scheduleSave(); }
+  }
+  if (!$("#schedOut")) return;
+  S.schedPlan = { ids, opt };
+  renderSchedPlan();
+}
+function renderSchedPlan() {
+  const { ids, opt } = S.schedPlan;
+  const res = planSchedule(clone(S.doc), ids, opt);
+  const ok = res.filter((r) => !r.fail);
+  $("#schedOut").innerHTML = `<div class="box sched-res"><div class="box-title"><span>建議安排</span></div>
+    ${res.map((r) => r.fail ? `<div class="sres fail"><b>${esc(r.title)}</b><small>找不到合適的空檔（可能被固定時間的行程擋住），未排程</small></div>`
+      : `<div class="sres" style="--c:${catVar(r.type)}"><div class="sres-top"><span class="sres-day">${esc(r.day)}</span><b class="time">${fmt(r.st)}–${fmt(r.en)}</b></div>
+        <b>${esc(r.title)}</b>
+        <small>${r.prev ? `放在「${esc(r.prev)}」之後` : "放在這天最前面"}${r.next ? `、「${esc(r.next)}」之前` : ""}</small>
+        <small>${r.km != null ? `離上一站約 ${r.km < 1 ? Math.round(r.km * 1000) + " 米" : r.km.toFixed(1) + " 公里"}・交通約 ${r.tin} 分鐘` : r.prev ? `交通預留 ${r.tin} 分鐘（未有地點座標）` : ""}</small>
+        ${r.pushed ? `<small class="warn">空檔不夠：之後 ${r.pushed} 項會延後 ${durText(r.delta)}</small>` : r.next ? `<small class="good">原本空檔 ${durText(Math.max(0, r.gap))}，放得下</small>` : ""}
+        ${r.late ? `<small class="warn">會超過每天最晚時間</small>` : ""}</div>`).join("")}
+    <p class="hint">不滿意可以取消部分地點再計算，或改「排到」的日子。套用後可以按標題旁的復原。</p></div>`;
+  const go = $("#schedGo");
+  go.disabled = !ok.length; go.textContent = ok.length ? `套用（${ok.length} 個）` : "計算建議";
+  go.dataset.act = ok.length ? "sched-apply" : "sched-calc";
+}
+function schedApply() {
+  const { ids, opt } = S.schedPlan;
+  let res = [];
+  closeSheet();
+  commit((doc) => { res = planSchedule(doc, ids, opt); });
+  const first = res.find((r) => !r.fail);
+  if (first) { S.dayId = first.dayId; S.view = "list"; ls.set("trip.view", "list"); S.flash = new Set(res.filter((r) => !r.fail).map((r) => r.id)); render(); 
+    const el = $(`[data-tid="${first.id}"]`); if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setTimeout(() => { S.flash = null; $$(".flash-new").forEach((x) => x.classList.remove("flash-new")); }, 2600); }
+}
 function openMoveIn(id, dayId) {
   const days = S.doc.days.filter((x) => x.kind === "day");
   if (!days.length) { toast("還沒有行程日"); return; }
@@ -2179,6 +2346,28 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
+    case "sched-open": openScheduler(); break;
+    case "sched-calc": schedCalc(); break;
+    case "sched-apply": schedApply(); break;
+    case "variant-idea": {
+      const k = +t.dataset.k;
+      commit((doc) => {
+        const f = findItem(id); if (!f) return { msg: "找不到這個行程" };
+        const it = f.item;
+        if (it.variants.length < 2) return;
+        const oldEnd = endOf(it), a0 = it.active || 0;
+        const v = it.variants.splice(k, 1)[0];
+        if (a0 > k) it.active = a0 - 1;
+        else if (a0 === k) it.active = Math.min(a0, it.variants.length - 1);
+        // 移走的是使用中的方案：之後的時間按新方案的長度調整
+        if (a0 === k && !f.parent && f.day.kind === "day" && oldEnd != null) ripple(f.day, it, endOf(it) - oldEnd);
+        const ni = { id: uid(), start: null, locked: false, done: false, active: 0, children: [], variants: [v],
+          from: `${f.day.label}「${V(it).title}」的方案`, fromDay: f.day.kind === "day" ? f.day.id : undefined, fromStart: it.start };
+        ideasDayOf(doc, true).items.push(ni);
+        return { msg: `已把「${v.title}」移到備選地點` };
+      });
+      break;
+    }
     case "variant-out": {
       const k = +t.dataset.k;
       commit(() => {
@@ -2589,6 +2778,7 @@ document.addEventListener("input", (e) => {
 
 document.addEventListener("change", async (e) => {
   if (e.target.name === "costCur") { updateCostPreview(); return; }
+  if (e.target.form && e.target.form.id === "schedForm") { const go = $("#schedGo"); if (go) { go.dataset.act = "sched-calc"; go.textContent = "重新計算"; go.disabled = false; } return; }
   if (e.target.name === "type" && e.target.form && e.target.form.id === "edForm") { readForm(); renderEditor(); return; }
   if (e.target.name === "day" && e.target.form && e.target.form.id === "moveForm") { openMoveIn(e.target.dataset.id, e.target.value); scrollChecked(); return; }
   if (e.target.id === "edFile") {
