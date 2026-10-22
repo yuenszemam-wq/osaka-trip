@@ -13,26 +13,13 @@
 - 離線查看：在日本沒有網絡時仍可看到最後載入的行程；恢復連線後自動上傳修改
 - 可以「加入主畫面」，像 App 一樣使用
 
-## 第一次部署（iPhone 也可以做，約 5 分鐘）
+## 部署（Cloudflare Workers）
 
-1. **建立資料庫**：Cloudflare 控制台 → Storage & Databases → **D1 SQL Database** → Create → 名稱填 `osaka-trip` → Create。
-   不用建立任何表格，網站第一次開啟時會自動建立，並載入現有行程。
-2. **建立 Pages 專案**：Workers & Pages → Create → **Pages** 分頁 → **Connect to Git** → 選 GitHub 帳號 `yuenszemam-wq` → repo `osaka-trip`。
-3. 建置設定：
-   - Framework preset：**None**
-   - Build command：**留空**
-   - Build output directory：**`public`**
-   
-   然後按 Save and Deploy。
-4. **綁定資料庫**：進入這個 Pages 專案 → Settings → **Bindings** → Add → **D1 database**
-   - Variable name：**`DB`**（必須是大寫的 DB）
-   - D1 database：選 `osaka-trip`
-   
-   Production 和 Preview 都要加。
-5. **重新部署**：Deployments → 最新一次部署右邊的 ⋯ → **Retry deployment**。綁定要在重新部署後才會生效。
-6. 打開 `https://<專案名>.pages.dev`，就會看到行程。
-
-之後每次推送到 GitHub 的 `main`，Cloudflare 都會自動重新部署。
+- 網址：https://osaka-trip.yuenszemam.workers.dev
+- 設定檔：`wrangler.jsonc`（Worker 名稱、D1 資料庫 ID、靜態檔案目錄 `public/`）
+- 入口：`src/worker.js`，負責處理 `/api/*`；其他路徑由 `public/` 提供
+- 推送到 GitHub 的 `main` 後，Cloudflare 會自動執行 `npx wrangler deploy`
+- 資料表會在第一次開啟網站時自動建立，同時載入預設行程
 
 ## 注意
 - 網站是**公開**的：任何人有網址都可以查看和編輯。改錯了可以在「⋯ → 版本紀錄」還原。
