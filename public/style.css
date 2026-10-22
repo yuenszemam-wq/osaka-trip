@@ -704,3 +704,9 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 /* 日子分頁加框線 */
 .dtab { border: 1px solid var(--line); background: var(--w); }
 .dtab[aria-pressed="true"] { border-color: var(--purple); box-shadow: inset 0 -2px var(--purple); }
+
+/* 菜單按鈕固定在左邊，不跟分頁一起左右滑動 */
+.toprow1 { display: flex; align-items: center; gap: 6px; }
+.toprow1 > .ntab.menu { flex: none; margin: 2px 0 2px 2px; }
+.toprow1 > .rowtabs { flex: 1; min-width: 0; }
+.toprow1 + .rowtabs { margin-top: 6px; }

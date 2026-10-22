@@ -665,14 +665,13 @@ function renderChrome() {
       </div></div>`;
   const notes = S.doc.days.filter((x) => x.kind !== "day");
   const days = S.doc.days.filter((x) => x.kind === "day");
-  $("#tabs").innerHTML = `<div class="rowtabs" role="tablist" aria-label="備注">
-      <button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button>
+  $("#tabs").innerHTML = `<div class="toprow1"><button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button><div class="rowtabs" role="tablist" aria-label="備注">
       ${notes.map((x) => `<button class="ntab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${icon(noteIcon(x))}${esc(x.label)}</button>`).join("")}
       <button class="ntab" data-act="tab" data-id="${MONEY}" aria-pressed="${S.dayId === MONEY}">${icon("wallet")}支出</button>
       <button class="ntab" data-act="tab" data-id="${SHOP}" aria-pressed="${S.dayId === SHOP}">${icon("cart")}購物清單</button>
       ${S.dayId === DIARY ? `<button class="ntab" data-act="tab" data-id="${DIARY}" aria-pressed="true">${icon("book")}日記</button>` : ""}
       <button class="addtab" data-act="add-day" data-kind="info" aria-label="新增備注頁">＋</button>
-    </div>
+    </div></div>
     <div class="rowtabs" role="tablist" aria-label="旅遊日">
       ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}${wdOf(x)}</small>${wxChip(x)}</button>`).join("")}
       <button class="addtab day" data-act="add-day" data-kind="day" aria-label="新增一天">＋</button>
