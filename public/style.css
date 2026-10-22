@@ -49,7 +49,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--purple); }
 svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; vertical-align: -3px; }
-#app { max-width: 560px; margin: 0 auto; padding: 0 0 calc(92px + var(--safe-b)); min-height: 100vh; }
+#app { max-width: 560px; margin: 0 auto; padding: 0 0 calc(28px + var(--safe-b)); min-height: 100vh; }
 .loading { color: var(--muted); padding: 40px 0; text-align: center; }
 
 /* ---------- 標題 ---------- */
@@ -87,6 +87,15 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
 .toprow3 .switch { flex: 1; margin: 0; }
 .toprow3 .grow { flex: 1; }
 .toprow3 .manage { flex: 0 0 auto; padding: 10px 12px; border-radius: 12px; }
+.toprow3 .manage.add { background: var(--purple); color: var(--on-purple); border-color: var(--purple); font-weight: 600; }
+/* 標題旁：同步狀態、刷新、復原 */
+.status { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.status .sync { flex: 0 0 auto; font-size: 11px; padding: 0; }
+.status-btns { display: flex; gap: 6px; }
+.iconbtn.sm { width: 34px; height: 34px; border-radius: 10px; color: var(--purple); }
+.iconbtn.sm:disabled { opacity: .35; }
+.iconbtn.spin svg { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .switch { display: flex; margin: 0 18px 12px; background: var(--soft); border-radius: 12px; padding: 4px; }
 .switch button { width: 50%; border: 0; border-radius: 9px; background: transparent; color: var(--muted); padding: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 13px; }
 .switch button[aria-pressed="true"] { background: var(--w); color: var(--purple); box-shadow: 0 2px 7px #3824470d; font-weight: 650; }
@@ -280,7 +289,7 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
 .banner { margin: 0 18px 12px; padding: 12px 14px; border-radius: 14px; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink); font-size: 13.5px; }
 .banner .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + var(--safe-b)); z-index: 70; background: var(--ink); color: var(--p); padding: 10px 12px 10px 16px; border-radius: 13px; display: flex; gap: 12px; align-items: center; font-size: 13.5px; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px #1a102840; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + var(--safe-b)); z-index: 70; background: var(--ink); color: var(--p); padding: 10px 12px 10px 16px; border-radius: 13px; display: flex; gap: 12px; align-items: center; font-size: 13.5px; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px #1a102840; }
 .toast button { border: 0; background: color-mix(in srgb, var(--p) 20%, transparent); color: var(--p); border-radius: 8px; padding: 4px 10px; font-size: 13px; white-space: nowrap; }
 
 /* ---------- 編輯面板 ---------- */

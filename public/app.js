@@ -414,8 +414,9 @@ function syncUI() {
   else if (S.pending) { cls = "busy"; text = "等待儲存…"; }
   else if (S.offline) { cls = "err"; text = "離線・已存版本"; }
   else if (S.savedAt) text = "已同步 " + new Date(S.savedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", hour12: false });
-  dot.className = cls; t.textContent = text;
-  $("#undoBtn").disabled = !S.undo.length;
+  if (dot) dot.className = cls;
+  if (t) t.textContent = text;
+  const u = $("#undoBtn"); if (u) u.disabled = !S.undo.length;
 }
 
 let toastTimer;
@@ -492,7 +493,13 @@ const noteIcon = (d) => d.id === "stay" || /住宿/.test(d.label) ? "bed" : isId
 function renderChrome() {
   const m = S.doc.meta || {};
   $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${esc(m.dates || "")}</div>
-    <h1>${esc(m.name || m.title || "Trip.")}<small>${esc(m.subtitle || m.title || "")}</small></h1></div>`;
+    <h1>${esc(m.name || m.title || "Trip.")}<small>${esc(m.subtitle || m.title || "")}</small></h1></div>
+    <div class="status">
+      <button class="sync" data-act="sync" id="syncBtn" aria-label="同步狀態"><i id="syncDot"></i><span id="syncText"></span></button>
+      <div class="status-btns">
+        <button class="iconbtn sm" data-act="refresh" id="refreshBtn" aria-label="刷新：讀取最新內容">${icon("refresh")}</button>
+        <button class="iconbtn sm" data-act="undo-btn" id="undoBtn" aria-label="復原" disabled>${icon("undo")}</button>
+      </div></div>`;
   const notes = S.doc.days.filter((x) => x.kind !== "day");
   const days = S.doc.days.filter((x) => x.kind === "day");
   $("#tabs").innerHTML = `<div class="rowtabs" role="tablist" aria-label="備注">
@@ -507,10 +514,11 @@ function renderChrome() {
     </div>
     ${S.dayId !== MONEY && day() ? `<div class="toprow3">
       ${day().kind === "day" ? `<div class="switch"><button data-act="view" data-id="list" aria-pressed="${S.view !== "map"}">${icon("list")} 行程</button><button data-act="view" data-id="map" aria-pressed="${S.view === "map"}">${icon("map")} 是日路線</button></div>` : `<div class="grow"></div>`}
-      <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button></div>` : ""}`;
+      <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
+      <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>`
+    : S.dayId === MONEY ? `<div class="toprow3"><div class="grow"></div><button class="manage add" data-act="add">${icon("plus")}新增支出</button></div>` : ""}`;
   const on = $("#tabs [aria-pressed=true]"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
   document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : day() ? " · " + day().label : ""}`;
-  $("#addBtn").innerHTML = `${icon("plus")} ${S.dayId === MONEY ? "新增支出" : "新增"}`;
 }
 
 function render() {
@@ -1129,6 +1137,7 @@ function openMenu() {
       <button data-act="trip-new">${icon("plus")}新增旅程</button></div>
     <div class="menu-sec">外觀</div>
     <div class="seg">${[["light", "sun", "淺色"], ["dark", "moon", "深色"], ["auto", "auto", "跟隨系統"]].map(([k, i, t]) => `<button data-act="theme" data-id="${k}" aria-pressed="${S.theme === k}">${icon(i)}${t}</button>`).join("")}</div>
+    <div class="seg" style="margin-top:8px">${[["thumb", "image", "圖片縮圖"], ["full", "image", "圖片大圖"]].map(([k, i, t]) => `<button data-act="photo-mode" data-id="${k}" aria-pressed="${S.photoMode === k}">${icon(i)}${t}</button>`).join("")}</div>
     <div class="menu-sec">目前旅程</div>
     <div class="menu-list">
       <button data-act="trip-settings">${icon("gear")}旅程設定（名稱、日期、貨幣）</button>
@@ -1744,6 +1753,11 @@ document.addEventListener("click", async (e) => {
     case "theme": setTheme(id); openMenu(); break;
     case "rate-refresh": updateRate(true); break;
     case "map-filter": S.mapFilter = id; render(); break;
+    case "add": addFromBottom(); break;
+    case "refresh": forceRefresh(); break;
+    case "undo-btn": undo(); break;
+    case "sync": if (S.pending) { S.saveError = null; save(); } else forceRefresh(); break;
+    case "photo-mode": setPhotoMode(id); render(); openMenu(); toast(id === "full" ? "圖片改為大圖顯示" : "圖片改為縮圖顯示"); break;
     case "cost-edit": closeSheet(); openCostEditor(id); break;
     case "cost-save": {
       const c = readCost($("#costForm"));
@@ -2066,24 +2080,31 @@ document.addEventListener("toggle", (e) => {
 }, true);
 window.addEventListener("scroll", () => { const t = $("#tabs"); if (t) t.classList.toggle("stuck", window.scrollY > ($("#brand").offsetHeight || 80) - 4); }, { passive: true });
 
-$("#undoBtn").addEventListener("click", undo);
-$("#addBtn").addEventListener("click", addFromBottom);
-$("#syncBtn").addEventListener("click", () => { if (S.pending) { S.saveError = null; save(); } else refresh(); });
-function setPhotoMode(m) {
-  S.photoMode = m; ls.set("trip.photoMode", m);
-  $("#photoModeBtn").innerHTML = `${icon("image")}${m === "full" ? "大圖" : "縮圖"}`;
-  $("#photoModeBtn").setAttribute("aria-label", "圖片顯示：" + (m === "full" ? "大圖" : "縮圖") + "（按一下切換）");
+function setPhotoMode(m) { S.photoMode = m; ls.set("trip.photoMode", m); }
+// 刷新：先上傳自己的修改，再讀取其他人編輯的最新內容
+async function forceRefresh() {
+  const btn = $("#refreshBtn"); if (btn) btn.classList.add("spin");
+  try {
+    if (S.pending) await save();
+    if (S.conflict) { render(); return; }
+    const before = S.version;
+    const r = await fetch(API(), { cache: "no-store" });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.status);
+    if (!S.pending) {
+      S.doc = data.doc; S.version = data.version; S.savedAt = data.updatedAt; S.offline = false;
+      persistLocal(false); render();
+      toast(data.version !== before ? "已更新到最新內容" : "已經是最新內容");
+    }
+    loadTrips();
+  } catch (e) { S.offline = !navigator.onLine; syncUI(); toast("刷新失敗：" + (navigator.onLine ? e.message : "目前離線")); }
+  finally { const b2 = $("#refreshBtn"); if (b2) b2.classList.remove("spin"); }
 }
-$("#undoBtn").innerHTML = `${icon("undo")}復原`;
 setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
 S.view = ls.get("trip.view") === "map" ? "map" : "list";
 S.theme = ls.get("trip.theme") === "dark" ? "dark" : ls.get("trip.theme") === "light" ? "light" : "auto";
 setTheme(S.theme);
-$("#photoModeBtn").addEventListener("click", () => {
-  setPhotoMode(S.photoMode === "full" ? "thumb" : "full");
-  render();
-  toast(S.photoMode === "full" ? "圖片改為大圖顯示" : "圖片改為縮圖顯示");
-});
+
 document.addEventListener("input", (e) => {
   if (e.target.classList && e.target.classList.contains("invalid")) { e.target.classList.remove("invalid"); const er = e.target.closest(".field")?.querySelector(".field-err"); if (er) er.remove(); }
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
