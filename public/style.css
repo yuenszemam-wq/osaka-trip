@@ -121,6 +121,21 @@ button { cursor: pointer; }
 .actions button { border: 0; background: none; color: var(--muted); font-size: 14px; padding: 4px 8px; border-radius: 8px; }
 .actions button:active { background: var(--lav); }
 
+/* 資訊卡 */
+.item.info > .dot { width: 12px; height: 12px; left: -23px; top: 22px; border-color: var(--line); background: var(--line); }
+.item.info .card { background: #faf8fc; border-style: dashed; }
+.info-kind { margin-left: 0; color: var(--accent); font-weight: 600; }
+.edit-top { margin-left: auto; border: 1.5px solid var(--line); background: var(--card); color: var(--ink-2); border-radius: 10px; padding: 3px 12px; font-size: 13px; }
+.child.info { background: #faf8fc; border-style: dashed; }
+/* 已完成：摺疊 */
+.item.folded .card { padding: 10px 14px 10px 18px; }
+.item.folded > .dot { top: 16px; }
+.mini-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--accent-soft); }
+.child.folded { padding: 8px 12px; }
+.fold { margin-left: auto; border: 0; background: none; color: var(--accent); font-size: 13px; padding: 2px 4px; white-space: nowrap; }
+.mini-title + .fold { margin-left: 0; }
+.kind + .fold { margin-left: 0; }
+.insert { gap: 8px; }
 .children { margin: 10px 0 0 12px; border-left: 2px dotted var(--line); padding-left: 12px; }
 .child { background: #fbfaf8; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-top: 8px; }
 .child h3 { margin: 2px 0; font-size: 16px; }

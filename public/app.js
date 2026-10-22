@@ -3,13 +3,14 @@
 "use strict";
 
 const LS_DOC = "trip.doc", LS_VER = "trip.version", LS_PENDING = "trip.pending", LS_DAY = "trip.day";
-const TYPES = { place: "地點・活動", transport: "交通", food: "餐飲", flight: "航班" };
-const TYPE_ICON = { place: "◇", transport: "→", food: "◎", flight: "✈" };
+const TYPES = { place: "地點・活動", transport: "交通", food: "餐飲", flight: "航班", info: "資訊" };
+const TYPE_ICON = { place: "◇", transport: "→", food: "◎", flight: "✈", info: "ⓘ" };
+const isInfo = (it) => V(it).type === "info";
 
 const S = {
   doc: null, version: 0, dayId: null, q: "",
   saving: false, pending: false, timer: null, conflict: null, offline: false,
-  undo: [], open: new Set(),
+  undo: [], open: new Set(), expanded: new Set(),
   photoMode: null,
 };
 
@@ -271,7 +272,7 @@ function render() {
   ).join("") + `<button class="tab add" data-act="add-day" aria-label="新增一天">＋</button>`;
 
   const dayNo = S.doc.days.filter((x) => x.kind === "day").indexOf(d) + 1;
-  const all = d.items.flatMap((it) => [it, ...(it.children || [])]);
+  const all = d.items.flatMap((it) => [it, ...(it.children || [])]).filter((x) => !isInfo(x));
   const done = all.filter((x) => x.done).length;
   const cf = d.kind === "day" ? conflicts(d) : {};
   const q = S.q.trim().toLowerCase();
@@ -294,13 +295,13 @@ function render() {
   const items = d.items.map((it, i) => ({ it, i })).filter(({ it }) => match(it) || (it.children || []).some(match));
   if (d.kind === "day") {
     html += `<div class="timeline">`;
-    if (!q) html += `<div class="insert"><button data-act="add-main" data-at="-1">＋ 在最前面加入</button></div>`;
+    if (!q) html += insertRow(-1, "在最前面加入");
     for (const { it, i } of items) html += itemHTML(it, d, cf[it.id], q);
     if (!d.items.length) html += `<div class="empty">還沒有行程<br><button class="btn primary" data-act="add-main" data-at="-1" style="margin-top:10px">＋ 新增第一個行程</button></div>`;
     html += `</div>`;
   } else {
     html += `<div class="info-list">${items.map(({ it }) => itemHTML(it, d, null, q)).join("")}</div>`;
-    html += `<div class="insert" style="margin-top:12px"><button data-act="add-main" data-at="${d.items.length - 1}">＋ 新增</button></div>`;
+    html += `<div class="insert" style="margin-top:12px"><button data-act="add-main" data-at="${d.items.length - 1}">＋ 新增</button><button data-act="add-main" data-type="info" data-at="${d.items.length - 1}">ⓘ 加入資訊</button></div>`;
   }
   if (q && !items.length) html += `<div class="empty">找不到「${esc(S.q)}」</div>`;
 
@@ -333,15 +334,12 @@ const MODE_LABEL = { auto: "跟隨", full: "大圖", thumb: "縮圖" };
 function bodyHTML(it, isChild) {
   const v = V(it);
   const open = S.open.has(it.id);
-  const long = (v.details || "").split("\n").length > 4 || (v.details || "").length > 160;
+  const long = v.type !== "info" && ((v.details || "").split("\n").length > 4 || (v.details || "").length > 160);
   const links = (v.links || []).map((l) => {
     const u = safeUrl(l.url); if (!u) return "";
     const map = /google\.[^/]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps/.test(u);
     return `<a href="${esc(u)}" target="_blank" rel="noopener">${map ? "📍 " : "↗ "}${esc(l.label || u)}</a>`;
   }).join("");
-  const hasMap = (v.links || []).some((l) => /maps/.test(l.url || ""));
-  const autoMap = !hasMap && v.title && (v.type === "place" || v.type === "food")
-    ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.title)}" target="_blank" rel="noopener">📍 地圖</a>` : "";
   // 連續的縮圖排成一行橫向捲動；大圖獨立一行，保持原本次序
   let photos = "", run = "";
   const flush = () => { if (run) { photos += `<div class="photos">${run}</div>`; run = ""; } };
@@ -358,7 +356,7 @@ function bodyHTML(it, isChild) {
   return `${chips}<${H}>${esc(v.title || "（未命名）")}</${H}>
     ${v.details ? `<div class="details ${long && !open ? "clamp" : ""}">${esc(v.details)}</div>${long ? `<button class="more" data-act="toggle" data-id="${esc(it.id)}">${open ? "收起" : "展開全部"}</button>` : ""}` : ""}
     ${photos}
-    ${links || autoMap ? `<div class="links">${links}${autoMap}</div>` : ""}`;
+    ${links ? `<div class="links">${links}</div>` : ""}`;
 }
 
 function timeLabel(it) {
@@ -367,25 +365,57 @@ function timeLabel(it) {
   return v.dur ? `${fmt(it.start)}–${fmt(it.start + v.dur)}` : fmt(it.start);
 }
 
+function insertRow(at, label) {
+  return `<div class="insert"><button data-act="add-main" data-at="${at}">＋ ${label}主行程</button><button data-act="add-main" data-type="info" data-at="${at}">ⓘ 資訊</button></div>`;
+}
+
+// 資訊卡：編輯按鈕在右上角，不用打卡、沒有下排按鈕、內容不摺疊
+function infoCard(it, isChild) {
+  const id = esc(it.id);
+  return `<div class="meta"><span class="kind info-kind">ⓘ 資訊</span><button class="edit-top" data-act="edit" data-id="${id}">✎ 編輯</button></div>${bodyHTML(it, isChild)}`;
+}
+// 已完成的行程：預設摺疊，只顯示時間和標題
+function collapsed(it) {
+  return it.done && !isInfo(it) && !S.expanded.has(it.id);
+}
+function foldBtn(it) {
+  if (!it.done || isInfo(it)) return "";
+  const c = collapsed(it);
+  return `<button class="fold" data-act="fold" data-id="${esc(it.id)}">${c ? "展開 ▾" : "收起 ▴"}</button>`;
+}
+
 function itemHTML(it, d, warn, q) {
   const v = V(it);
   const id = esc(it.id);
   const kids = (it.children || []).map((c) => {
     const cv = V(c);
+    if (isInfo(c)) return `<div class="child info">${infoCard(c, true)}</div>`;
+    if (collapsed(c)) return `<div class="child done folded"><div class="meta">${c.start != null ? `<span class="time">${timeLabel(c)}</span>` : ""}<span class="mini-title">${esc(cv.title)}</span>${foldBtn(c)}
+      <button class="check" data-act="done" data-id="${esc(c.id)}" aria-label="取消完成">✓</button></div></div>`;
     return `<div class="child ${c.done ? "done" : ""}">
-      <div class="meta">${c.start != null ? `<span class="time">${timeLabel(c)}</span>` : ""}<span class="kind">${TYPE_ICON[cv.type] || ""} 子行程</span>
+      <div class="meta">${c.start != null ? `<span class="time">${timeLabel(c)}</span>` : ""}<span class="kind">${TYPE_ICON[cv.type] || ""} 子行程</span>${foldBtn(c)}
       <button class="check" data-act="done" data-id="${esc(c.id)}" aria-label="完成">${c.done ? "✓" : ""}</button></div>
       ${bodyHTML(c, true)}
       <div class="actions"><button data-act="edit" data-id="${esc(c.id)}">✎ 編輯</button><button data-act="quick-photo" data-id="${esc(c.id)}">📷 加圖片</button></div>
     </div>`;
   }).join("");
+  const after = d.kind === "day" && !q ? insertRow(d.items.indexOf(it), "在這之後加入") : "";
+  if (isInfo(it)) {
+    return `<div class="item info ${q ? "hit" : ""}" data-item="${id}">${d.kind === "day" ? `<span class="dot"></span>` : ""}
+      <div class="card">${infoCard(it, false)}${kids ? `<div class="children">${kids}</div>` : ""}</div>${after}</div>`;
+  }
+  if (collapsed(it)) {
+    return `<div class="item done folded ${it.locked ? "locked" : ""}" data-item="${id}">${d.kind === "day" ? `<span class="dot"></span>` : ""}
+      <div class="card"><div class="meta">${it.start != null ? `<span class="time">${timeLabel(it)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${foldBtn(it)}
+      <button class="check" data-act="done" data-id="${id}" aria-label="取消完成">✓</button></div></div>${after}</div>`;
+  }
   return `<div class="item ${it.done ? "done" : ""} ${it.locked ? "locked" : ""} ${q ? "hit" : ""}" data-item="${id}">
     ${d.kind === "day" ? `<span class="dot"></span>` : ""}
     <div class="card">
       <div class="meta">
         ${it.start != null ? `<span class="time">${timeLabel(it)}</span>` : ""}
         ${it.locked ? `<span class="lock">🔒 固定</span>` : ""}
-        <span class="kind">${TYPE_ICON[v.type] || ""} ${TYPES[v.type] || ""}</span>
+        <span class="kind">${TYPE_ICON[v.type] || ""} ${TYPES[v.type] || ""}</span>${foldBtn(it)}
         <button class="check" data-act="done" data-id="${id}" aria-label="完成">${it.done ? "✓" : ""}</button>
       </div>
       ${warn ? `<div class="warn">⚠ ${esc(warn)}</div>` : ""}
@@ -397,7 +427,7 @@ function itemHTML(it, d, warn, q) {
         <button data-act="quick-photo" data-id="${id}">📷 加圖片</button>
       </div>
     </div>
-    ${d.kind === "day" && !q ? `<div class="insert"><button data-act="add-main" data-at="${d.items.indexOf(it)}">＋ 在這之後加入主行程</button></div>` : ""}
+    ${after}
   </div>`;
 }
 
@@ -411,10 +441,13 @@ function openEditor(opts) {
     const f = findItem(opts.id);
     draft = clone(f.item); isChild = !!f.parent;
   } else if (opts.mode === "new-main") {
-    const prev = d.items[opts.at];
-    let start = info ? null : prev ? endOf(prev) : (d.items[0] ? d.items[0].start : 9 * 60);
+    const prevTimed = d.items.slice(0, opts.at + 1).reverse().find((x) => x.start != null);
+    const firstTimed = d.items.find((x) => x.start != null);
+    let start = info ? null : prevTimed ? endOf(prevTimed) : (firstTimed ? firstTimed.start : 9 * 60);
     if (!info && start == null) start = 9 * 60;
-    draft = newItem(start);
+    if (opts.type === "info") start = null;
+    draft = newItem(start, opts.type || "place");
+    if (opts.type === "info") draft.variants[0].dur = 0;
   } else {
     const f = findItem(opts.id);
     draft = newItem(null); draft.variants[0].dur = 0; isChild = true;
@@ -438,7 +471,7 @@ function readForm() {
     if (safeUrl(line)) return { label: line.replace(/^https?:\/\/(www\.)?/, "").split("/")[0], url: line };
     return null;
   }).filter(Boolean);
-  if (!ED.info) {
+  if (!ED.info && f.start) {
     const s = parseHHMM(f.start.value), e = parseHHMM(f.end.value);
     if (s == null) ED.draft.start = null;
     else {
@@ -449,13 +482,21 @@ function readForm() {
     else if (e == null) v.dur = 0;
     if (f.locked) ED.draft.locked = f.locked.checked;
   }
+  if (v.type === "info") { ED.draft.start = null; v.dur = 0; ED.draft.locked = false; ED.draft.done = false; }
+  else if (!ED.info && ED.draft.start == null && !ED.isChild && !f.start) {
+    // 由「資訊」改回一般行程：給一個預設時間
+    const d = day(); const i = d.items.findIndex((x) => x.id === ED.draft.id);
+    const prev = d.items.slice(0, i < 0 ? ED.at + 1 : i).reverse().find((x) => x.start != null);
+    ED.draft.start = prev ? endOf(prev) : 9 * 60; if (!v.dur) v.dur = 60;
+  }
   if (f.photoMode.value === "auto") delete ED.draft.photoMode; else ED.draft.photoMode = f.photoMode.value;
 }
 
 function renderEditor() {
   const it = ED.draft, v = it.variants[ED.k];
-  const title = ED.mode === "edit" ? (ED.isChild ? "編輯子行程" : "編輯行程") : ED.mode === "new-child" ? "新增子行程" : "新增主行程";
-  const isMainInDay = !ED.info && !ED.isChild;
+  const typeInfo = v.type === "info";
+  const title = typeInfo ? (ED.mode === "edit" ? "編輯資訊" : "新增資訊") : ED.mode === "edit" ? (ED.isChild ? "編輯子行程" : "編輯行程") : ED.mode === "new-child" ? "新增子行程" : "新增主行程";
+  const isMainInDay = !ED.info && !ED.isChild && !typeInfo;
   const showRipple = isMainInDay;
   const rippleLabel = ED.mode === "edit" ? "時間或長度改變時，之後的行程跟著移動" : "自動把之後的行程延後";
   const sheet = $("#sheet");
@@ -469,7 +510,8 @@ function renderEditor() {
       <label class="field"><span>標題</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：大阪城公園"></label>
       <label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === v.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field"><span>這個行程的圖片顯示方式（個別圖片可再按下方標籤設定）</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-      ${ED.info ? "" : `<div class="grid2">
+      ${typeInfo ? `<p class="hint">資訊不佔時間，不會影響前後行程的時間。</p>` : ""}
+      ${ED.info || typeInfo ? "" : `<div class="grid2">
         <label class="field"><span>開始時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="start" value="${hhmm(it.start)}"></label>
         <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"></label>
       </div>
@@ -520,7 +562,7 @@ function saveEditor() {
         const delta = next ? endOf(it) - next.start : 0;
         if (delta > 0) { const n = ripple(d, at, delta); if (n) return { msg: `已加入，之後 ${n} 項延後 ${durText(delta)}` }; }
       }
-      return { msg: "已加入行程" };
+      return { msg: isInfo(it) ? "已加入資訊（時間不變）" : "已加入行程" };
     }
     if (E.mode === "new-child") {
       const p = d.items.find((x) => x.id === E.parentId);
@@ -649,7 +691,7 @@ document.addEventListener("click", async (e) => {
     case "tab": S.dayId = id; S.q = ""; render(); window.scrollTo(0, 0); break;
     case "add-day": openDayEditor(true); break;
     case "edit-day": openDayEditor(false); break;
-    case "done": commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
+    case "done": S.expanded.delete(id); commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
     case "toggle": S.open.has(id) ? S.open.delete(id) : S.open.add(id); render(); break;
     case "plan": {
       const d = day(); const i = d.plans.findIndex((p) => p.id === id);
@@ -708,7 +750,8 @@ document.addEventListener("click", async (e) => {
       });
       break;
     }
-    case "add-main": openEditor({ mode: "new-main", at: +t.dataset.at }); break;
+    case "add-main": openEditor({ mode: "new-main", at: +t.dataset.at, type: t.dataset.type }); break;
+    case "fold": S.expanded.has(id) ? S.expanded.delete(id) : S.expanded.add(id); render(); break;
     case "add-child": openEditor({ mode: "new-child", id }); break;
     case "edit": openEditor({ mode: "edit", id }); break;
     case "quick-photo": {
@@ -839,6 +882,7 @@ document.addEventListener("input", (e) => {
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
 });
 document.addEventListener("change", async (e) => {
+  if (e.target.name === "type" && e.target.form && e.target.form.id === "edForm") { readForm(); renderEditor(); return; }
   if (e.target.id === "edFile") {
     const files = [...e.target.files]; if (!files.length) return;
     readForm();
