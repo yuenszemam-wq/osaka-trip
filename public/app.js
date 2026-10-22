@@ -698,7 +698,7 @@ function altsHTML(it) {
     ${it.variants.map((x, k) => `<div class="altrow"><button class="alt" data-act="variant" data-id="${esc(it.id)}" data-k="${k}" aria-pressed="${k === k0}"><b>${planLetter(k)}</b>${esc(x.title || "未命名")}</button>${k === k0 ? "" : `<button class="altadd" data-act="variant-out" data-id="${esc(it.id)}" data-k="${k}" aria-label="把 ${esc(x.title)} 加入行程">${icon("plus")}加入行程</button>`}</div>`).join("")}
     <div class="hint" style="margin-top:6px">按方案＝切換（取代目前方案）；按「加入行程」＝拆出成獨立一站，放在這項之後。</div></details>`;
 }
-const checkBtn = (it) => `<span class="checkwrap"><button class="check ${it.done ? "on" : ""}" data-act="done" data-id="${esc(it.id)}" aria-label="${it.done ? "取消完成" : "標記完成"}：${esc(V(it).title)}">${it.done ? "✓" : ""}</button></span>`;
+const checkBtn = (it) => S.manage ? "" : `<span class="checkwrap"><button class="check ${it.done ? "on" : ""}" data-act="done" data-id="${esc(it.id)}" aria-label="${it.done ? "取消完成" : "標記完成"}：${esc(V(it).title)}">${it.done ? "✓" : ""}</button></span>`;
 const editTop = (it) => `<button class="edit-top" data-act="edit" data-id="${esc(it.id)}">${icon("pencil")}編輯</button>`;
 function collapsed(it) { return it.done && !isInfo(it) && !S.expanded.has(it.id); }
 function foldBtn(it) {

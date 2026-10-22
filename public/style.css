@@ -498,3 +498,6 @@ html, body { overflow-x: clip; }
 .stops li.noplace { border-style: dashed; opacity: .85; }
 .stops li.noplace .num { background: transparent; color: var(--muted); }
 .st-place.add { color: var(--purple); font-weight: 600; }
+
+/* 交通：編輯按鈕靠右 */
+.transportline > button.edit-top { flex: none; margin-left: auto; padding: 4px 10px; border: 1px solid var(--line); background: var(--p); color: var(--purple); font-size: 12px; align-items: center; gap: 4px; }
