@@ -809,6 +809,36 @@ function timeLabelLocked(it) {
   return t ? `${t}${it.locked ? " <small>· 固定</small>" : ""}` : "";
 }
 // 簡介：沒有填寫時用詳情第一行（去掉「地址：」等標籤）
+// ---------- 住宿 ----------
+const isoAdd = (iso, n) => { const t = new Date(iso + "T00:00:00"); t.setDate(t.getDate() + n); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; };
+const shortDate = (iso) => { const t = new Date(iso + "T00:00:00"); return `${t.getMonth() + 1}.${String(t.getDate()).padStart(2, "0")}（${WEEK[t.getDay()]}）`; };
+const nights = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 864e5);
+function stayPeriodHTML(v) {
+  if (!v.stayFrom) return "";
+  const n = v.stayTo ? nights(v.stayFrom, v.stayTo) : 0;
+  return `<div class="stayperiod">${icon("bed")}<span>${shortDate(v.stayFrom)}${v.stayTo ? ` – ${shortDate(v.stayTo)}` : ""}</span>${n > 0 ? `<b>${n} 晚</b>` : ""}</div>`;
+}
+// 這個旅程在住宿頁設定的住宿（類型為住宿的項目）
+function tripStays(exceptId) {
+  const out = [];
+  for (const d of S.doc.days) if (d.kind !== "day") for (const it of d.items) for (const x of [it, ...(it.children || [])]) if (x.id !== exceptId && V(x).type === "stay" && V(x).title) out.push(x);
+  return out;
+}
+// 某一天應該住哪裡：住宿期間包括這天的優先
+function stayForDate(iso, exceptId) {
+  const list = tripStays(exceptId);
+  return (iso && list.find((x) => { const v = V(x); return v.stayFrom && v.stayFrom <= iso && (!v.stayTo || iso < v.stayTo || iso === v.stayFrom); })) || list[0] || null;
+}
+// 把住宿資料套用到編輯中的行程（只填空白的欄位；force = 全部取代）
+function applyStay(v, src, force) {
+  const s = V(src);
+  if (force || !v.title) v.title = s.title;
+  if (force || !v.summary) v.summary = s.summary || "";
+  if (force || !v.details) v.details = s.details || "";
+  if (force || !(v.links || []).length) v.links = clone(s.links || []);
+  if (force || !v.stayFrom) { v.stayFrom = s.stayFrom; v.stayTo = s.stayTo; }
+  v.stayRef = src.id;
+}
 function summaryOf(v) {
   if (v.summary) return v.summary;
   const line = (v.details || "").split("\n").map((x) => x.trim()).find(Boolean) || "";
@@ -1046,7 +1076,7 @@ function childHTML(c, d) {
         <div class="itemmeta metaline">${c.start != null && dayPage ? `<span class="time">${timeLabel(c)}</span>` : ""}<span class="category">${icon(info ? "info" : cat[1])}${info ? "資訊" : cat[0]}<small class="subtag">子行程</small></span></div>
         ${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || !dayPage ? "" : checkBtn(c)}</div>
       <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
-      ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
+      ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}${type === "stay" ? stayPeriodHTML(v) : ""}</div>
     ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${dayPage ? memoSection(c) : ""}${altsHTML(c, d)}
     ${S.manage ? `<div class="edtools"><button data-act="quick-photo" data-id="${esc(c.id)}">${icon("camera")}圖片</button>${dayPage ? `<button data-act="move-out" data-id="${esc(c.id)}">${icon("archive")}備選</button>` : ""}</div>` : ""}
   </div>`;
@@ -1097,7 +1127,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
       ${S.manage ? editTop(it) : ""}${foldBtn(it)}${listPage ? "" : checkBtn(it)}</div>
     ${warnHTML}
     <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${chev}</div>
-    ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
+    ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}${type === "stay" ? stayPeriodHTML(v) : ""}</div>
     ${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${listPage ? "" : memoSection(it)}
     ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it, d)}
     ${S.manage ? toolsHTML(it, d, pos) : ""}
@@ -2023,6 +2053,7 @@ function readForm() {
   const cost = readCost(f); if (cost) v.cost = cost; else delete v.cost;
   v.type = f.type.value;
   v.details = f.details.value.replace(/\s+$/, "");
+  if (f.stayFrom) { v.stayFrom = f.stayFrom.value || undefined; v.stayTo = f.stayTo.value || undefined; if (v.stayFrom && v.stayTo && v.stayTo < v.stayFrom) v.stayTo = undefined; }
   v.links = readLinkRows();
   if (f.level) ED.level = f.level.value;
   if (!ED.info && f.start) {
@@ -2084,6 +2115,12 @@ function renderEditor() {
       <label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === v.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field"><span>這個行程的圖片顯示方式（個別圖片可再按下方標籤設定）</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       ${typeInfo ? `<p class="hint">資訊不佔時間，不會影響前後行程的時間。</p>` : ""}
+      ${v.type === "stay" ? (() => { const stays = tripStays(ED.draft.id); const d0 = S.doc.days.filter((x) => x.kind === "day"); const first = d0[0] && dayDate(d0[0]), last = d0.length && dayDate(d0[d0.length - 1]);
+        return `<div class="box"><div class="box-title"><span>${icon("bed")} 住宿期間</span>${v.stayFrom && v.stayTo && nights(v.stayFrom, v.stayTo) > 0 ? `<span class="hint">${nights(v.stayFrom, v.stayTo)} 晚</span>` : ""}</div>
+        ${(() => { const onDay = (S.doc.days.find((x) => x.id === ED.dayId) || {}).kind === "day"; const f0 = v.stayFrom || (!onDay && first) || "", t0 = v.stayTo || (!onDay && !v.stayFrom && last && last !== first ? last : "") || "";
+          return `<div class="grid2"><label class="field"><span>入住日期</span><input type="date" name="stayFrom" value="${esc(f0)}"></label>
+        <label class="field"><span>退房日期</span><input type="date" name="stayTo" value="${esc(t0)}"></label></div>`; })()}
+        ${stays.length ? `<div class="field"><span>套用這個旅程的住宿資料</span><div class="vtabs">${stays.map((x) => `<button type="button" class="chip ${v.stayRef === x.id ? "on" : ""}" data-act="ed-stay" data-id="${esc(x.id)}">${icon("bed")} ${esc(V(x).title)}</button>`).join("")}</div><small class="hint">會帶入名稱、地址、地圖連結和住宿期間。</small></div>` : ""}</div>`; })() : ""}
       ${ED.info || typeInfo ? "" : isTr ? `<div class="grid2">
         <label class="field"><span>出發時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
         <label class="field"><span>交通時間（分鐘）</span><input type="number" name="tdur" inputmode="numeric" min="0" step="1" value="${v.dur || ""}" placeholder="例如：25"></label>
@@ -3215,6 +3252,7 @@ document.addEventListener("click", async (e) => {
       commit(() => { const f = findItem(id); const v = V(f.item); v.photoModes = v.photoModes || {}; v.photoModes[t.dataset.photo] = t.dataset.mode; });
       break;
     case "close": closeSheet(); break;
+    case "ed-stay": { readForm(); const src = findItem(id); if (src) applyStay(ED.draft.variants[ED.k], src.item, true); const y = $(".sheet-body").scrollTop; renderEditor(); $(".sheet-body").scrollTop = y; break; }
     case "time-clear": { const inp = t.parentElement.querySelector("input"); if (inp) { inp.value = ""; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); } break; }
     case "ed-save": saveEditor(); break;
     case "ed-to-child": {
@@ -3403,7 +3441,16 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", async (e) => {
   if (e.target.name === "costCur") { updateCostPreview(); return; }
   if (e.target.form && e.target.form.id === "schedForm") { const go = $("#schedGo"); if (go) { go.dataset.act = "sched-calc"; go.textContent = "重新計算"; go.disabled = false; } return; }
-  if (e.target.name === "type" && e.target.form && e.target.form.id === "edForm") { readForm(); renderEditor(); return; }
+  if (e.target.name === "type" && e.target.form && e.target.form.id === "edForm") {
+    readForm();
+    const v = ED.draft.variants[ED.k];
+    if (v.type === "stay") {
+      const d = S.doc.days.find((x) => x.id === ED.dayId);
+      if (d && d.kind === "day") { const src = stayForDate(dayDate(d), ED.draft.id); if (src) applyStay(v, src, false); }
+      else if (!v.stayFrom) { const days = S.doc.days.filter((x) => x.kind === "day"); if (days.length) { v.stayFrom = dayDate(days[0]) || undefined; v.stayTo = days.length > 1 && dayDate(days[days.length - 1]) || undefined; } }
+    }
+    renderEditor(); return;
+  }
   if (e.target.name === "day" && e.target.form && e.target.form.id === "moveForm") { openMoveIn(e.target.dataset.id, e.target.value); scrollChecked(); return; }
   if (e.target.id === "edFile") {
     const files = [...e.target.files]; if (!files.length) return;

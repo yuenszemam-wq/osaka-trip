@@ -747,3 +747,8 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .tbox { position: relative; display: block; }
 .tbox input { width: 100%; padding-right: 40px !important; }
 .tbox .tclear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--soft); color: var(--muted); font-size: 13px; display: grid; place-items: center; padding: 0; }
+
+/* 住宿期間 */
+.stayperiod { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--ink-2); background: color-mix(in srgb, var(--c-stay) 14%, var(--w)); border-radius: 9px; padding: 4px 10px; }
+.stayperiod svg.i { width: 15px; height: 15px; color: var(--c-stay); }
+.stayperiod b { color: var(--c-stay); font-weight: 700; }

@@ -2,7 +2,7 @@
 // - 網站外殼（HTML/CSS/JS）：網絡優先，沒有網絡時用快取
 // - 圖片：快取優先（看過或在「準備離線使用」下載過的圖片，離線時都可以看）
 // - 地圖程式庫（cdnjs）和地圖底圖：快取優先，底圖最多保留約 1500 張
-const SHELL = "shell-v40", PHOTOS = "photos-v1", LIBS = "libs-v1", TILES = "tiles-v1";
+const SHELL = "shell-v41", PHOTOS = "photos-v1", LIBS = "libs-v1", TILES = "tiles-v1";
 const FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest", "/icon-192.png", "/icon-180.png", "/icon-64.png"];
 
 self.addEventListener("install", (e) => {
