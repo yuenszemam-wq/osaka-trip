@@ -3,11 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f8f6f3">
+<meta name="theme-color" content="#f6f4f0" id="themeColor">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="旅行手帳">
 <title>旅行手帳</title>
+<script>
+  // 盡早套用深淺色，避免閃爍
+  try { var t = localStorage.getItem("trip.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-180.png">
@@ -15,17 +19,18 @@
 </head>
 <body>
 <div id="app">
-  <nav class="tabs" id="tabs"></nav>
+  <header class="brand" id="brand"></header>
+  <nav class="toprows" id="tabs" aria-label="分頁"></nav>
   <main id="main"><p class="loading">載入中…</p></main>
 </div>
 
-<footer class="bar" id="bar">
-  <span class="sync"><i id="syncDot"></i><span id="syncText">連接中…</span></span>
-  <span class="bar-actions">
-    <button class="btn ghost" id="photoModeBtn">▦ 縮圖</button>
-    <button class="btn ghost" id="undoBtn" disabled>↶ 復原</button>
-    <button class="btn ghost" id="menuBtn" aria-label="更多">⋯</button>
-  </span>
+<footer class="bottom">
+  <div class="bottom-in">
+    <button class="sync" id="syncBtn"><i id="syncDot"></i><span id="syncText">連接中…</span></button>
+    <button class="bb" id="photoModeBtn"></button>
+    <button class="bb" id="undoBtn" disabled></button>
+    <button class="bb primary" id="addBtn"></button>
+  </div>
 </footer>
 
 <div id="toast" class="toast" hidden></div>

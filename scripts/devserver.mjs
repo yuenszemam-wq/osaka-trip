@@ -20,31 +20,22 @@ const DB = {
   async batch(list) { const out = []; sqlite.exec("BEGIN"); try { for (const s of list) out.push(await s.run()); sqlite.exec("COMMIT"); } catch (e) { sqlite.exec("ROLLBACK"); throw e; } return out; },
 };
 
-const routes = [
-  [/^\/api\/trip$/, "functions/api/trip.js"],
-  [/^\/api\/photos$/, "functions/api/photos/index.js"],
-  [/^\/api\/photos\/([^/]+)$/, "functions/api/photos/[id].js"],
-  [/^\/api\/revisions$/, "functions/api/revisions/index.js"],
-  [/^\/api\/revisions\/([^/]+)$/, "functions/api/revisions/[id].js"],
-];
+import worker from "../src/worker.js";
 const MIME = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".webmanifest": "application/manifest+json" };
+const ASSETS = {
+  async fetch(req) {
+    const u = new URL(req.url);
+    let p = path.join(root, "public", u.pathname === "/" ? "index.html" : u.pathname);
+    if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) return new Response("Not found", { status: 404 });
+    return new Response(fs.readFileSync(p), { headers: { "content-type": MIME[path.extname(p)] || "application/octet-stream" } });
+  },
+};
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
-  for (const [re, file] of routes) {
-    const m = re.exec(url.pathname);
-    if (!m) continue;
-    const mod = await import(path.join(root, file));
-    const fn = mod["onRequest" + req.method[0] + req.method.slice(1).toLowerCase()];
-    if (!fn) { res.writeHead(405); return res.end(); }
-    const chunks = []; for await (const c of req) chunks.push(c);
-    const request = new Request(url, { method: req.method, headers: req.headers, body: ["GET", "HEAD"].includes(req.method) ? undefined : Buffer.concat(chunks) });
-    const r = await fn({ request, env: { DB }, params: { id: m[1] } });
-    res.writeHead(r.status, Object.fromEntries(r.headers));
-    return res.end(Buffer.from(await r.arrayBuffer()));
-  }
-  let p = path.join(root, "public", url.pathname === "/" ? "index.html" : url.pathname);
-  if (!fs.existsSync(p)) p = path.join(root, "public", "index.html");
-  res.writeHead(200, { "content-type": MIME[path.extname(p)] || "application/octet-stream" });
-  fs.createReadStream(p).pipe(res);
+  const chunks = []; for await (const c of req) chunks.push(c);
+  const request = new Request(url, { method: req.method, headers: req.headers, body: ["GET", "HEAD"].includes(req.method) ? undefined : Buffer.concat(chunks) });
+  const r = await worker.fetch(request, { DB, ASSETS }, {});
+  res.writeHead(r.status, Object.fromEntries(r.headers));
+  res.end(Buffer.from(await r.arrayBuffer()));
 }).listen(process.env.PORT || 8788, () => console.log("http://localhost:" + (process.env.PORT || 8788)));
