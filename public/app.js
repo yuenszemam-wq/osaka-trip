@@ -1131,26 +1131,148 @@ function openMenu() {
   const sheet = $("#sheet");
   sheet.className = "sheet drawer";
   const trips = S.trips.length ? S.trips : [{ id: S.tripId, title: (S.doc.meta || {}).title || "目前旅程", dates: (S.doc.meta || {}).dates }];
-  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>旅行手帳</h2><button class="btn ghost" data-act="close" aria-label="關閉">${icon("x")}</button></div>
+  const m = S.doc.meta || {};
+  sheet.innerHTML = `<div class="sheet-body menu-body"><div class="sheet-head"><h2>旅行手帳</h2><button class="btn ghost" data-act="close" aria-label="關閉">${icon("x")}</button></div>
     <div class="menu-sec">我的旅程</div>
-    <div class="menu-list">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="trip-open" data-id="${esc(t.id)}">${icon("suitcase")}<span>${esc(t.id === S.tripId ? (S.doc.meta || {}).title || t.title : t.title)}<span class="tsub">${esc(t.id === S.tripId ? (S.doc.meta || {}).dates || "" : t.dates || "")}${t.days ? ` · ${t.days} 天` : ""}</span></span></button>`).join("")}
+    <div class="menu-list">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="trip-open" data-id="${esc(t.id)}">${icon("suitcase")}<span>${esc(t.id === S.tripId ? m.title || t.title : t.title)}<span class="tsub">${esc(t.id === S.tripId ? m.dates || "" : t.dates || "")}${t.days ? ` · ${t.days} 天` : ""}</span></span></button>`).join("")}
       <button data-act="trip-new">${icon("plus")}新增旅程</button></div>
+    <details class="mgmt" id="mgmt" ${S.mgmtOpen ? "open" : ""}>
+      <summary>${icon("sliders")}<span>行程管理<span class="tsub">${esc(m.title || "")}</span></span>${icon("down")}</summary>
+      <div class="menu-list">
+        <button data-act="trip-settings">${icon("gear")}旅程設定（名稱、日期、貨幣）</button>
+        <button data-act="pdf-open">${icon("note")}匯出 PDF 手冊</button>
+        <button data-act="revisions">${icon("history")}版本紀錄（可還原）</button>
+        <button data-act="export">${icon("download")}匯出行程 JSON</button>
+        <button data-act="import">${icon("upload")}匯入行程 JSON</button>
+        <button data-act="reload">${icon("refresh")}重新載入最新版本</button>
+        ${trips.length > 1 ? `<button data-act="trip-delete">${icon("trash")}刪除這個旅程</button>` : ""}
+      </div>
+    </details>
+    <div class="menu-grow"></div>
     <div class="menu-sec">外觀</div>
     <div class="seg">${[["light", "sun", "淺色"], ["dark", "moon", "深色"], ["auto", "auto", "跟隨系統"]].map(([k, i, t]) => `<button data-act="theme" data-id="${k}" aria-pressed="${S.theme === k}">${icon(i)}${t}</button>`).join("")}</div>
     <div class="seg" style="margin-top:8px">${[["thumb", "image", "圖片縮圖"], ["full", "image", "圖片大圖"]].map(([k, i, t]) => `<button data-act="photo-mode" data-id="${k}" aria-pressed="${S.photoMode === k}">${icon(i)}${t}</button>`).join("")}</div>
-    <div class="menu-sec">目前旅程</div>
-    <div class="menu-list">
-      <button data-act="trip-settings">${icon("gear")}旅程設定（名稱、日期、貨幣）</button>
-      <button data-act="revisions">${icon("history")}版本紀錄（可還原）</button>
-      <button data-act="export">${icon("download")}匯出行程 JSON</button>
-      <button data-act="import">${icon("upload")}匯入行程 JSON</button>
-      <button data-act="reload">${icon("refresh")}重新載入最新版本</button>
-      ${trips.length > 1 ? `<button data-act="trip-delete">${icon("trash")}刪除這個旅程</button>` : ""}
-    </div>
     <p class="hint" style="margin-top:14px">這個網站是公開的，任何人有網址都可以查看和編輯。所有修改都會留下版本紀錄。</p>
     <input type="file" id="importFile" accept="application/json,.json" hidden></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
   loadTrips().then(() => { if (!sheet.hidden && sheet.classList.contains("drawer") && S.trips.length !== trips.length) openMenu(); });
+}
+
+// ---------- PDF 手冊（排版好的列印頁，用系統「列印 → 儲存為 PDF」） ----------
+function openPdfOptions() {
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  const days = S.doc.days.filter((d) => d.kind === "day");
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>匯出 PDF 手冊</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="pdfForm" onsubmit="return false">
+      <div class="field"><span>包括哪幾天</span>${days.map((d) => `<label class="checkline"><input type="checkbox" name="day" value="${esc(d.id)}" checked><span>${esc(d.label)} · ${esc(d.title || "")}</span></label>`).join("")}</div>
+      <div class="field"><span>內容</span>
+        <label class="checkline"><input type="checkbox" name="details" checked><span>詳情（地址、交通、營業時間）</span></label>
+        <label class="checkline"><input type="checkbox" name="notes" checked><span>備注頁（住宿等，不包括備選地點）</span></label>
+        <label class="checkline"><input type="checkbox" name="alts"><span>備選方案及其他分叉路線</span></label>
+        <label class="checkline"><input type="checkbox" name="money" checked><span>消費及支出表</span></label>
+        <label class="checkline"><input type="checkbox" name="photos"><span>圖片<small>檔案會比較大</small></span></label>
+        <label class="checkline"><input type="checkbox" name="links" checked><span>連結（列出網址）</span></label>
+      </div>
+    </form>
+    <p class="hint">按「產生手冊」後會開啟排版好的頁面，再按「列印／儲存為 PDF」。iPhone：在列印畫面按「分享」→「儲存到檔案」即可得到 PDF。</p>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="pdf-make">產生手冊</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function handbookHTML(o) {
+  const m = S.doc.meta || {};
+  const cur = localCur();
+  const fmtCost = (c) => {
+    if (!c || (c.plan == null && c.actual == null)) return "";
+    const one = (lbl, n) => { if (n == null) return ""; const h = (c.cur || cur) !== "HKD" ? toHKD(n, c.cur || cur) : null; return `${lbl} ${money(n, c.cur || cur)}${h != null ? `（≈${money(h, "HKD")}）` : ""}`; };
+    return `<div class="cost">💴 ${[one("預計", c.plan), one("實際", c.actual)].filter(Boolean).join("　")}</div>`;
+  };
+  const block = (it, sub) => {
+    const v = V(it), type = v.type || "place", cat = catOf(type);
+    const links = (v.links || []).filter((l) => safeUrl(l.url));
+    let h = `<div class="it ${sub ? "sub" : ""} t-${cat[2]}"><div class="tm">${it.start != null ? timeLabel(it) : ""}${it.locked ? "<br><small>固定</small>" : ""}</div><div class="bd">
+      <div class="ti"><span class="cat">${cat[0]}</span>${esc(v.title || "（未命名）")}</div>
+      ${summaryOf(v) && !o.details ? `<div class="su">${esc(summaryOf(v))}</div>` : ""}
+      ${o.details && v.details ? `<div class="de">${esc(v.details)}</div>` : ""}
+      ${o.money ? fmtCost(v.cost) : ""}
+      ${o.links && links.length ? `<div class="ln">${links.map((l) => `${isMapLink(l) ? "📍" : "🔗"} ${esc(l.label || "")}<span class="url">${esc(l.url)}</span>`).join("<br>")}</div>` : ""}
+      ${o.photos && (v.photos || []).length ? `<div class="ph">${v.photos.map((p) => `<img src="${location.origin}${photoUrl(p)}">`).join("")}</div>` : ""}
+      ${o.alts && it.variants.length > 1 ? `<div class="al">備選方案：${it.variants.map((x, k) => `${planLetter(k)}. ${esc(x.title)}${k === (it.active || 0) ? "（目前）" : ""}`).join("　")}</div>` : ""}
+    </div></div>`;
+    for (const c of it.children || []) h += block(c, true);
+    return h;
+  };
+  let html = `<section class="cover"><div class="k">${esc(m.dates || "")}</div><h1>${esc(m.name || m.title || "")}</h1><div class="s">${esc(m.subtitle || m.title || "")}</div>
+    <ol class="toc">${S.doc.days.filter((d) => d.kind === "day" && o.days.includes(d.id)).map((d) => `<li><b>${esc(d.label)}</b> ${esc(d.title || "")}<span>${esc(d.subtitle || "")}</span></li>`).join("")}</ol></section>`;
+  if (o.notes) for (const d of S.doc.days.filter((x) => x.kind !== "day" && !isIdeas(x) && x.items.length)) {
+    html += `<section class="day"><h2><span>${esc(d.label)}</span>${esc(d.title || "")}</h2>${d.items.map((it) => block(it)).join("")}</section>`;
+  }
+  for (const d of S.doc.days.filter((x) => x.kind === "day" && o.days.includes(x.id))) {
+    html += `<section class="day"><h2><span>${esc(d.label)}${d.sub ? " · " + esc(d.sub) : ""}</span>${esc(d.title || "")}</h2>${d.subtitle ? `<p class="ds">${esc(d.subtitle)}</p>` : ""}`;
+    for (const n of d.items) {
+      if (isBranch(n)) {
+        const r = activeRoute(n);
+        html += `<div class="br">⑂ 分叉路線：${esc(r.name || "目前路線")}${o.alts && n.routes.length > 1 ? `<small>（其他：${n.routes.filter((x) => x !== r).map((x) => esc(x.name || "未命名")).join("、")}）</small>` : ""}</div>`;
+        html += r.items.map((it) => block(it)).join("");
+        if (o.alts) for (const other of n.routes.filter((x) => x !== r)) {
+          html += `<div class="br alt">⑂ 另一路線：${esc(other.name || "未命名")}</div>${other.items.map((it) => block(it)).join("")}`;
+        }
+        html += `<div class="br end">⑂ 路線匯合</div>`;
+      } else html += block(n);
+    }
+    html += `</section>`;
+  }
+  if (o.money) {
+    const rows = costRows().filter((r) => !r.day || r.day.kind !== "day" || o.days.includes(r.day.id));
+    if (rows.length) {
+      const p = sumHK(rows, "plan").s, a = sumHK(rows, "actual").s;
+      html += `<section class="day money"><h2><span>支出</span>旅行支出表</h2>
+        <p class="ds">預計合計 ${money(p, "HKD")}　實際合計 ${money(a, "HKD")}${m.rate && cur !== "HKD" ? `　（1 ${cur} = ${m.rate.toFixed(4)} HKD）` : ""}</p>
+        <table><thead><tr><th>日期</th><th>項目</th><th>預計</th><th>實際</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr><td>${esc(r.day ? r.day.label : "全程")}</td><td>${esc(r.title)}</td><td>${r.plan != null ? money(r.plan, r.cur) : ""}</td><td>${r.actual != null ? money(r.actual, r.cur) : ""}</td></tr>`).join("")}
+        </tbody></table></section>`;
+    }
+  }
+  const css = `@page{size:A4;margin:14mm 13mm}*{box-sizing:border-box}body{margin:0;font:10.5pt/1.6 -apple-system,"PingFang TC","Noto Sans TC",sans-serif;color:#2f2838;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .bar{position:sticky;top:0;display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;background:#f6f4f0;border-bottom:1px solid #e9e2eb;font-size:14px;z-index:2}
+  .bar button{border:0;background:#72598e;color:#fff;border-radius:10px;padding:10px 16px;font-size:15px}
+  .wrap{max-width:780px;margin:0 auto;padding:16px}
+  .cover{padding:40px 0 24px;border-bottom:2px solid #72598e;margin-bottom:10px;page-break-after:always}
+  .cover .k{letter-spacing:3px;font-size:9pt;color:#877d8d}.cover h1{font:400 46pt/1.1 Georgia,serif;margin:10px 0 6px}.cover .s{color:#72598e;letter-spacing:3px}
+  .toc{margin:36px 0 0;padding:0;list-style:none}.toc li{padding:10px 0;border-bottom:1px solid #e9e2eb}.toc b{color:#72598e;margin-right:10px}.toc span{display:block;color:#877d8d;font-size:9.5pt}
+  .day{page-break-before:always}.day:first-of-type{page-break-before:auto}
+  h2{font-size:17pt;margin:0 0 4px;display:flex;gap:12px;align-items:baseline}h2 span{font-size:10pt;color:#fff;background:#72598e;border-radius:6px;padding:2px 9px;letter-spacing:1px;white-space:nowrap}
+  .ds{color:#877d8d;margin:0 0 12px}
+  .it{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #eee8f0;page-break-inside:avoid}.it.sub{padding-left:22px}.it.sub .ti{font-size:10.5pt}
+  .tm{flex:0 0 88px;font-weight:700;font-variant-numeric:tabular-nums;color:#a0603a;font-size:10pt}.tm small{font-weight:400;color:#877d8d}
+  .bd{flex:1;min-width:0}.ti{font-weight:700;font-size:11.5pt}.cat{display:inline-block;font-size:8pt;font-weight:500;border-radius:5px;padding:0 6px;margin-right:6px;vertical-align:1px;background:#ece5f1;color:#72598e}
+  .t-food .cat{background:#f6e9e0;color:#a86c49}.t-transport .cat{background:#eeedf2;color:#6f6a80}.t-shop .cat{background:#e6efe9;color:#4f7a61}.t-stay .cat{background:#e4edf4;color:#456c8c}.t-flight .cat{background:#f2ebe3;color:#8d7358}.t-info .cat{background:#eeedf2;color:#6c6880}
+  .t-transport .ti{font-weight:500;color:#5b5266}
+  .su{color:#877d8d;font-size:9.5pt}.de{white-space:pre-wrap;font-size:9.5pt;color:#3f374a;margin-top:3px}.cost{font-size:9.5pt;margin-top:3px}
+  .ln{font-size:8.5pt;color:#5b5266;margin-top:4px;word-break:break-all}.ln .url{display:block;color:#9a91a3;margin-bottom:2px}
+  .al{font-size:9pt;color:#72598e;margin-top:3px}.ph{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.ph img{max-width:48%;max-height:240px;border-radius:6px}
+  .br{margin:12px 0 4px;padding:6px 10px;background:#ece5f1;color:#72598e;border-radius:6px;font-size:9.5pt;font-weight:600}.br small{font-weight:400}.br.alt{background:#f6f4f0}.br.end{background:none;padding:2px 0;font-weight:400}
+  table{width:100%;border-collapse:collapse;font-size:9.5pt}th,td{border-bottom:1px solid #eee8f0;padding:6px 4px;text-align:left}th{color:#877d8d;font-weight:500}td:nth-child(3),td:nth-child(4),th:nth-child(3),th:nth-child(4){text-align:right;white-space:nowrap}
+  @media print{.bar{display:none}.wrap{padding:0;max-width:none}}`;
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(m.title || "旅行手冊")}</title><style>${css}</style></head>
+    <body><div class="bar"><span>${esc(m.title || "旅行手冊")} · 預覽</span><button onclick="window.print()">列印／儲存為 PDF</button></div><div class="wrap">${html}</div>
+    <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})<\/script></body></html>`;
+}
+function makeHandbook() {
+  const f = $("#pdfForm");
+  const o = { days: $$("#pdfForm [name=day]:checked").map((x) => x.value), details: f.details.checked, notes: f.notes.checked, alts: f.alts.checked, money: f.money.checked, photos: f.photos.checked, links: f.links.checked };
+  if (!o.days.length) { toast("請至少選擇一天"); return; }
+  const html = handbookHTML(o);
+  const w = window.open("", "_blank");
+  if (!w) {
+    // 被瀏覽器擋住彈出視窗：改為下載 HTML 檔
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    a.download = ((S.doc.meta && S.doc.meta.title) || "旅行手冊") + ".html"; a.click();
+    toast("已下載手冊網頁，打開後按「列印／儲存為 PDF」");
+    return;
+  }
+  w.document.open(); w.document.write(html); w.document.close();
+  closeSheet();
 }
 function openTripSettings() {
   const m = S.doc.meta || {};
@@ -1753,6 +1875,8 @@ document.addEventListener("click", async (e) => {
     case "theme": setTheme(id); openMenu(); break;
     case "rate-refresh": updateRate(true); break;
     case "map-filter": S.mapFilter = id; render(); break;
+    case "pdf-open": openPdfOptions(); break;
+    case "pdf-make": makeHandbook(); break;
     case "add": addFromBottom(); break;
     case "refresh": forceRefresh(); break;
     case "undo-btn": undo(); break;
@@ -2076,6 +2200,7 @@ function addFromBottom() {
 document.addEventListener("toggle", (e) => {
   const el = e.target;
   if (el.classList && el.classList.contains("period")) { const k = el.dataset.key; el.open ? S.closed.delete(k) : S.closed.add(k); }
+  if (el.id === "mgmt") S.mgmtOpen = el.open;
   if (el.dataset && el.dataset.alt) { el.open ? S.altOpen.add(el.dataset.alt) : S.altOpen.delete(el.dataset.alt); }
 }, true);
 window.addEventListener("scroll", () => { const t = $("#tabs"); if (t) t.classList.toggle("stuck", window.scrollY > ($("#brand").offsetHeight || 80) - 4); }, { passive: true });
