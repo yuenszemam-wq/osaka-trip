@@ -508,3 +508,6 @@ html, body { overflow-x: clip; }
 .mpin.est.dim { opacity: .28; }
 .st-geo.approx, .st-geo.est { color: var(--muted); font-size: 12px; display: block; }
 .sc-approx { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.lrow .l-addr { margin-top: 6px; }
+.st-addr { display: block; font-size: 12px; color: var(--muted); }

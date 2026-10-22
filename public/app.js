@@ -810,14 +810,14 @@ function coordsFromUrl(url) {
   const m = /@(-?\d+\.\d+),(-?\d+\.\d+)/.exec(url || "") || /[?&](?:query|q|ll|destination)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/.exec(url || "");
   return m ? [+m[1], +m[2]] : null;
 }
-const geoOf = (s) => coordsFromUrl(s.link.url) || (s.link.geo && s.link.geo.q === s.q && s.link.geo.lat != null ? [s.link.geo.lat, s.link.geo.lng] : null) || s.est || null;
+const geoOf = (s) => coordsFromUrl(s.link.url) || (s.link.geo && s.link.geo.q === s.key && s.link.geo.lat != null ? [s.link.geo.lat, s.link.geo.lng] : null) || s.est || null;
 // 定位是否為「附近位置」：approx = 用較概括的地址找到；est = 完全找不到，暫放在前後兩站之間
-const geoKind = (s) => coordsFromUrl(s.link.url) ? "" : s.link.geo && s.link.geo.q === s.q && s.link.geo.lat != null ? (s.link.geo.approx ? "approx" : "") : s.est ? "est" : "";
+const geoKind = (s) => coordsFromUrl(s.link.url) ? "" : s.link.geo && s.link.geo.q === s.key && s.link.geo.lat != null ? (s.link.geo.approx ? "approx" : "") : s.est ? "est" : "";
 // 找不到的地點：用前後已定位的站估計位置（只用來顯示，不會儲存）
 function estimateMissing(stops) {
   const real = stops.map((s) => { s.est = null; return geoOf(s); });
   stops.forEach((s, i) => {
-    if (real[i] || !(s.link.geo && s.link.geo.q === s.q && s.link.geo.fail)) return;
+    if (real[i] || !(s.link.geo && s.link.geo.q === s.key && s.link.geo.fail)) return;
     let a = null, b = null;
     for (let k = i - 1; k >= 0 && !a; k--) a = real[k];
     for (let k = i + 1; k < stops.length && !b; k++) b = real[k];
@@ -863,32 +863,40 @@ async function geocodePhoton(q, near) {
   const f = j.features && j.features[0];
   return f ? [+f.geometry.coordinates[1], +f.geometry.coordinates[0]] : null;
 }
-// 由精確到概括：完整名稱 → 拆開「・／」→ 去掉樓層、大廈名 → 逐步去掉門牌號碼（例如 梅田3-2-2 → 梅田3-2 → 梅田3 → 梅田）
+// 定位步驟（由精確到概括）：
+// 1. 地點名稱（OpenStreetMap）→ 2. 地址 → 3. 第二個定位服務（Photon）試名稱和地址
+// → 4. 放寬地址：去掉樓層、大廈名，逐步去掉門牌號碼（梅田3-2-2 → 梅田3-2 → 梅田3 → 梅田）→ 5. 行程標題
 function geoCandidates(s) {
-  const exact = [], wide = [];
-  const bases = [s.q, s.link.label, s.v.title].map((x) => (x || "").trim()).filter(Boolean);
-  for (const b of bases) {
-    exact.push(b);
-    for (const part of b.split(/[・／/|｜（）()、,，]/)) if (part.trim() !== b) exact.push(part.trim());
-  }
-  for (const b of [...exact]) {
-    let x = b.replace(/\s*(\d+|[一二三四五六七八九十]+)\s*(樓|楼|F|階)\b.*$/i, "").replace(/\s*(\d+|[一二三四五六七八九十]+)\s*(樓|楼|階).*$/, "");
-    wide.push(x);
-    x = x.split(/[\s　]/)[0]; wide.push(x);
+  const split = (b) => [b, ...b.split(/[・／/|｜（）()、,，]/).map((x) => x.trim()).filter((x) => x && x !== b)];
+  const clean = (l) => [...new Set(l.map((x) => (x || "").trim()).filter((x) => x.length > 1))];
+  const names = clean([s.q, s.link.label].filter(Boolean).flatMap(split));
+  const addrs = clean(s.link.addr ? split(s.link.addr) : []);
+  const titles = clean(s.v.title ? split(s.v.title) : []);
+  const widen = (b) => {
+    const out = [];
+    let x = b.replace(/\s*(\d+|[一二三四五六七八九十]+)\s*(F|樓|楼|階)(?![a-z]).*$/i, "");
+    out.push(x);
+    if (/\d/.test(x)) { x = x.split(/[\s　]/)[0]; out.push(x); } // 只有像地址的才去掉大廈名
+    else return out;
     for (let k = 0; k < 6; k++) {
       const y = x.replace(/[-‐ー－−の]?\d+(番地|番|号|號|丁目)?$/, "");
       if (y === x) break;
-      x = y; wide.push(x);
+      x = y; out.push(x);
     }
-    wide.push(x.replace(/[\d\-‐ー－−]+$/, ""));
-  }
-  const seen = new Set(), out = [];
-  for (const [list, approx] of [[exact, false], [wide, true]]) for (const q of list) {
-    const t = (q || "").trim();
-    if (t.length < 2 || seen.has(t)) continue;
-    seen.add(t); out.push({ q: t, approx });
-  }
-  return out;
+    out.push(x.replace(/[\d\-‐ー－−]+$/, ""));
+    return out;
+  };
+  const steps = [
+    ...names.map((q) => ({ q })),
+    ...addrs.map((q) => ({ q })),
+    ...names.slice(0, 2).map((q) => ({ q, photon: true })),
+    ...addrs.slice(0, 1).map((q) => ({ q, photon: true })),
+    ...clean([...addrs, ...names].flatMap(widen)).map((q) => ({ q, approx: true })),
+    ...titles.map((q) => ({ q })),
+    ...clean(titles.flatMap(widen)).map((q) => ({ q, approx: true })),
+  ];
+  const seen = new Set();
+  return steps.filter((c) => { const k = (c.photon ? "P" : "N") + c.q; if (c.q.length < 2 || seen.has(k)) return false; seen.add(k); return true; });
 }
 const kmBetween = (a, b) => Math.hypot((a[0] - b[0]) * 111, (a[1] - b[1]) * 111 * Math.cos(a[0] * Math.PI / 180));
 async function geocodeMissing(d) {
@@ -899,18 +907,19 @@ async function geocodeMissing(d) {
     const all = routeStops(d);
     for (const s of all) {
       const g0 = s.link.geo;
-      if (coordsFromUrl(s.link.url) || (g0 && g0.q === s.q && (g0.lat != null || (g0.fail && g0.v >= 2)))) continue;
+      if (coordsFromUrl(s.link.url) || (g0 && g0.q === s.key && (g0.lat != null || (g0.fail && g0.v >= 2)))) continue;
       const st = $("#geoStatus"); if (st) st.textContent = `正在定位「${s.q}」…`;
       // 其他已定位地點的中心，用來排除去了別的城市的結果
       const known = all.map((x) => x !== s && x.link.geo && x.link.geo.lat != null ? [x.link.geo.lat, x.link.geo.lng] : coordsFromUrl(x.link.url)).filter(Boolean);
       const mid = known.length ? [known.map((p) => p[0]).sort((a, b) => a - b)[known.length >> 1], known.map((p) => p[1]).sort((a, b) => a - b)[known.length >> 1]] : null;
       const ok = (p, approx) => p && (!mid || known.length < 2 || kmBetween(p, mid) < (approx ? 60 : 400));
       let hit = null, by = null, approx = false;
-      const cands = geoCandidates(s);
-      for (const c of cands.filter((c) => !c.approx)) { const p = await geocode(c.q).catch(() => null); await sleep(1100); if (ok(p, false)) { hit = p; by = c.q; break; } }
-      if (!hit) for (const c of cands.filter((c) => !c.approx).slice(0, 2)) { const p = await geocodePhoton(c.q, mid).catch(() => null); await sleep(300); if (ok(p, false)) { hit = p; by = c.q; break; } }
-      if (!hit) for (const c of cands.filter((c) => c.approx)) { const p = await geocode(c.q).catch(() => null); await sleep(1100); if (ok(p, true)) { hit = p; by = c.q; approx = true; break; } }
-      s.link.geo = hit ? { q: s.q, lat: hit[0], lng: hit[1], ...(approx ? { approx: true, by } : {}) } : { q: s.q, fail: true, v: 2 };
+      for (const c of geoCandidates(s)) {
+        const p = c.photon ? await geocodePhoton(c.q, mid).catch(() => null) : await geocode(c.q).catch(() => null);
+        await sleep(c.photon ? 300 : 1100);
+        if (ok(p, !!c.approx)) { hit = p; by = c.q; approx = !!c.approx; break; }
+      }
+      s.link.geo = hit ? { q: s.key, lat: hit[0], lng: hit[1], ...(approx ? { approx: true, by } : {}) } : { q: s.key, fail: true, v: 2 };
       changed = true;
       if (S.view === "map" && day() === d) drawRouteMap(d, true);
     }
@@ -940,7 +949,7 @@ function routeStops(d) {
   const add = (it, sub) => {
     const v = V(it);
     const link = (v.links || []).find(isMapLink);
-    if (link) stops.push({ it, v, link, sub, q: placeQuery(link), type: v.type || "place" });
+    if (link) { const q = placeQuery(link); stops.push({ it, v, link, sub, q, key: link.addr ? q + "｜" + link.addr : q, type: v.type || "place" }); }
   };
   for (const { item } of seq(d)) { add(item, false); for (const c of item.children || []) add(c, true); }
   estimateMissing(stops);
@@ -979,7 +988,7 @@ function routeViewHTML(d) {
       if (i > 0) html += `<li class="leg"><a href="${esc(gmapsLeg(stops[i - 1], s))}" target="_blank" rel="noopener">${icon("train")} ${i} → ${i + 1} 交通路線</a></li>`;
       html += `<li class="${sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="place-edit" data-id="${esc(it.id)}" data-i="${i}"><span class="num" data-act="map-sel" data-i="${i}">${i + 1}</span><div class="st-body">
         <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
-        <span class="st-place">${icon(catOf(s.type)[1])} ${esc(s.link.label || s.q)}</span>
+        <span class="st-place">${icon(catOf(s.type)[1])} ${esc(s.link.label || s.q)}</span>${s.link.addr ? `<span class="st-addr">${esc(s.link.addr)}</span>` : ""}
         <span class="st-geo" data-i="${i}"></span></div><span class="st-edit">${icon("pencil")}</span></li>`;
     } else {
       const ty = v.type || "place";
@@ -1626,9 +1635,10 @@ function linkSection(v, kind) {
     ${rows.map((l) => `<div class="lrow" data-kind="${kind}">
       <input type="text" class="l-label" value="${esc(l.label || "")}" placeholder="${isMap ? "地點名稱（例如：露天神社）" : "連結名稱（例如：官方網站）"}">
       <div class="l-url-row"><input type="url" class="l-url" inputmode="url" autocapitalize="off" value="${esc(l.url || "")}" placeholder="${isMap ? "Google 地圖網址（可留空）" : "https://…"}">
-      <button type="button" class="l-del" data-act="link-del" aria-label="刪除">✕</button></div></div>`).join("")}
+      <button type="button" class="l-del" data-act="link-del" aria-label="刪除">✕</button></div>
+      ${isMap ? `<input type="text" class="l-addr" value="${esc(l.addr || "")}" placeholder="地址（地圖找不到名稱時用，可留空）">` : ""}</div>`).join("")}
     <button type="button" class="btn small" data-act="link-add" data-kind="${kind}">＋ 新增${isMap ? "地圖" : "連結"}</button>
-    ${isMap ? `<small class="hint">只填地點名稱、網址留空時，會自動用 Google 地圖搜尋這個名稱。</small>` : ""}</div>`;
+    ${isMap ? `<small class="hint">只填地點名稱、網址留空時，會自動用 Google 地圖搜尋這個名稱。是日路線的地圖找不到名稱時，會改用地址定位。</small>` : ""}</div>`;
 }
 function readLinkRows() {
   const out = [];
@@ -1636,10 +1646,16 @@ function readLinkRows() {
     const kind = row.dataset.kind;
     const label = row.querySelector(".l-label").value.trim();
     const raw = row.querySelector(".l-url").value.trim();
-    if (!label && !raw) continue;
+    const addr = row.querySelector(".l-addr") ? row.querySelector(".l-addr").value.trim() : "";
+    if (!label && !raw && !addr) continue;
     let url = normUrl(raw);
-    if (kind === "map" && !raw && label) url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(label);
-    out.push({ kind, label: label || (url ? url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : ""), url: url || "", _raw: raw, _row: row });
+    if (kind === "map" && !raw && (label || addr)) url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(label || addr);
+    const o = { kind, label: label || (url ? url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : ""), url: url || "", _raw: raw, _row: row };
+    if (addr) o.addr = addr;
+    // 保留之前的定位結果（名稱或地址改了的話會自動重新定位）
+    const old = ED && ED.draft ? (ED.draft.variants[ED.k].links || []).find((l) => l.geo && l.kind === kind && (l.url === o.url || l.label === o.label)) : null;
+    if (old) o.geo = old.geo;
+    out.push(o);
   }
   return out;
 }
@@ -1689,7 +1705,7 @@ function saveEditor() {
     const bad = validate();
     if (bad) { fieldError(bad[0], bad[1]); return; }
     // 其他備選方案沒有標題
-    for (const x of it.variants) x.links = (x.links || []).map(({ kind, label, url }) => ({ kind: kind || (MAP_RE.test(url) ? "map" : "web"), label, url }));
+    for (const x of it.variants) x.links = (x.links || []).map(({ kind, label, url, addr, geo }) => ({ kind: kind || (MAP_RE.test(url) ? "map" : "web"), label, url, ...(addr ? { addr } : {}), ...(geo ? { geo } : {}) }));
     const emptyAlt = it.variants.findIndex((x) => !x.title);
     if (emptyAlt >= 0) { ED.k = emptyAlt; renderEditor(); fieldError("title", `備選方案 ${planLetter(emptyAlt)} 未填標題`); return; }
     const E = ED;
@@ -1939,7 +1955,8 @@ function openPlaceEditor(id) {
     <form id="placeForm" onsubmit="return false">
       <label class="field"><span>地點名稱</span><input type="text" name="name" value="${esc(l ? l.label || "" : "")}" placeholder="例如：露天神社"></label>
       <label class="field"><span>Google 地圖網址（可留空）</span><input type="url" name="url" inputmode="url" autocapitalize="off" value="${esc(raw)}" placeholder="https://maps.app.goo.gl/…"></label>
-      <small class="hint">只填地點名稱時，會自動用這個名稱搜尋及定位。地圖上定位不到的話，可以改用更完整的名稱或地址。</small>
+      <label class="field"><span>地址（可留空）</span><input type="text" name="addr" value="${esc(l ? l.addr || "" : "")}" placeholder="例如：大阪市北区梅田3-2-2"></label>
+      <small class="hint">「開啟導航」會用 Google 地圖網址；沒有網址就用地點名稱搜尋。<br>這裡的地圖先用名稱定位，找不到才用地址；都找不到就顯示附近位置。</small>
     </form>
     <div class="sheet-foot">${l ? `<button class="btn" data-act="place-remove" data-id="${esc(id)}">移除地點</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="place-save" data-id="${esc(id)}">儲存</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
@@ -2087,10 +2104,11 @@ document.addEventListener("click", async (e) => {
     case "place-edit": openPlaceEditor(id); break;
     case "place-save": case "place-remove": {
       const f = $("#placeForm");
-      const name = f.name.value.trim(), raw = f.url.value.trim();
-      if (a === "place-save" && !name && !raw) { fieldErrorIn(f, "name", "請輸入地點名稱或地圖網址"); break; }
+      const name = f.name.value.trim(), raw = f.url.value.trim(), addr = f.addr.value.trim();
+      if (a === "place-save" && !name && !raw && !addr) { fieldErrorIn(f, "name", "請輸入地點名稱、地圖網址或地址"); break; }
       let url = normUrl(raw);
-      if (a === "place-save" && !raw) url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(name);
+      if (a === "place-save" && raw && !url) { fieldErrorIn(f, "url", "網址格式不正確"); break; }
+      if (a === "place-save" && !raw) url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(name || addr);
       const pid = t.dataset.id;
       closeSheet();
       commit((doc) => {
@@ -2098,8 +2116,9 @@ document.addEventListener("click", async (e) => {
         const v = V(f2.item); v.links = v.links || [];
         const k = v.links.findIndex(isMapLink);
         if (a === "place-remove") { if (k >= 0) v.links.splice(k, 1); return; }
-        const link = { kind: "map", label: name || url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0], url };
-        if (k >= 0) { const old = v.links[k]; if (old.label === link.label && old.url === link.url) return; v.links[k] = link; }
+        const link = { kind: "map", label: name || addr || url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0], url };
+        if (addr) link.addr = addr;
+        if (k >= 0) { const old = v.links[k]; if (old.label === link.label && old.url === link.url && (old.addr || "") === addr) return; if (old.geo) link.geo = old.geo; v.links[k] = link; }
         else v.links.unshift(link);
       });
       break;
@@ -2280,7 +2299,7 @@ document.addEventListener("click", async (e) => {
     case "link-add": {
       readForm();
       const v = ED.draft.variants[ED.k];
-      v.links = (v.links || []).map(({ kind, label, url }) => ({ kind, label, url }));
+      v.links = (v.links || []).map(({ kind, label, url, addr, geo }) => ({ kind, label, url, ...(addr ? { addr } : {}), ...(geo ? { geo } : {}) }));
       v.links.push({ kind: t.dataset.kind, label: "", url: "", _new: true });
       const y = $(".sheet-body").scrollTop; renderEditor(); $(".sheet-body").scrollTop = y;
       const rows = $$(`#edForm .lrow[data-kind="${t.dataset.kind}"]`); rows[rows.length - 1].querySelector(".l-label").focus();
