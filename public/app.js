@@ -11,7 +11,7 @@ const S = {
   doc: null, version: 0, dayId: null, q: "",
   saving: false, pending: false, timer: null, conflict: null, offline: false,
   undo: [], open: new Set(), expanded: new Set(),
-  photoMode: null, ideaFilter: "all",
+  photoMode: null, ideaFilter: "all", view: "list", map: null,
 };
 
 // ---------- helpers ----------
@@ -350,6 +350,14 @@ function render() {
     <div class="day-head"><h1>${d.kind === "day" ? `${esc(d.label)}<span class="sep"></span>` : ""}${esc(d.title)}</h1>
     <button class="btn" data-act="edit-day">✎ 編輯</button></div>
     ${d.subtitle ? `<p class="subtitle">${esc(d.subtitle)}</p>` : ""}
+    ${d.kind === "day" ? `<div class="view-tabs"><button class="${S.view !== "map" ? "on" : ""}" data-act="view" data-id="list">☰ 行程</button><button class="${S.view === "map" ? "on" : ""}" data-act="view" data-id="map">🗺 是日路線</button></div>` : ""}`;
+  if (d.kind === "day" && S.view === "map") {
+    html += routeViewHTML(d);
+    finishRender(html);
+    drawRouteMap(d);
+    return;
+  }
+  html += `
     <div class="tools">
       ${all.length && d.kind === "day" ? `<div class="progress">${done} / ${all.length} 已完成<div class="track"><i style="width:${all.length ? (done / all.length) * 100 : 0}%"></i></div></div>` : ""}
       <input class="search" type="search" placeholder="搜尋地點或交通…" value="${esc(S.q)}" data-act="search">
@@ -388,11 +396,146 @@ function render() {
   }
   if (q && !items.length) html += `<div class="empty">找不到「${esc(S.q)}」</div>`;
 
+  finishRender(html);
+}
+function finishRender(html) {
+  if (S.map) { try { S.map.remove(); } catch {} S.map = null; }
   const main = $("#main");
   const focused = document.activeElement && document.activeElement.dataset.act === "search";
   main.innerHTML = html;
-  if (focused) { const s = $(".search"); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+  if (focused) { const s = $(".search"); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   syncUI();
+}
+
+// ---------- 是日路線（地圖） ----------
+function placeQuery(link) {
+  try {
+    const u = new URL(link.url);
+    const q = u.searchParams.get("query") || u.searchParams.get("q") || u.searchParams.get("destination");
+    if (q) return q;
+    const m = u.pathname.match(/\/place\/([^/]+)/);
+    if (m) return decodeURIComponent(m[1].replace(/\+/g, " "));
+  } catch {}
+  return link.label || "";
+}
+function coordsFromUrl(url) {
+  const m = /@(-?\d+\.\d+),(-?\d+\.\d+)/.exec(url || "") || /[?&](?:query|q|ll|destination)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/.exec(url || "");
+  return m ? [+m[1], +m[2]] : null;
+}
+// 按目前路線次序，找出每個有「地圖」的行程（包括子行程）
+function routeStops(d) {
+  const stops = [];
+  const add = (it, sub) => {
+    const v = V(it);
+    const link = (v.links || []).find(isMapLink);
+    if (link) stops.push({ it, v, link, sub, q: placeQuery(link) });
+  };
+  for (const { item } of seq(d)) { add(item, false); for (const c of item.children || []) add(c, true); }
+  return stops;
+}
+const geoOf = (s) => coordsFromUrl(s.link.url) || (s.link.geo && s.link.geo.q === s.q && s.link.geo.lat != null ? [s.link.geo.lat, s.link.geo.lng] : null);
+const gmapsPlace = (s) => s.link.url;
+function gmapsLeg(a, b) {
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(a.q)}&destination=${encodeURIComponent(b.q)}&travelmode=transit`;
+}
+function gmapsRoute(list) {
+  return "https://www.google.com/maps/dir/" + list.map((s) => encodeURIComponent(s.q)).join("/");
+}
+function routeViewHTML(d) {
+  const stops = routeStops(d);
+  const hasBranch = d.items.some(isBranch);
+  if (!stops.length) return `<div class="empty">這天的行程還沒有加入地圖地點。<br>在行程的「編輯 → 📍 地圖」填上地點名稱，就會顯示在這裡。</div>`;
+  const chunks = [];
+  for (let i = 0; i < stops.length; i += 9) chunks.push(stops.slice(i === 0 ? 0 : i - 1, i + 9)); // 每段最多 10 個地點，前後相連
+  let html = `<div id="routeMap" class="route-map"><div class="map-msg">地圖載入中…</div></div>
+    <p class="hint" id="geoStatus"></p>
+    <div class="route-actions">${chunks.map((c, i) => `<a class="btn primary" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">在 Google 地圖開啟${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
+    ${hasBranch ? `<p class="hint">有分叉路線的話，這裡顯示的是目前選擇的路線。</p>` : ""}
+    <ol class="stops">`;
+  stops.forEach((s, i) => {
+    html += `<li class="${s.sub ? "sub" : ""}"><span class="num">${i + 1}</span><div class="st-body">
+      <div>${s.it.start != null ? `<b class="time">${fmt(s.it.start)}</b> ` : ""}${esc(s.v.title)}${s.sub ? ` <small class="hint">子行程</small>` : ""}</div>
+      <a href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener" class="st-place">📍 ${esc(s.link.label || s.q)}</a>
+      <span class="st-geo" data-i="${i}"></span></div></li>`;
+    if (stops[i + 1]) html += `<li class="leg"><a href="${esc(gmapsLeg(s, stops[i + 1]))}" target="_blank" rel="noopener">🚇 ${i + 1} → ${i + 2} 交通路線</a></li>`;
+  });
+  return html + `</ol>`;
+}
+let leafletP = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  return leafletP || (leafletP = new Promise((res, rej) => {
+    const c = document.createElement("link");
+    c.rel = "stylesheet"; c.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    document.head.appendChild(c);
+    const sc = document.createElement("script");
+    sc.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    sc.onload = () => res(); sc.onerror = () => { leafletP = null; rej(new Error("地圖需要網絡才能載入")); };
+    document.head.appendChild(sc);
+  }));
+}
+// 用 OpenStreetMap 把地點名稱轉成座標（結果存進行程，下次不用再查）
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let geoBusy = false;
+async function geocode(q) {
+  const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=zh-TW,ja&q=" + encodeURIComponent(q));
+  if (!r.ok) throw new Error("定位服務暫時無法使用");
+  const j = await r.json();
+  return j[0] ? [+j[0].lat, +j[0].lon] : null;
+}
+function geoCandidates(s) {
+  const list = [s.q, s.link.label, s.q.replace(/\s*\d+\s*[樓F階].*$/i, ""), s.q.replace(/[\s　]+\S*$/, ""), s.q.replace(/\d[\d\-–ー丁目番地号]*.*$/, ""), s.v.title];
+  return [...new Set(list.map((x) => (x || "").trim()).filter((x) => x.length > 1))];
+}
+async function geocodeMissing(d) {
+  if (geoBusy) return;
+  geoBusy = true;
+  let changed = false;
+  try {
+    for (const s of routeStops(d)) {
+      if (geoOf(s) || (s.link.geo && s.link.geo.q === s.q && s.link.geo.fail)) continue;
+      const st = $("#geoStatus"); if (st) st.textContent = `正在定位「${s.q}」…`;
+      let hit = null;
+      for (const q of geoCandidates(s)) { hit = await geocode(q).catch(() => null); await sleep(1100); if (hit) break; }
+      s.link.geo = hit ? { q: s.q, lat: hit[0], lng: hit[1] } : { q: s.q, fail: true };
+      changed = true;
+      if (S.view === "map" && day() === d) drawRouteMap(d, true);
+    }
+  } finally {
+    geoBusy = false;
+    if (changed) { persistLocal(true); scheduleSave(); }
+    const st = $("#geoStatus"); if (st) st.textContent = "";
+  }
+}
+async function drawRouteMap(d, noGeocode) {
+  const el = $("#routeMap"); if (!el) return;
+  try { await loadLeaflet(); } catch (e) { el.innerHTML = `<div class="map-msg">${esc(e.message)}，下面的 Google 地圖連結仍可使用。</div>`; return; }
+  if (!$("#routeMap") || S.view !== "map") return;
+  const stops = routeStops(d);
+  if (!S.map) {
+    el.innerHTML = "";
+    S.map = L.map(el, { zoomControl: true, attributionControl: true });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      maxZoom: 19, subdomains: "abcd",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    }).addTo(S.map);
+    S.layer = L.layerGroup().addTo(S.map);
+  }
+  S.layer.clearLayers();
+  const pts = [];
+  stops.forEach((s, i) => {
+    const g = geoOf(s);
+    const tag = $(`.st-geo[data-i="${i}"]`);
+    if (tag) tag.textContent = g ? "" : (s.link.geo && s.link.geo.fail ? "⚠ 地圖上未能定位，可在編輯中改用更準確的地點名稱" : "定位中…");
+    if (!g) return;
+    pts.push(g);
+    const icon = L.divIcon({ className: "", html: `<div class="pin ${s.sub ? "sub" : ""}">${i + 1}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] });
+    L.marker(g, { icon }).addTo(S.layer).bindPopup(`<b>${i + 1}. ${esc(s.v.title)}</b><br>${s.it.start != null ? fmt(s.it.start) + "<br>" : ""}<a href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">在 Google 地圖開啟</a>`);
+  });
+  if (pts.length > 1) L.polyline(pts, { color: "#5b4a8b", weight: 4, opacity: 0.75, dashArray: "8 8" }).addTo(S.layer);
+  if (pts.length) S.map.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 15 });
+  else S.map.setView([34.6937, 135.5023], 11);
+  if (!noGeocode) geocodeMissing(d);
 }
 
 // 分叉路線：在分叉點顯示路線選擇，只有分叉內的行程會切換
@@ -484,9 +627,10 @@ function itemHTML(it, d, warn, q, pos = { at: 0, route: "", shared: false }) {
       <button class="check" data-act="done" data-id="${esc(c.id)}" aria-label="取消完成">✓</button></div></div>`;
     return `<div class="child ${c.done ? "done" : ""}">
       <div class="meta">${c.start != null ? `<span class="time">${timeLabel(c)}</span>` : ""}<span class="kind">${TYPE_ICON[cv.type] || ""} 子行程</span>${foldBtn(c)}
+      <button class="edit-top" data-act="edit" data-id="${esc(c.id)}">✎ 編輯</button>
       <button class="check" data-act="done" data-id="${esc(c.id)}" aria-label="完成">${c.done ? "✓" : ""}</button></div>
       ${bodyHTML(c, true)}
-      <div class="actions"><button data-act="edit" data-id="${esc(c.id)}">✎ 編輯</button><button data-act="quick-photo" data-id="${esc(c.id)}">📷 加圖片</button></div>
+      <div class="actions"><button data-act="quick-photo" data-id="${esc(c.id)}">📷 圖片</button></div>
     </div>`;
   }).join("");
   const after = d.kind === "day" && !q ? insertRow(pos.at, "在這之後加入", pos.route) : "";
@@ -507,17 +651,17 @@ function itemHTML(it, d, warn, q, pos = { at: 0, route: "", shared: false }) {
         ${d.kind !== "day" && it.from ? `<span class="origin">原本：${esc(it.from)}</span>` : ""}
         ${it.locked ? `<span class="lock">🔒 固定</span>` : ""}
         <span class="kind">${TYPE_ICON[v.type] || ""} ${TYPES[v.type] || ""}</span>${foldBtn(it)}
+        <button class="edit-top" data-act="edit" data-id="${id}">✎ 編輯</button>
         <button class="check" data-act="done" data-id="${id}" aria-label="完成">${it.done ? "✓" : ""}</button>
       </div>
       ${warn ? `<div class="warn">⚠ ${esc(warn)}</div>` : ""}
       ${bodyHTML(it, false)}
       ${kids ? `<div class="children">${kids}</div>` : ""}
       <div class="actions">
-        <button data-act="edit" data-id="${id}">✎ 編輯</button>
-        <button data-act="add-child" data-id="${id}">＋ 子行程</button>
-        <button data-act="quick-photo" data-id="${id}">📷 加圖片</button>
+        <button data-act="add-child" data-id="${id}">＋子行程</button>
+        <button data-act="quick-photo" data-id="${id}">📷 圖片</button>
         ${d.kind === "day" && pos.shared ? `<button data-act="branch-new" data-id="${id}">⑂ 分叉</button>` : ""}
-        ${d.kind === "day" ? `<button data-act="move-out" data-id="${id}">↘ 移到備選</button>` : `<button class="strong" data-act="move-in" data-id="${id}">↩ 加回行程</button>`}
+        ${d.kind === "day" ? `<button data-act="move-out" data-id="${id}">↘ 備選</button>` : `<button class="strong" data-act="move-in" data-id="${id}">↩ 加回行程</button>`}
       </div>
     </div>
     ${after}
@@ -561,6 +705,7 @@ function readForm() {
   v.type = f.type.value;
   v.details = f.details.value.replace(/\s+$/, "");
   v.links = readLinkRows();
+  if (f.level) ED.level = f.level.value;
   if (!ED.info && f.start) {
     const s = parseHHMM(f.start.value), e = parseHHMM(f.end.value);
     if (s == null) ED.draft.start = null;
@@ -598,6 +743,7 @@ function renderEditor() {
         <div class="vtabs">${it.variants.map((x, k) => `<button type="button" class="chip ${k === ED.k ? "on" : ""}" data-act="ed-variant" data-k="${k}">${String.fromCharCode(65 + k)}・${esc(x.title || "未命名")}</button>`).join("")}</div>
         <p class="hint">儲存時，目前正在編輯的方案會設為「使用中」。${it.variants.length > 1 ? `<button type="button" class="btn small danger" data-act="ed-del-variant" style="margin-left:6px">刪除此方案</button>` : ""}</p></div>` : ""}
       <label class="field"><span>標題</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：大阪城公園"></label>
+      ${levelField()}
       <label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === v.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field"><span>這個行程的圖片顯示方式（個別圖片可再按下方標籤設定）</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       ${typeInfo ? `<p class="hint">資訊不佔時間，不會影響前後行程的時間。</p>` : ""}
@@ -625,6 +771,19 @@ function renderEditor() {
   document.body.style.overflow = "hidden";
 }
 // 地圖、連結：每行分開填「名稱」和「網址」
+// 層級：主行程，或某個主行程下的子行程
+function levelField() {
+  if (ED.info || ED.mode !== "edit" || V(ED.draft).type === "info") return "";
+  const d = day();
+  const cur = ED.isChild ? (locate(d, ED.draft.id) || {}).parent?.id : "main";
+  const parents = seq(d).map((x) => x.item).filter((x) => x.id !== ED.draft.id && !isInfo(x));
+  const hasKids = !ED.isChild && (ED.draft.children || []).length;
+  return `<label class="field"><span>層級</span><select name="level">
+    <option value="main" ${cur === "main" ? "selected" : ""}>主行程（會影響之後的時間）</option>
+    ${parents.map((x) => `<option value="${esc(x.id)}" ${cur === x.id ? "selected" : ""}>子行程：放在「${x.start != null ? fmt(x.start) + " " : ""}${esc(V(x).title)}」下面</option>`).join("")}
+  </select>${hasKids ? `<small class="hint">改成子行程時，它原本的子行程也會一起移過去。</small>` : ""}</label>`;
+}
+
 function linkSection(v, kind) {
   const rows = (v.links || []).filter((l) => (kind === "map") === isMapLink(l));
   if (!rows.length) rows.push({ label: "", url: "", _blank: true });
@@ -679,7 +838,7 @@ function validate() {
   const it = ED.draft, v = V(it);
   if (!v.title) return ["title", "請輸入標題"];
   const f = $("#edForm");
-  if (f.start && !ED.isChild && v.type !== "info" && !ED.info && !f.start.value) return ["start", "請輸入開始時間（主行程需要時間）"];
+  if (f.start && !ED.isChild && (!ED.level || ED.level === "main") && v.type !== "info" && !ED.info && !f.start.value) return ["start", "請輸入開始時間（主行程需要時間）"];
   if (f.start && f.end.value && !f.start.value) return ["start", "已填結束時間，請同時填開始時間"];
   for (const l of v.links || []) {
     if (!l.url) return [l._row.querySelector(".l-url"), l.kind === "map" ? "地圖網址格式不正確" : (l._raw ? "網址格式不正確（需要 https:// 開頭）" : "請填寫連結網址")];
@@ -723,6 +882,27 @@ function saveEditor() {
       // edit
       const f = locate(d, it.id);
       if (!f) throw new Error("找不到這個行程，可能已被其他裝置刪除");
+      const curLevel = f.parent ? f.parent.id : "main";
+      if (E.level && E.level !== curLevel) {
+        if (E.level === "main") {
+          // 子行程 → 主行程：放在原本主行程之後
+          f.arr.splice(f.index, 1);
+          const pa = locate(d, f.parent.id);
+          it.children = [];
+          if (it.start == null) it.start = endOf(f.parent) ?? f.parent.start;
+          if (!V(it).dur) V(it).dur = 30;
+          pa.arr.splice(pa.index + 1, 0, it);
+          return { msg: `已改為主行程，放在「${V(f.parent).title}」之後` };
+        }
+        const target = locate(d, E.level);
+        if (!target) throw new Error("找不到要放入的主行程");
+        f.arr.splice(f.index, 1);
+        const kids = it.children || [];
+        delete it.children;
+        target.item.children = target.item.children || [];
+        target.item.children.push(it, ...kids);
+        return { msg: `已改為「${V(target.item).title}」的子行程（其他時間不變）` };
+      }
       if (f.parent) { f.arr[f.index] = it; return { msg: "已儲存" }; }
       const oldEnd = endOf(E.orig);
       const oldStart = E.orig.start;
@@ -994,6 +1174,7 @@ document.addEventListener("click", async (e) => {
     case "move-in": closeSheet(); openMoveIn(id); scrollChecked(); break;
     case "move-in-go": doMoveIn(id); break;
     case "idea-filter": S.ideaFilter = id; render(); break;
+    case "view": S.view = id; ls.set("trip.view", id); render(); window.scrollTo(0, 0); break;
     case "branch-create": {
       const f = $("#branchForm"); const endIdx = +f.querySelector("[name=end]:checked").value;
       const nameA = f.nameA.value.trim(), nameB = f.nameB.value.trim();
@@ -1193,6 +1374,7 @@ function setPhotoMode(m) {
   b.setAttribute("aria-label", "圖片顯示：" + (m === "full" ? "大圖" : "縮圖") + "（按一下切換）");
 }
 setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
+S.view = ls.get("trip.view") === "map" ? "map" : "list";
 $("#photoModeBtn").addEventListener("click", () => {
   setPhotoMode(S.photoMode === "full" ? "thumb" : "full");
   render();
