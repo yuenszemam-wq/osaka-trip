@@ -765,3 +765,10 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .imp-top img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; }
 .imp-raw { white-space: pre-wrap; font-size: 12px; color: var(--muted); background: var(--w); border-radius: 8px; padding: 8px; max-height: 160px; overflow: auto; }
 .sched-bar.imp { margin-bottom: 8px; }
+/* iOS 時間／日期欄：不要撐闊格子、文字靠左 */
+.grid2, .grid3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.grid3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+.grid2 > *, .grid3 > * { min-width: 0; }
+.field input[type=time], .field input[type=date] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; width: 100%; text-align: left; min-height: 46px; }
+.field input[type=time]::-webkit-date-and-time-value, .field input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.tbox { min-width: 0; max-width: 100%; }
