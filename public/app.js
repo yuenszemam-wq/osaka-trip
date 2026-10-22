@@ -639,6 +639,20 @@ const photoUrl = (id) => "/api/photos/" + encodeURIComponent(id);
 const isIdeas = (d) => d && (d.id === "ideas" || (d.kind === "info" && /備選/.test((d.label || "") + (d.title || ""))));
 const noteIcon = (d) => d.id === "stay" || /住宿/.test(d.label) ? "bed" : isIdeas(d) ? "bulb" : "note";
 
+// 固定欄左邊的頁面標題（功能頁面用）
+function ptitle(t, sub, act) {
+  return `<div class="ptitle" ${act ? `data-act="${act}" role="button"` : ""}><b>${esc(t)}${act ? ` <span class="pedit">${icon("pencil")}</span>` : ""}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div>`;
+}
+// 備注頁的類型分頁（放在固定欄）
+function typeTabsHTML(d) {
+  const counts = {};
+  for (const n of d.items) { const ty = V(n).type || "place"; counts[ty] = (counts[ty] || 0) + 1; }
+  const types = Object.keys(CATS).filter((k) => counts[k]);
+  if (types.length < 2) return "";
+  const f = S.ideaFilter !== "all" && counts[S.ideaFilter] ? S.ideaFilter : "all";
+  return `<div class="type-tabs intop">${[["all", "全部", d.items.length], ...types.map((k) => [k, CATS[k][0], counts[k]])].map(([k, label, c]) =>
+    `<button class="ttab" style="--c:${k === "all" ? "var(--purple)" : catVar(k)}" data-act="idea-filter" data-id="${k}" aria-pressed="${k === f}">${k === "all" ? "" : icon(catOf(k)[1])}${label}<small>${c}</small></button>`).join("")}</div>`;
+}
 function renderChrome() {
   const m = S.doc.meta || {};
   $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${esc(m.dates || "")}</div>
@@ -663,15 +677,18 @@ function renderChrome() {
       ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}${wdOf(x)}</small>${wxChip(x)}</button>`).join("")}
       <button class="addtab day" data-act="add-day" data-kind="day" aria-label="新增一天">＋</button>
     </div>
-    ${!isSpecial(S.dayId) && day() ? `<div class="toprow3">
-      ${day().kind === "day" ? `<div class="switch"><button data-act="view" data-id="list" aria-pressed="${S.view !== "map"}">${icon("list")} 行程</button><button data-act="view" data-id="map" aria-pressed="${S.view === "map"}">${icon("map")} 是日路線</button></div>` : `<div class="grow"></div>`}
+    ${!isSpecial(S.dayId) && day() ? (day().kind === "day" ? `<div class="toprow3">
+      <div class="switch"><button data-act="view" data-id="list" aria-pressed="${S.view !== "map"}">${icon("list")} 行程</button><button data-act="view" data-id="map" aria-pressed="${S.view === "map"}">${icon("map")} 是日路線</button></div>
       <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
       <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>`
-    : S.dayId === MONEY ? `<div class="toprow3"><div class="grow"></div><button class="manage add" data-act="add">${icon("plus")}新增支出</button></div>`
+      : `<div class="toprow3">${ptitle(day().title || day().label, day().subtitle, S.manage ? "edit-day" : "")}
+      <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
+      <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>${typeTabsHTML(day())}`)
+    : S.dayId === MONEY ? `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="trip-settings" aria-label="設定">${icon("gear")}設定</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`
     : S.dayId === SHOP ? (() => { const L = S.doc.shopping || [], nd = L.filter((x) => x.done).length;
-      return `<div class="toprow3"><div class="switch">${[["todo", "未買", L.length - nd], ["done", "已買", nd], ["all", "全部", L.length]].map(([k, t, n]) => `<button data-act="shop-filter" data-id="${k}" aria-pressed="${(S.shopFilter || "todo") === k}">${t}<small class="cnt">${n}</small></button>`).join("")}</div>
-      <button class="manage add" data-act="add">${icon("plus")}新增</button></div>`; })()
-    : S.dayId === DIARY ? `<div class="toprow3"><div class="switch"><button data-act="diary-filter" data-id="done" aria-pressed="${S.diaryAll !== true}">${icon("check")} 已完成</button><button data-act="diary-filter" data-id="all" aria-pressed="${S.diaryAll === true}">${icon("list")} 全部行程</button></div></div>` : ""}`;
+      return `<div class="toprow3">${ptitle("購物清單", `${L.length - nd} 件未買`)}<button class="manage add" data-act="add">${icon("plus")}新增</button></div>
+      <div class="toprow4"><div class="switch">${[["todo", "未買", L.length - nd], ["done", "已買", nd], ["all", "全部", L.length]].map(([k, t, n]) => `<button data-act="shop-filter" data-id="${k}" aria-pressed="${(S.shopFilter || "todo") === k}">${t}<small class="cnt">${n}</small></button>`).join("")}</div></div>`; })()
+    : S.dayId === DIARY ? `<div class="toprow3">${ptitle("旅程日記", m.title || "")}<div class="switch compact"><button data-act="diary-filter" data-id="done" aria-pressed="${S.diaryAll !== true}">${icon("check")} 已完成</button><button data-act="diary-filter" data-id="all" aria-pressed="${S.diaryAll === true}">${icon("list")} 全部</button></div></div>` : ""}`;
   const on = $("#tabs [aria-pressed=true]"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
   document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : S.dayId === DIARY ? " · 日記" : S.dayId === SHOP ? " · 購物清單" : day() ? " · " + day().label : ""}`;
 }
@@ -697,7 +714,7 @@ function render() {
 
   const d = day();
   const q = S.q.trim().toLowerCase();
-  html += `<div class="dayhead"><div style="min-width:0"><h2>${esc(d.title || d.label)}</h2>${d.subtitle ? `<div class="sub">${esc(d.subtitle)}</div>` : ""}${d.kind === "day" ? wxLine(d) : ""}</div>
+  if (d.kind === "day") html += `<div class="dayhead"><div style="min-width:0"><h2>${esc(d.title || d.label)}</h2>${d.subtitle ? `<div class="sub">${esc(d.subtitle)}</div>` : ""}${d.kind === "day" ? wxLine(d) : ""}</div>
     <div class="headtools">${S.manage ? `<button class="manage" data-act="edit-day">${icon("pencil")}${d.kind === "day" ? "這天" : "分頁"}</button>` : ""}
 </div></div>`;
 
@@ -775,10 +792,6 @@ function listPageHTML(d, q) {
   let f = S.ideaFilter;
   if (f !== "all" && !counts[f]) f = "all";
   let html = "";
-  if (types.length > 1) {
-    html += `<div class="type-tabs">${[["all", "全部", d.items.length], ...types.map((k) => [k, CATS[k][0], counts[k]])].map(([k, label, c]) =>
-      `<button class="ttab" style="--c:${k === "all" ? "var(--purple)" : catVar(k)}" data-act="idea-filter" data-id="${k}" aria-pressed="${k === f}">${k === "all" ? "" : icon(catOf(k)[1])}${label}<small>${c}</small></button>`).join("")}</div>`;
-  }
   const shown = d.items.map((it, idx) => ({ it, idx })).filter(({ it }) => hit(it) && (f === "all" || (V(it).type || "place") === f));
   html += `<div class="listpage">`;
   if (isIdeas(d) && d.items.some((x) => !isInfo(x))) html += `<button class="sched-bar" data-act="sched-open">${icon("wand")}<span><b>自動排程</b><small>揀選地點，按距離和空檔放進行程</small></span>${icon("arrow")}</button>`;
@@ -1516,8 +1529,7 @@ function moneyHTML() {
   const tot = sumHK(rows, "eff"), act = sumHK(rows, "actual");
   const planOnly = rows.filter((r) => r.actual == null && r.plan != null);
   const po = sumHK(planOnly, "plan");
-  let html = `<div class="dayhead"><div><h2>旅行支出表</h2><div class="sub">有實際金額用實際，否則用預計 · 以港幣合計</div></div>
-    <div class="headtools"><button class="manage" data-act="trip-settings">${icon("gear")}設定</button></div></div><div class="money">`;
+  let html = `<div class="money" style="padding-top:14px">`;
   // 總計：只顯示支出總額
   html += `<div class="mcard total"><div class="tk">支出總額</div><div class="tv">${money(tot.s, "HKD")}</div>
     ${cur !== "HKD" ? `<div class="tl">${money(sumLocal(rows, "eff"), cur)}</div>` : ""}

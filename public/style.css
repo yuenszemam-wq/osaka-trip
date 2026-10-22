@@ -688,3 +688,19 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .dtrips .chip { flex: none; display: inline-flex; gap: 5px; align-items: center; }
 .dtrips .chip.on { border-color: var(--purple); color: var(--purple); background: color-mix(in srgb, var(--purple) 12%, var(--w)); }
 .dtrips .chip svg.i { width: 14px; height: 14px; }
+
+/* 功能頁：標題放在固定欄 */
+.ptitle { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-left: 4px; line-height: 1.25; }
+.ptitle b { font-size: 19px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+.ptitle small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.ptitle[role=button] { cursor: pointer; }
+.pedit { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; border: 1px solid var(--line); color: var(--purple); flex: none; }
+.pedit svg.i { width: 13px; height: 13px; }
+.type-tabs.intop { margin: 10px 0 0; padding: 0 2px; }
+.toprow4 { margin: 8px 2px 0; }
+.toprow4 .switch { margin: 0; }
+.switch.compact { flex: 0 0 auto !important; }
+.switch.compact button { padding-left: 10px; padding-right: 10px; }
+/* 日子分頁加框線 */
+.dtab { border: 1px solid var(--line); background: var(--w); }
+.dtab[aria-pressed="true"] { border-color: var(--purple); box-shadow: inset 0 -2px var(--purple); }
