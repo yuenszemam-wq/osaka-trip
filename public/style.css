@@ -501,3 +501,10 @@ html, body { overflow-x: clip; }
 
 /* 交通：編輯按鈕靠右 */
 .transportline > button.edit-top { flex: none; margin-left: auto; padding: 4px 10px; border: 1px solid var(--line); background: var(--p); color: var(--purple); font-size: 12px; align-items: center; gap: 4px; }
+
+/* 大約位置 */
+.mpin.approx, .mpin.est { border-style: dashed; border-color: var(--c); }
+.mpin.est { background: var(--w); opacity: .85; }
+.mpin.est.dim { opacity: .28; }
+.st-geo.approx, .st-geo.est { color: var(--muted); font-size: 12px; display: block; }
+.sc-approx { font-size: 12px; color: var(--muted); margin-top: 6px; }

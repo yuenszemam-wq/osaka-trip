@@ -810,7 +810,21 @@ function coordsFromUrl(url) {
   const m = /@(-?\d+\.\d+),(-?\d+\.\d+)/.exec(url || "") || /[?&](?:query|q|ll|destination)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/.exec(url || "");
   return m ? [+m[1], +m[2]] : null;
 }
-const geoOf = (s) => coordsFromUrl(s.link.url) || (s.link.geo && s.link.geo.q === s.q && s.link.geo.lat != null ? [s.link.geo.lat, s.link.geo.lng] : null);
+const geoOf = (s) => coordsFromUrl(s.link.url) || (s.link.geo && s.link.geo.q === s.q && s.link.geo.lat != null ? [s.link.geo.lat, s.link.geo.lng] : null) || s.est || null;
+// 定位是否為「附近位置」：approx = 用較概括的地址找到；est = 完全找不到，暫放在前後兩站之間
+const geoKind = (s) => coordsFromUrl(s.link.url) ? "" : s.link.geo && s.link.geo.q === s.q && s.link.geo.lat != null ? (s.link.geo.approx ? "approx" : "") : s.est ? "est" : "";
+// 找不到的地點：用前後已定位的站估計位置（只用來顯示，不會儲存）
+function estimateMissing(stops) {
+  const real = stops.map((s) => { s.est = null; return geoOf(s); });
+  stops.forEach((s, i) => {
+    if (real[i] || !(s.link.geo && s.link.geo.q === s.q && s.link.geo.fail)) return;
+    let a = null, b = null;
+    for (let k = i - 1; k >= 0 && !a; k--) a = real[k];
+    for (let k = i + 1; k < stops.length && !b; k++) b = real[k];
+    if (a && b) s.est = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    else if (a || b) { const p = a || b; s.est = [p[0] + 0.0012, p[1] + 0.0012]; }
+  });
+}
 const gmapsPlace = (s) => s.link.url;
 function gmapsLeg(a, b) {
   return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(a.q)}&destination=${encodeURIComponent(b.q)}&travelmode=transit`;
@@ -840,21 +854,63 @@ async function geocode(q) {
   const j = await r.json();
   return j[0] ? [+j[0].lat, +j[0].lon] : null;
 }
-function geoCandidates(s) {
-  const list = [s.q, s.link.label, s.q.replace(/\s*\d+\s*[樓F階].*$/i, ""), s.q.replace(/[\s　]+\S*$/, ""), s.q.replace(/\d[\d\-–ー丁目番地号]*.*$/, ""), s.v.title];
-  return [...new Set(list.map((x) => (x || "").trim()).filter((x) => x.length > 1))];
+// 第二個定位服務（Photon），景點名稱的模糊搜尋比較好
+async function geocodePhoton(q, near) {
+  const bias = near ? `&lat=${near[0]}&lon=${near[1]}` : "";
+  const r = await fetch("https://photon.komoot.io/api/?limit=1&q=" + encodeURIComponent(q) + bias);
+  if (!r.ok) return null;
+  const j = await r.json();
+  const f = j.features && j.features[0];
+  return f ? [+f.geometry.coordinates[1], +f.geometry.coordinates[0]] : null;
 }
+// 由精確到概括：完整名稱 → 拆開「・／」→ 去掉樓層、大廈名 → 逐步去掉門牌號碼（例如 梅田3-2-2 → 梅田3-2 → 梅田3 → 梅田）
+function geoCandidates(s) {
+  const exact = [], wide = [];
+  const bases = [s.q, s.link.label, s.v.title].map((x) => (x || "").trim()).filter(Boolean);
+  for (const b of bases) {
+    exact.push(b);
+    for (const part of b.split(/[・／/|｜（）()、,，]/)) if (part.trim() !== b) exact.push(part.trim());
+  }
+  for (const b of [...exact]) {
+    let x = b.replace(/\s*(\d+|[一二三四五六七八九十]+)\s*(樓|楼|F|階)\b.*$/i, "").replace(/\s*(\d+|[一二三四五六七八九十]+)\s*(樓|楼|階).*$/, "");
+    wide.push(x);
+    x = x.split(/[\s　]/)[0]; wide.push(x);
+    for (let k = 0; k < 6; k++) {
+      const y = x.replace(/[-‐ー－−の]?\d+(番地|番|号|號|丁目)?$/, "");
+      if (y === x) break;
+      x = y; wide.push(x);
+    }
+    wide.push(x.replace(/[\d\-‐ー－−]+$/, ""));
+  }
+  const seen = new Set(), out = [];
+  for (const [list, approx] of [[exact, false], [wide, true]]) for (const q of list) {
+    const t = (q || "").trim();
+    if (t.length < 2 || seen.has(t)) continue;
+    seen.add(t); out.push({ q: t, approx });
+  }
+  return out;
+}
+const kmBetween = (a, b) => Math.hypot((a[0] - b[0]) * 111, (a[1] - b[1]) * 111 * Math.cos(a[0] * Math.PI / 180));
 async function geocodeMissing(d) {
   if (geoBusy) return;
   geoBusy = true;
   let changed = false;
   try {
-    for (const s of routeStops(d)) {
-      if (geoOf(s) || (s.link.geo && s.link.geo.q === s.q && s.link.geo.fail)) continue;
+    const all = routeStops(d);
+    for (const s of all) {
+      const g0 = s.link.geo;
+      if (coordsFromUrl(s.link.url) || (g0 && g0.q === s.q && (g0.lat != null || (g0.fail && g0.v >= 2)))) continue;
       const st = $("#geoStatus"); if (st) st.textContent = `正在定位「${s.q}」…`;
-      let hit = null;
-      for (const q of geoCandidates(s)) { hit = await geocode(q).catch(() => null); await sleep(1100); if (hit) break; }
-      s.link.geo = hit ? { q: s.q, lat: hit[0], lng: hit[1] } : { q: s.q, fail: true };
+      // 其他已定位地點的中心，用來排除去了別的城市的結果
+      const known = all.map((x) => x !== s && x.link.geo && x.link.geo.lat != null ? [x.link.geo.lat, x.link.geo.lng] : coordsFromUrl(x.link.url)).filter(Boolean);
+      const mid = known.length ? [known.map((p) => p[0]).sort((a, b) => a - b)[known.length >> 1], known.map((p) => p[1]).sort((a, b) => a - b)[known.length >> 1]] : null;
+      const ok = (p, approx) => p && (!mid || known.length < 2 || kmBetween(p, mid) < (approx ? 60 : 400));
+      let hit = null, by = null, approx = false;
+      const cands = geoCandidates(s);
+      for (const c of cands.filter((c) => !c.approx)) { const p = await geocode(c.q).catch(() => null); await sleep(1100); if (ok(p, false)) { hit = p; by = c.q; break; } }
+      if (!hit) for (const c of cands.filter((c) => !c.approx).slice(0, 2)) { const p = await geocodePhoton(c.q, mid).catch(() => null); await sleep(300); if (ok(p, false)) { hit = p; by = c.q; break; } }
+      if (!hit) for (const c of cands.filter((c) => c.approx)) { const p = await geocode(c.q).catch(() => null); await sleep(1100); if (ok(p, true)) { hit = p; by = c.q; approx = true; break; } }
+      s.link.geo = hit ? { q: s.q, lat: hit[0], lng: hit[1], ...(approx ? { approx: true, by } : {}) } : { q: s.q, fail: true, v: 2 };
       changed = true;
       if (S.view === "map" && day() === d) drawRouteMap(d, true);
     }
@@ -887,6 +943,7 @@ function routeStops(d) {
     if (link) stops.push({ it, v, link, sub, q: placeQuery(link), type: v.type || "place" });
   };
   for (const { item } of seq(d)) { add(item, false); for (const c of item.children || []) add(c, true); }
+  estimateMissing(stops);
   return stops;
 }
 const stopDim = (s) => S.mapFilter !== "all" && s.type !== S.mapFilter;
@@ -943,6 +1000,7 @@ function stopCardHTML(d, stops) {
     <div class="sc-top"><span class="sc-kicker">STOP ${String(S.mapSel + 1).padStart(2, "0")} / ${esc(d.label)}</span><span class="sc-r"><span class="sc-chip">${icon(cat[1])}${cat[0]}</span><button class="sc-x" data-act="card-close" aria-label="關閉">✕</button></span></div>
     <h3>${esc(s.v.title)}</h3>
     <div class="sub">${s.it.start != null ? `${timeLabel(s.it)} · ` : ""}${esc(sum || s.link.label || s.q)}</div>
+    ${geoKind(s) ? `<div class="sc-approx">≈ 地圖上是大約位置，「開啟導航」會用你填寫的 Google 地圖連結</div>` : ""}
     <div class="sc-actions"><a class="btn primary" href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">${icon("nav")} 開啟導航</a>
       ${S.mapSel > 0 ? `<a class="btn" href="${esc(gmapsLeg(stops[S.mapSel - 1], s))}" target="_blank" rel="noopener">${icon("train")} 由上一站前往</a>` : ""}
       <button class="btn" data-act="map-goto" data-id="${esc(s.it.id)}">查看行程</button></div>
@@ -951,7 +1009,7 @@ function stopCardHTML(d, stops) {
 }
 function pinIcon(s, i) {
   return L.divIcon({ className: "", iconSize: [34, 34], iconAnchor: [17, 17],
-    html: `<div class="mpin ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""} ${s.sub ? "sub" : ""}" style="--c:${catVar(s.type)}"><b>${i + 1}</b><span class="mbadge">${icon(catOf(s.type)[1])}</span></div>` });
+    html: `<div class="mpin ${geoKind(s)} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""} ${s.sub ? "sub" : ""}" style="--c:${catVar(s.type)}"><b>${i + 1}</b><span class="mbadge">${icon(catOf(s.type)[1])}</span></div>` });
 }
 // 只更新選取狀態（不重畫整張地圖）
 function selectStop(d, i, pan) {
@@ -990,10 +1048,12 @@ async function drawRouteMap(d, noGeocode) {
   S.layer.clearLayers();
   S.markers = [];
   const pts = [];
+  estimateMissing(stops);
   stops.forEach((s, i) => {
     const g = geoOf(s);
     const tag = $(`.st-geo[data-i="${i}"]`);
-    if (tag) tag.textContent = g ? "" : (s.link.geo && s.link.geo.fail ? "⚠ 地圖上未能定位，可在編輯中改用更準確的地點名稱" : "定位中…");
+    const k = geoKind(s);
+    if (tag) { tag.className = "st-geo " + k; tag.textContent = k === "approx" ? `≈ 地圖上顯示附近位置（${s.link.geo.by}）` : k === "est" ? "≈ 地圖上找不到，暫放在前後兩站之間；按這裡可改名稱" : g ? "" : (s.link.geo && s.link.geo.fail ? "⚠ 地圖上未能定位，按這裡可改用更準確的名稱" : "定位中…"); }
     if (!g) { S.markers.push(null); return; }
     pts.push(g);
     const mk = L.marker(g, { icon: pinIcon(s, i) }).addTo(S.layer);
