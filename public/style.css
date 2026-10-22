@@ -102,6 +102,19 @@ button { cursor: pointer; }
 .l-del { flex: 0 0 auto; width: 38px; border: 0; background: var(--bg); color: var(--muted); border-radius: 10px; }
 .linkbox .hint { display: block; margin-top: 6px; }
 
+/* 備選：類型分頁 */
+.type-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 14px 0 4px; padding-bottom: 2px; }
+.type-tabs::-webkit-scrollbar { display: none; }
+.ttab { flex: 0 0 auto; border: 1.5px solid var(--line); background: var(--card); color: var(--ink-2); border-radius: 999px; padding: 6px 14px; font-size: 14px; }
+.ttab small { margin-left: 6px; color: var(--muted); font-size: 12px; }
+.ttab.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.ttab.on small { color: rgba(255,255,255,.75); }
+.origin { font-size: 12px; color: var(--muted); background: var(--bg); border-radius: 6px; padding: 1px 8px; }
+.actions button.strong { color: var(--accent); font-weight: 600; }
+.pos-list { max-height: 44dvh; overflow-y: auto; background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 2px 12px; }
+.pos-list .checkline { margin: 6px 0; font-size: 14px; }
+.pos-list .time { margin-right: 4px; }
+
 /* 表單錯誤 */
 .field-err { display: block; color: #b3412b; font-size: 13px; margin-top: 4px; }
 .invalid { border-color: #d98a72 !important; background: #fff6f3 !important; }

@@ -11,7 +11,7 @@ const S = {
   doc: null, version: 0, dayId: null, q: "",
   saving: false, pending: false, timer: null, conflict: null, offline: false,
   undo: [], open: new Set(), expanded: new Set(),
-  photoMode: null,
+  photoMode: null, ideaFilter: "all",
 };
 
 // ---------- helpers ----------
@@ -351,7 +351,7 @@ function render() {
     <button class="btn" data-act="edit-day">✎ 編輯</button></div>
     ${d.subtitle ? `<p class="subtitle">${esc(d.subtitle)}</p>` : ""}
     <div class="tools">
-      ${all.length ? `<div class="progress">${done} / ${all.length} 已完成<div class="track"><i style="width:${all.length ? (done / all.length) * 100 : 0}%"></i></div></div>` : ""}
+      ${all.length && d.kind === "day" ? `<div class="progress">${done} / ${all.length} 已完成<div class="track"><i style="width:${all.length ? (done / all.length) * 100 : 0}%"></i></div></div>` : ""}
       <input class="search" type="search" placeholder="搜尋地點或交通…" value="${esc(S.q)}" data-act="search">
     </div>`;
 
@@ -370,8 +370,21 @@ function render() {
     if (!d.items.length) html += `<div class="empty">還沒有行程<br><button class="btn primary" data-act="add-main" data-at="-1" style="margin-top:10px">＋ 新增第一個行程</button></div>`;
     html += `</div>`;
   } else {
-    html += `<div class="info-list">${items.map(({ item, idx }) => itemHTML(item, d, null, q, { at: idx, route: "", shared: false })).join("")}</div>`;
-    html += `<div class="insert" style="margin-top:12px"><button data-act="add-main" data-at="${d.items.length - 1}">＋ 新增</button><button data-act="add-main" data-type="info" data-at="${d.items.length - 1}">ⓘ 加入資訊</button></div>`;
+    // 按類型分頁：全部／餐飲／地點・活動…
+    const counts = {};
+    for (const n of d.items) { const ty = V(n).type || "place"; counts[ty] = (counts[ty] || 0) + 1; }
+    const types = Object.keys(TYPES).filter((k) => counts[k]);
+    let f = S.ideaFilter;
+    if (f !== "all" && !counts[f]) f = "all";
+    if (types.length > 1 || f !== "all") {
+      html += `<div class="type-tabs">${[["all", "全部", d.items.length], ...types.map((k) => [k, TYPES[k], counts[k]])].map(([k, label, n]) =>
+        `<button class="ttab ${k === f ? "on" : ""}" data-act="idea-filter" data-id="${k}">${k === "all" ? "" : TYPE_ICON[k] + " "}${label}<small>${n}</small></button>`).join("")}</div>`;
+    }
+    const shown = items.filter(({ item }) => f === "all" || (V(item).type || "place") === f);
+    html += `<div class="info-list">${shown.map(({ item, idx }) => itemHTML(item, d, null, q, { at: idx, route: "", shared: false })).join("")}</div>`;
+    if (!shown.length && !q) html += `<div class="empty">${d.items.length ? "這個類型還沒有項目" : "還沒有項目。<br>行程卡上按「↘ 移到備選」就會放到這裡。"}</div>`;
+    const defType = f !== "all" ? f : "place";
+    html += `<div class="insert" style="margin-top:12px"><button data-act="add-main" data-type="${defType === "info" ? "place" : defType}" data-at="${d.items.length - 1}">＋ 新增${f !== "all" && f !== "info" ? TYPES[f] : ""}</button><button data-act="add-main" data-type="info" data-at="${d.items.length - 1}">ⓘ 加入資訊</button></div>`;
   }
   if (q && !items.length) html += `<div class="empty">找不到「${esc(S.q)}」</div>`;
 
@@ -490,7 +503,8 @@ function itemHTML(it, d, warn, q, pos = { at: 0, route: "", shared: false }) {
     ${d.kind === "day" ? `<span class="dot"></span>` : ""}
     <div class="card">
       <div class="meta">
-        ${it.start != null ? `<span class="time">${timeLabel(it)}</span>` : ""}
+        ${d.kind === "day" && it.start != null ? `<span class="time">${timeLabel(it)}</span>` : ""}
+        ${d.kind !== "day" && it.from ? `<span class="origin">原本：${esc(it.from)}</span>` : ""}
         ${it.locked ? `<span class="lock">🔒 固定</span>` : ""}
         <span class="kind">${TYPE_ICON[v.type] || ""} ${TYPES[v.type] || ""}</span>${foldBtn(it)}
         <button class="check" data-act="done" data-id="${id}" aria-label="完成">${it.done ? "✓" : ""}</button>
@@ -503,6 +517,7 @@ function itemHTML(it, d, warn, q, pos = { at: 0, route: "", shared: false }) {
         <button data-act="add-child" data-id="${id}">＋ 子行程</button>
         <button data-act="quick-photo" data-id="${id}">📷 加圖片</button>
         ${d.kind === "day" && pos.shared ? `<button data-act="branch-new" data-id="${id}">⑂ 分叉</button>` : ""}
+        ${d.kind === "day" ? `<button data-act="move-out" data-id="${id}">↘ 移到備選</button>` : `<button class="strong" data-act="move-in" data-id="${id}">↩ 加回行程</button>`}
       </div>
     </div>
     ${after}
@@ -600,6 +615,7 @@ function renderEditor() {
     </form>
     <div class="sheet-foot">
       ${ED.mode === "edit" ? `<button class="btn danger" data-act="ed-delete">刪除</button>` : ""}
+      ${ED.mode === "edit" && !ED.isChild ? (ED.info ? `<button class="btn" data-act="move-in" data-id="${esc(ED.draft.id)}">↩ 加回行程</button>` : `<button class="btn" data-act="move-out" data-id="${esc(ED.draft.id)}">↘ 移到備選</button>`) : ""}
       <span class="grow"></span>
       <button class="btn" data-act="close">取消</button>
       <button class="btn primary" data-act="ed-save">儲存</button>
@@ -773,6 +789,107 @@ function openDayEditor(isNew) {
 }
 
 // ---------- 選單 ----------
+// ---------- 移到備選／加回行程 ----------
+function ideasDayOf(doc, create) {
+  let d = doc.days.find((x) => x.id === "ideas") || doc.days.find((x) => x.kind === "info" && /備選/.test(x.label + x.title));
+  if (!d && create) { d = { id: "ideas", kind: "info", label: "備選地點", sub: "IDEAS", title: "備選地點", subtitle: "未排進行程的地點，可以先放這裡", items: [] }; doc.days.push(d); }
+  return d;
+}
+function openMoveOut(id) {
+  const f = findItem(id); if (!f) return;
+  const timed = !f.parent && f.item.start != null && V(f.item).dur;
+  const sheet = $("#sheet");
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>↘ 移到備選地點</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p>「${esc(V(f.item).title)}」會移到「備選地點」，${f.item.children && f.item.children.length ? "子行程、" : ""}圖片和備選方案都會保留。之後可以在那裡按「↩ 加回行程」放回任何一天。</p>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button>
+    ${timed ? `<button class="btn" data-act="move-out-go" data-id="${esc(id)}">只移走</button><button class="btn primary" data-act="move-out-go" data-pull="1" data-id="${esc(id)}">移走並提前之後時間</button>`
+      : `<button class="btn primary" data-act="move-out-go" data-id="${esc(id)}">移到備選</button>`}</div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function doMoveOut(id, pull) {
+  closeSheet();
+  commit((doc) => {
+    let f = null;
+    for (const d of doc.days) { f = locate(d, id); if (f) break; }
+    if (!f) return { msg: "找不到這個行程" };
+    const d = f.day, it = f.item;
+    const dur = !f.parent && it.start != null ? V(it).dur || 0 : 0;
+    const p = f.parent ? -1 : posOf(d, it);
+    f.arr.splice(f.index, 1);
+    let n = 0;
+    if (pull && dur && p >= 0) n = rippleFrom(d, p - 1, -dur);
+    it.from = `${d.label}${it.start != null ? " " + fmt(it.start) : ""}`;
+    it.fromDay = d.id; it.fromStart = it.start;
+    it.done = false;
+    if (!it.children) it.children = [];
+    ideasDayOf(doc, true).items.push(it);
+    return { msg: `已移到「備選地點」${n ? `，之後 ${n} 項提前 ${durText(dur)}` : ""}` };
+  });
+}
+function openMoveIn(id, dayId) {
+  const days = S.doc.days.filter((x) => x.kind === "day");
+  if (!days.length) { toast("還沒有行程日"); return; }
+  const f = findItem(id); if (!f) return;
+  const d = days.find((x) => x.id === (dayId || f.item.fromDay)) || days[0];
+  const list = seq(d);
+  const info = isInfo(f.item);
+  // 預設放回原本的位置：原本開始時間之前最後一項
+  let def = list.length - 1;
+  if (d.id === f.item.fromDay && f.item.fromStart != null) {
+    def = -1;
+    list.forEach((x, k) => { if (x.item.start != null && x.item.start < f.item.fromStart) def = k; });
+  }
+  const opts = [`<label class="checkline"><input type="radio" name="pos" value="-1" ${def === -1 ? "checked" : ""}><span>放在最前面</span></label>`]
+    .concat(list.map((x, k) => `<label class="checkline"><input type="radio" name="pos" value="${k}" ${k === def ? "checked" : ""}><span>${x.item.start != null ? `<b class="time">${fmt(x.item.start)}</b> ` : ""}${esc(V(x.item).title)} <small>之後${x.branch ? `（分叉：${esc(activeRoute(x.branch).name || "目前路線")}）` : ""}</small></span></label>`));
+  const sheet = $("#sheet");
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>↩ 加回行程</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">「${esc(V(f.item).title)}」${f.item.from ? `（原本：${esc(f.item.from)}）` : ""}</p>
+    <form id="moveForm" onsubmit="return false">
+      <label class="field"><span>加到哪一天</span><select name="day" data-id="${esc(id)}">${days.map((x) => `<option value="${esc(x.id)}" ${x.id === d.id ? "selected" : ""}>${esc(x.label)}　${esc(x.title)}</option>`).join("")}</select></label>
+      <div class="field"><span>放在哪裡</span><div class="pos-list">${opts.join("")}</div></div>
+      ${info ? "" : `<label class="checkline"><input type="checkbox" name="ripple" checked><span>自動把之後的行程延後</span></label>`}
+    </form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="move-in-go" data-id="${esc(id)}">加回行程</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function scrollChecked() { const c = $("#moveForm [name=pos]:checked"); if (c) c.closest("label").scrollIntoView({ block: "center" }); }
+function doMoveIn(id) {
+  const form = $("#moveForm");
+  const dayId = form.day.value, pos = +(form.querySelector("[name=pos]:checked") || { value: -1 }).value;
+  const ripOn = form.ripple ? form.ripple.checked : false;
+  closeSheet();
+  commit((doc) => {
+    let f = null;
+    for (const dd of doc.days) { f = locate(dd, id); if (f) break; }
+    if (!f) return { msg: "找不到這個項目" };
+    const it = f.item;
+    f.arr.splice(f.index, 1);
+    const d = doc.days.find((x) => x.id === dayId);
+    const list = seq(d);
+    let arr = d.items, at = 0;
+    if (pos >= 0 && list[pos]) { arr = list[pos].arr; at = list[pos].idx + 1; }
+    const prevTimed = list.slice(0, pos + 1).reverse().map((x) => x.item).find((x) => x.start != null);
+    const firstTimed = list.map((x) => x.item).find((x) => x.start != null);
+    const oldStart = it.start;
+    if (isInfo(it)) it.start = null;
+    else {
+      it.start = prevTimed ? endOf(prevTimed) : firstTimed ? firstTimed.start : 9 * 60;
+      if (!V(it).dur) V(it).dur = 60;
+      const dd = oldStart != null ? it.start - oldStart : 0;
+      for (const c of it.children || []) if (c.start != null) c.start += dd;
+    }
+    delete it.from; delete it.fromDay; delete it.fromStart; it.done = false;
+    arr.splice(at, 0, it);
+    if (ripOn && it.start != null) {
+      const l2 = seq(d), p = l2.findIndex((x) => x.item === it);
+      const next = l2.slice(p + 1).map((x) => x.item).find((x) => x.start != null);
+      const delta = next ? endOf(it) - next.start : 0;
+      if (delta > 0) { const n = rippleFrom(d, p, delta); if (n) return { msg: `已加回 ${d.label} ${fmt(it.start)}，之後 ${n} 項延後 ${durText(delta)}` }; }
+    }
+    return { msg: `已加回 ${d.label}${it.start != null ? " " + fmt(it.start) : ""}` };
+  });
+}
+
 function openBranchEditor(bid) {
   const d = day(); const b = findBranch(d, bid); if (!b) return;
   const r = activeRoute(b), i = b.routes.indexOf(r);
@@ -872,6 +989,11 @@ document.addEventListener("click", async (e) => {
     }
     case "branch-edit": openBranchEditor(id); break;
     case "branch-new": openBranchCreator(id); break;
+    case "move-out": closeSheet(); openMoveOut(id); break;
+    case "move-out-go": doMoveOut(id, !!t.dataset.pull); break;
+    case "move-in": closeSheet(); openMoveIn(id); scrollChecked(); break;
+    case "move-in-go": doMoveIn(id); break;
+    case "idea-filter": S.ideaFilter = id; render(); break;
     case "branch-create": {
       const f = $("#branchForm"); const endIdx = +f.querySelector("[name=end]:checked").value;
       const nameA = f.nameA.value.trim(), nameB = f.nameB.value.trim();
@@ -1083,6 +1205,7 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("change", async (e) => {
   if (e.target.name === "type" && e.target.form && e.target.form.id === "edForm") { readForm(); renderEditor(); return; }
+  if (e.target.name === "day" && e.target.form && e.target.form.id === "moveForm") { openMoveIn(e.target.dataset.id, e.target.value); scrollChecked(); return; }
   if (e.target.id === "edFile") {
     const files = [...e.target.files]; if (!files.length) return;
     readForm();
