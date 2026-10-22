@@ -907,23 +907,40 @@ function routeViewHTML(d) {
     <p class="hint" id="geoStatus"></p>
     <div class="route-actions">${chunks.map((c, i) => `<a class="btn" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("map")} Google 地圖${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
     ${hasBranch ? `<p class="hint">有分叉路線的話，這裡顯示的是目前選擇的路線。</p>` : ""}
+    <p class="hint">按圓圈數字在地圖上查看；按行程可以直接修改地點。</p>
     <ol class="stops">`;
-  stops.forEach((s, i) => {
-    html += `<li class="${s.sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="map-sel" data-i="${i}"><span class="num">${i + 1}</span><div class="st-body">
-      <div>${s.it.start != null ? `<b class="time">${fmt(s.it.start)}</b> ` : ""}${esc(s.v.title)}${s.sub ? ` <small class="hint">子行程</small>` : ""}</div>
-      <span class="st-place">${icon(catOf(s.type)[1])} ${esc(s.link.label || s.q)}</span>
-      <span class="st-geo" data-i="${i}"></span></div></li>`;
-    if (stops[i + 1]) html += `<li class="leg"><a href="${esc(gmapsLeg(s, stops[i + 1]))}" target="_blank" rel="noopener">${icon("train")} ${i + 1} → ${i + 2} 交通路線</a></li>`;
-  });
+  // 列出這天所有行程（資訊卡除外），沒有地點的也列出
+  const all = [];
+  for (const { item } of seq(d)) { all.push([item, false]); for (const c of item.children || []) all.push([c, true]); }
+  let si = 0;
+  for (const [it, sub] of all) {
+    const v = V(it);
+    if ((v.type || "place") === "info") continue;
+    const s = stops[si] && stops[si].it === it ? stops[si] : null;
+    if (s) {
+      const i = si++;
+      if (i > 0) html += `<li class="leg"><a href="${esc(gmapsLeg(stops[i - 1], s))}" target="_blank" rel="noopener">${icon("train")} ${i} → ${i + 1} 交通路線</a></li>`;
+      html += `<li class="${sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="place-edit" data-id="${esc(it.id)}" data-i="${i}"><span class="num" data-act="map-sel" data-i="${i}">${i + 1}</span><div class="st-body">
+        <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
+        <span class="st-place">${icon(catOf(s.type)[1])} ${esc(s.link.label || s.q)}</span>
+        <span class="st-geo" data-i="${i}"></span></div><span class="st-edit">${icon("pencil")}</span></li>`;
+    } else {
+      const ty = v.type || "place";
+      html += `<li class="${sub ? "sub" : ""} noplace ${S.mapFilter !== "all" && ty !== S.mapFilter ? "dim" : ""}" style="--c:${catVar(ty)}" data-act="place-edit" data-id="${esc(it.id)}"><span class="num">·</span><div class="st-body">
+        <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
+        <span class="st-place add">＋ 加入地點</span></div></li>`;
+    }
+  }
   return html + `</ol></div>`;
 }
 // 選中的地點：資料卡
 function stopCardHTML(d, stops) {
   const s = stops[S.mapSel]; if (!s) return "";
+  if (S.cardOff) return `<button class="btn small card-show" data-act="card-show">${icon("map")} 顯示地點資料卡</button>`;
   const cat = catOf(s.type);
   const sum = summaryOf(s.v);
   return `<div class="stopcard" style="--c:${catVar(s.type)}">
-    <div class="sc-top"><span class="sc-kicker">STOP ${String(S.mapSel + 1).padStart(2, "0")} / ${esc(d.label)}</span><span class="sc-chip">${icon(cat[1])}${cat[0]}</span></div>
+    <div class="sc-top"><span class="sc-kicker">STOP ${String(S.mapSel + 1).padStart(2, "0")} / ${esc(d.label)}</span><span class="sc-r"><span class="sc-chip">${icon(cat[1])}${cat[0]}</span><button class="sc-x" data-act="card-close" aria-label="關閉">✕</button></span></div>
     <h3>${esc(s.v.title)}</h3>
     <div class="sub">${s.it.start != null ? `${timeLabel(s.it)} · ` : ""}${esc(sum || s.link.label || s.q)}</div>
     <div class="sc-actions"><a class="btn primary" href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">${icon("nav")} 開啟導航</a>
@@ -980,7 +997,7 @@ async function drawRouteMap(d, noGeocode) {
     if (!g) { S.markers.push(null); return; }
     pts.push(g);
     const mk = L.marker(g, { icon: pinIcon(s, i) }).addTo(S.layer);
-    mk.on("click", () => selectStop(d, i, false));
+    mk.on("click", () => { if (S.cardOff) { S.cardOff = false; ls.set("trip.cardOff", ""); } selectStop(d, i, false); });
     S.markers.push(mk);
   });
   const css = getComputedStyle(document.documentElement);
@@ -1849,6 +1866,24 @@ function openBranchEditor(bid) {
     <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="route-save" data-branch="${esc(b.id)}">儲存</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
 }
+// 是日路線：直接修改行程的地圖地點
+function openPlaceEditor(id) {
+  const f = findItem(id); if (!f) return;
+  const v = V(f.item);
+  const l = (v.links || []).find(isMapLink);
+  const raw = l && !/google\.com\/maps\/search\/\?api=1&query=/.test(l.url || "") ? l.url : "";
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("nav")} 地點</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">${f.item.start != null ? `<b class="time">${fmt(f.item.start)}</b> ` : ""}${esc(v.title)}</p>
+    <form id="placeForm" onsubmit="return false">
+      <label class="field"><span>地點名稱</span><input type="text" name="name" value="${esc(l ? l.label || "" : "")}" placeholder="例如：露天神社"></label>
+      <label class="field"><span>Google 地圖網址（可留空）</span><input type="url" name="url" inputmode="url" autocapitalize="off" value="${esc(raw)}" placeholder="https://maps.app.goo.gl/…"></label>
+      <small class="hint">只填地點名稱時，會自動用這個名稱搜尋及定位。地圖上定位不到的話，可以改用更完整的名稱或地址。</small>
+    </form>
+    <div class="sheet-foot">${l ? `<button class="btn" data-act="place-remove" data-id="${esc(id)}">移除地點</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="place-save" data-id="${esc(id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
 function openBranchCreator(id) {
   const d = day();
   const i = d.items.findIndex((x) => x.id === id);
@@ -1987,6 +2022,28 @@ document.addEventListener("click", async (e) => {
     }
     case "map-sel": selectStop(day(), +t.dataset.i, true); $("#routeMap") && $("#routeMap").scrollIntoView({ block: "center", behavior: "smooth" }); break;
     case "map-step": { const n = routeStops(day()).length; selectStop(day(), Math.max(0, Math.min(n - 1, (S.mapSel || 0) + +t.dataset.dir)), true); break; }
+    case "card-close": S.cardOff = true; ls.set("trip.cardOff", "1"); selectStop(day(), S.mapSel || 0, false); break;
+    case "card-show": S.cardOff = false; ls.set("trip.cardOff", ""); selectStop(day(), S.mapSel || 0, false); break;
+    case "place-edit": openPlaceEditor(id); break;
+    case "place-save": case "place-remove": {
+      const f = $("#placeForm");
+      const name = f.name.value.trim(), raw = f.url.value.trim();
+      if (a === "place-save" && !name && !raw) { fieldErrorIn(f, "name", "請輸入地點名稱或地圖網址"); break; }
+      let url = normUrl(raw);
+      if (a === "place-save" && !raw) url = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(name);
+      const pid = t.dataset.id;
+      closeSheet();
+      commit((doc) => {
+        const f2 = findItem(pid); if (!f2) return;
+        const v = V(f2.item); v.links = v.links || [];
+        const k = v.links.findIndex(isMapLink);
+        if (a === "place-remove") { if (k >= 0) v.links.splice(k, 1); return; }
+        const link = { kind: "map", label: name || url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0], url };
+        if (k >= 0) { const old = v.links[k]; if (old.label === link.label && old.url === link.url) return; v.links[k] = link; }
+        else v.links.unshift(link);
+      });
+      break;
+    }
     case "map-goto": {
       S.view = "list"; ls.set("trip.view", "list"); S.open.add(id); S.q = "";
       const f = findItem(id); if (f && f.item.done) S.expanded.add(id);
@@ -2303,6 +2360,7 @@ async function forceRefresh() {
 }
 setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
 S.view = ls.get("trip.view") === "map" ? "map" : "list";
+S.cardOff = ls.get("trip.cardOff") === "1";
 S.theme = ls.get("trip.theme") === "dark" ? "dark" : ls.get("trip.theme") === "light" ? "light" : "auto";
 setTheme(S.theme);
 

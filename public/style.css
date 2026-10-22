@@ -484,3 +484,17 @@ html, body { overflow-x: clip; }
 .quick.maps { margin-top: 8px; }
 .child .quick.maps { margin-top: 6px; }
 .transport .quick.maps { margin-left: 26px; }
+
+/* 地點資料卡可關閉 */
+.sc-r { display: flex; align-items: center; gap: 6px; }
+.sc-x { border: 1px solid var(--line); background: var(--soft); color: var(--muted); width: 30px; height: 30px; border-radius: 50%; font-size: 13px; display: grid; place-items: center; padding: 0; }
+.card-show { margin: 10px 0 4px; }
+/* 路線列表：全部行程、按一下修改地點 */
+.stops li[data-act="place-edit"] { cursor: pointer; }
+.stops li .num[data-act] { cursor: pointer; }
+.stops li .st-body { flex: 1; }
+.st-edit { color: var(--muted); align-self: center; opacity: .7; }
+.st-edit svg { width: 16px; height: 16px; }
+.stops li.noplace { border-style: dashed; opacity: .85; }
+.stops li.noplace .num { background: transparent; color: var(--muted); }
+.st-place.add { color: var(--purple); font-weight: 600; }
