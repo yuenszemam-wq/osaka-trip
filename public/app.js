@@ -82,12 +82,18 @@ function money(n, cur) {
   return (n < 0 ? "−" : "") + (CUR[cur] || cur + " ") + s;
 }
 const localCur = () => (S.doc && S.doc.meta && S.doc.meta.currency) || "JPY";
-function toHKD(n, cur) {
+// 付款方式
+const PAY = { cash: ["現金", "💴"], ic: ["IC卡", "🚃"], card: ["信用卡", "💳"], other: ["其他", "•"] };
+const payLabel = (p) => PAY[p] ? `${PAY[p][1]} ${PAY[p][0]}` : "";
+// 現金（及用現金增值的 IC 卡）可以用手動固定的現金匯率
+const cashRate = () => { const w = S.doc && S.doc.wallet; return w && w.cashRate > 0 ? w.cashRate : null; };
+function toHKD(n, cur, pay) {
   if (n == null || n === "" || isNaN(n)) return null;
   if (cur === "HKD") return +n;
   const m = S.doc.meta || {};
-  if (cur === (m.currency || "JPY") && m.rate) return +n * m.rate;
-  return null;
+  if (cur !== (m.currency || "JPY")) return null;
+  if ((pay === "cash" || pay === "ic") && cashRate()) return +n * cashRate();
+  return m.rate ? +n * m.rate : null;
 }
 const numOrNull = (v) => { const s = String(v ?? "").replace(/[,，\s]/g, ""); if (s === "") return null; const n = Number(s); return isFinite(n) ? n : null; };
 
@@ -503,6 +509,8 @@ async function loadWeather(force) {
     if (!$("#sheet") || $("#sheet").hidden) { if (S.dayId === DIARY) renderChrome(); else render(); }
   } catch (e) { /* 沒有網絡時保留舊資料 */ } finally { wxBusy = false; }
 }
+const WD_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const wdOf = (d) => { const iso = dayDate(d); if (!iso || !/^\d{1,2}[.\/-]\d{1,2}$/.test((d.sub || "").trim())) return ""; return " " + WD_EN[new Date(iso + "T00:00:00").getDay()]; };
 const wxFor = (d) => { const w = S.wx && S.wx[d.id]; return w && w.iso === dayDate(d) && w.max != null ? w : null; };
 function wxChip(d) { const w = wxFor(d); return w ? `<span class="wx">${wxOf(w.code)[1]} ${Math.round(w.max)}°<i>/${Math.round(w.min)}°</i></span>` : ""; }
 function wxLine(d) {
@@ -648,11 +656,11 @@ function renderChrome() {
       ${notes.map((x) => `<button class="ntab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${icon(noteIcon(x))}${esc(x.label)}</button>`).join("")}
       <button class="ntab" data-act="tab" data-id="${MONEY}" aria-pressed="${S.dayId === MONEY}">${icon("wallet")}支出</button>
       <button class="ntab" data-act="tab" data-id="${SHOP}" aria-pressed="${S.dayId === SHOP}">${icon("cart")}購物清單</button>
-      <button class="ntab" data-act="tab" data-id="${DIARY}" aria-pressed="${S.dayId === DIARY}">${icon("book")}日記</button>
+      ${S.dayId === DIARY ? `<button class="ntab" data-act="tab" data-id="${DIARY}" aria-pressed="true">${icon("book")}日記</button>` : ""}
       <button class="addtab" data-act="add-day" data-kind="info" aria-label="新增備注頁">＋</button>
     </div>
     <div class="rowtabs" role="tablist" aria-label="旅遊日">
-      ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}</small>${wxChip(x)}</button>`).join("")}
+      ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}${wdOf(x)}</small>${wxChip(x)}</button>`).join("")}
       <button class="addtab day" data-act="add-day" data-kind="day" aria-label="新增一天">＋</button>
     </div>
     ${!isSpecial(S.dayId) && day() ? `<div class="toprow3">
@@ -821,7 +829,7 @@ function shopHTML() {
   const L = S.doc.shopping || [];
   const f = S.shopFilter || "todo";
   const shown = L.filter((x) => f === "all" || (f === "done" ? x.done : !x.done));
-  const hk = (rows, key) => rows.reduce((a, x) => { const n = x[key]; if (n == null) return a; const h = (x.cur || localCur()) === "HKD" ? n : toHKD(n, x.cur || localCur()); return a + (h || 0); }, 0);
+  const hk = (rows, key) => rows.reduce((a, x) => { const n = x[key]; if (n == null) return a; const h = (x.cur || localCur()) === "HKD" ? n : toHKD(n, x.cur || localCur(), x.pay); return a + (h || 0); }, 0);
   const todo = L.filter((x) => !x.done), done = L.filter((x) => x.done);
   let html = `<div class="shop">
     <form class="shop-add" id="shopAdd" onsubmit="return false"><input type="text" name="q" placeholder="新增要買的東西，例如：Sanrio 手信" enterkeyhint="done"><button class="btn primary" data-act="shop-quick">${icon("plus")}加入</button></form>
@@ -841,7 +849,7 @@ function shopHTML() {
       html += `<div class="shop-row ${x.done ? "done" : ""}"><button class="check ${x.done ? "on" : ""}" data-act="shop-done" data-id="${esc(x.id)}" aria-label="${x.done ? "改為未買" : "已買"}：${esc(x.name)}">${x.done ? "✓" : ""}</button>
         <button class="shop-body" data-act="shop-edit" data-id="${esc(x.id)}"><span class="shop-name">${esc(x.name)}${x.qty > 1 ? `<small> ×${x.qty}</small>` : ""}</span>
           ${x.forWho || x.note ? `<small>${[x.forWho ? "給 " + esc(x.forWho) : "", esc(x.note || "")].filter(Boolean).join(" · ")}</small>` : ""}</button>
-        ${amt != null ? `<span class="shop-amt">${money(amt, cur)}${cur !== "HKD" && toHKD(amt, cur) != null ? `<small>≈${money(toHKD(amt, cur), "HKD")}</small>` : ""}</span>` : ""}</div>`;
+        ${amt != null ? `<span class="shop-amt">${money(amt, cur)}${cur !== "HKD" && toHKD(amt, cur, x.pay) != null ? `<small>≈${money(toHKD(amt, cur, x.pay), "HKD")}</small>` : ""}</span>` : ""}</div>`;
     }
     html += `</section>`;
   }
@@ -860,7 +868,7 @@ function openShopEditor(id) {
       <div class="grid2"><label class="field"><span>數量</span><input type="number" name="qty" min="1" step="1" inputmode="numeric" value="${x.qty || 1}"></label>
       <label class="field"><span>買給誰（可留空）</span><input type="text" name="forWho" value="${esc(x.forWho || "")}" placeholder="例如：媽媽"></label></div>
       <label class="field"><span>在哪裡買（可留空）</span><input type="text" name="where" list="shopWhere" value="${esc(x.where || "")}" placeholder="可揀行程中的地點，或自己輸入"><datalist id="shopWhere">${titles.map((t) => `<option value="${esc(t)}">`).join("")}</datalist></label>
-      ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur }, curs)}
+      ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur, pay: x.pay }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(x.note || "")}" placeholder="顏色、尺寸、款式…"></label>
       ${id ? `<label class="checkline"><input type="checkbox" name="done" ${x.done ? "checked" : ""}><span>已買</span></label>` : ""}
     </form>
@@ -927,6 +935,7 @@ function diaryHTML() {
     </section>`;
   }).join("");
   return `<div class="diary">
+    ${S.trips.length > 1 ? `<div class="dtrips">${S.trips.map((t) => `<button class="chip ${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${icon("suitcase")}${esc(t.title)}</button>`).join("")}</div>` : ""}
     <div class="dcover"><div class="kicker">${esc(m.dates || "")}</div><h2>${esc(m.title || "旅程日記")}</h2>
       <div class="dstats"><span><b>${nDone}</b> 站已完成</span><span><b>${nPhotos}</b> 張相片</span><span><b>${nWords}</b> 字</span></div>
       <div class="djump">${days.map((d) => `<button class="chip" data-act="diary-jump" data-id="${esc(d.id)}">${esc(d.label)}</button>`).join("")}</div>
@@ -960,11 +969,11 @@ function costHTML(v, it) {
   const cur = c.cur || localCur();
   const part = (label, n) => {
     if (n == null) return "";
-    const hk = cur !== "HKD" ? toHKD(n, cur) : null;
+    const hk = cur !== "HKD" ? toHKD(n, cur, c.pay) : null;
     return `<span class="tag">${label} <b>${money(n, cur)}</b>${hk != null ? `<span class="hk">≈${money(hk, "HKD")}</span>` : ""}</span>`;
   };
   const over = c.plan != null && c.actual != null && c.actual > c.plan;
-  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預計</span>` : ""}</button>`;
+  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預計</span>` : ""}${c.pay && PAY[c.pay] ? `<span class="paytag">${payLabel(c.pay)}</span>` : ""}</button>`;
 }
 // 詳情一直放在頁面上，用 CSS 動畫展開／摺疊（不用重畫整頁）
 function detailHTML(it, v, forceOpen) {
@@ -1402,7 +1411,7 @@ function costRows() {
   const add = (it, d, sub) => {
     const v = V(it); const c = v.cost;
     if (!c || (c.plan == null && c.actual == null)) return;
-    rows.push({ id: it.id, title: v.title, type: v.type || "place", day: d, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), time: it.start });
+    rows.push({ id: it.id, title: v.title, type: v.type || "place", day: d, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, time: it.start });
   };
   for (const d of S.doc.days) {
     if (isIdeas(d)) continue;
@@ -1411,86 +1420,146 @@ function costRows() {
   }
   for (const x of S.doc.shopping || []) {
     if (!x.done || (x.plan == null && x.actual == null)) continue;
-    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), note: x.where });
+    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, note: x.where });
   }
   for (const e of S.doc.expenses || []) {
-    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), note: e.note });
+    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, note: e.note });
   }
   return rows;
 }
+// 每項的金額：有實際數就用實際數，否則用預計
+const effOf = (r) => r.actual != null ? r.actual : r.plan;
 function sumHK(rows, key) {
   let s = 0, missing = 0;
-  for (const r of rows) { if (r[key] == null) continue; const h = toHKD(r[key], r.cur); if (h == null) missing++; else s += h; }
+  for (const r of rows) { const n = key === "eff" ? effOf(r) : r[key]; if (n == null) continue; const h = toHKD(n, r.cur, r.pay); if (h == null) missing++; else s += h; }
   return { s, missing };
 }
 function sumLocal(rows, key) {
   const cur = localCur();
   let s = 0;
-  for (const r of rows) { if (r[key] == null) continue; if (r.cur === cur) s += r[key]; else if (r.cur === "HKD" && S.doc.meta.rate) s += r[key] / S.doc.meta.rate; }
+  for (const r of rows) { const n = key === "eff" ? effOf(r) : r[key]; if (n == null) continue; if (r.cur === cur) s += n; else if (r.cur === "HKD" && S.doc.meta.rate) s += n / S.doc.meta.rate; }
   return s;
 }
-function moneyCell(n, cur, cmp) {
+function moneyCell(n, cur, pay) {
   if (n == null) return `<span class="none">—</span>`;
-  const hk = cur !== "HKD" ? toHKD(n, cur) : null;
-  return `<span class="${cmp != null && n > cmp ? "over" : ""}">${money(n, cur)}</span>${hk != null ? `<span class="hk">≈${money(hk, "HKD")}</span>` : ""}`;
+  const hk = cur !== "HKD" ? toHKD(n, cur, pay) : null;
+  return `<span>${money(n, cur)}</span>${hk != null ? `<span class="hk">≈${money(hk, "HKD")}</span>` : ""}`;
+}
+// ---------- 錢包：現金餘額、IC 卡餘額、信用卡 ----------
+// doc.wallet = { cashRate, log: [{ id, kind: "cash" | "ic", amount, from: "cash" | "card", note, t }] }
+function walletState(rows) {
+  const w = S.doc.wallet || {}, log = w.log || [], cur = localCur();
+  const loc = (n, c) => c === cur ? n : null; // 只計當地貨幣
+  let cashIn = 0, icIn = 0, icFromCash = 0, icFromCard = 0;
+  for (const x of log) {
+    if (x.kind === "cash") cashIn += x.amount || 0;
+    if (x.kind === "ic") { icIn += x.amount || 0; if (x.from === "card") icFromCard += x.amount || 0; else icFromCash += x.amount || 0; }
+  }
+  let cashOut = 0, icOut = 0, cardOut = 0;
+  for (const r of rows) {
+    const n = loc(r.actual, r.cur); if (n == null) continue; // 只計實際已付的金額
+    if (r.pay === "cash") cashOut += n; else if (r.pay === "ic") icOut += n; else if (r.pay === "card") cardOut += n;
+  }
+  return { cur, log, cashIn, cashOut, icIn, icOut, icFromCash, icFromCard, cardOut,
+    cash: cashIn - cashOut - icFromCash, ic: icIn - icOut, card: cardOut + icFromCard };
+}
+function walletHTML(rows) {
+  const st = walletState(rows), cur = st.cur, cr = cashRate();
+  const hk = (n, pay) => cur !== "HKD" && toHKD(n, cur, pay) != null ? `<small>≈ ${money(toHKD(n, cur, pay), "HKD")}</small>` : "";
+  return `<div class="mcard wallet"><h3>${icon("wallet")} 錢包</h3>
+    <div class="wgrid">
+      <div class="wbox ${st.cash < 0 ? "neg" : ""}"><div class="wk">💴 現金餘額</div><div class="wv">${money(st.cash, cur)}</div>${hk(st.cash, "cash")}
+        <div class="wd">換錢 ${money(st.cashIn, cur)}<br>− 現金支出 ${money(st.cashOut, cur)}${st.icFromCash ? `<br>− IC卡增值 ${money(st.icFromCash, cur)}` : ""}</div>
+        <button class="btn small" data-act="wallet-add" data-id="cash">${icon("plus")}換錢／加現金</button></div>
+      <div class="wbox ${st.ic < 0 ? "neg" : ""}"><div class="wk">🚃 IC卡餘額</div><div class="wv">${money(st.ic, cur)}</div>${hk(st.ic, "ic")}
+        <div class="wd">增值 ${money(st.icIn, cur)}<br>− IC卡支出 ${money(st.icOut, cur)}</div>
+        <button class="btn small" data-act="wallet-add" data-id="ic">${icon("plus")}增值</button></div>
+    </div>
+    <div class="wcard">💳 信用卡已簽 <b>${money(st.card, cur)}</b>${hk(st.card, "card")}${st.icFromCard ? `<span class="hint">（包括 IC卡增值 ${money(st.icFromCard, cur)}）</span>` : ""}</div>
+    ${cur !== "HKD" ? `<div class="wrate">${icon("swap")}<span>現金匯率：${cr ? `1 ${cur} = <b>${cr.toFixed(4)}</b> HKD（固定）` : `未設定（使用市場匯率）`}</span><button class="btn small" data-act="cash-rate">${icon("pencil")}${cr ? "修改" : "設定"}</button></div>` : ""}
+    ${st.log.length ? `<details class="wlog"><summary>換錢及增值紀錄（${st.log.length}）</summary>${st.log.slice().reverse().map((x) => `<div class="wrow"><span>${x.kind === "cash" ? "💴 換錢" : `🚃 IC卡增值 · ${x.from === "card" ? "💳 信用卡" : "💴 現金"}`}${x.note ? ` · ${esc(x.note)}` : ""}<small>${new Date(x.t).toLocaleDateString("zh-HK")}</small></span><b>${money(x.amount, cur)}</b><button class="btn small" data-act="wallet-del" data-id="${esc(x.id)}" aria-label="刪除">${icon("trash")}</button></div>`).join("")}</details>` : ""}
+    <p class="hint" style="margin:8px 0 0">餘額按「實際」金額和付款方式計算。IC卡增值是轉帳，不計入支出總額。</p></div>`;
+}
+function openWalletAdd(kind) {
+  const cur = localCur();
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${kind === "cash" ? "💴 換錢／加現金" : "🚃 IC卡增值"}</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="walletForm" onsubmit="return false">
+      <label class="field"><span>${kind === "cash" ? "換到的現金" : "增值金額"}（${esc(CUR_NAME[cur] || cur)}）</span><input type="text" inputmode="decimal" name="amount" placeholder="例如：${kind === "cash" ? "50000" : "3000"}"></label>
+      ${kind === "ic" ? `<div class="field"><span>用甚麼增值</span><div class="payseg"><label><input type="radio" name="from" value="cash" checked><span>💴 現金</span></label><label><input type="radio" name="from" value="card"><span>💳 信用卡</span></label></div></div>` : ""}
+      ${kind === "cash" && cur !== "HKD" ? `<label class="field"><span>付了多少港幣（可留空，填了會用來計算現金匯率）</span><input type="text" inputmode="decimal" name="hkd" placeholder="例如：2520"></label>` : ""}
+      <label class="field"><span>備註</span><input type="text" name="note" placeholder="${kind === "cash" ? "例如：找換店" : "例如：ICOCA"}"></label>
+    </form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="wallet-save" data-id="${kind}">加入</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  setTimeout(() => { const x = $("#walletForm [name=amount]"); if (x) x.focus(); }, 80);
+}
+function openCashRate() {
+  const cur = localCur(), w = S.doc.wallet || {};
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>現金匯率（固定）</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">輸入你換錢時的實際匯率。用現金和 IC 卡付款的支出會用這個匯率換算港幣；信用卡等仍用市場匯率。</p>
+    <form id="rateForm" onsubmit="return false">
+      <label class="field"><span>1 ${esc(cur)} = 多少港幣</span><input type="text" inputmode="decimal" name="rate" value="${w.cashRate ?? ""}" placeholder="${S.doc.meta.rate ? S.doc.meta.rate.toFixed(4) : "例如：0.0505"}"></label>
+      <div class="grid2"><label class="field"><span>或：付了港幣</span><input type="text" inputmode="decimal" name="hk" placeholder="2520"></label><label class="field"><span>換到 ${esc(cur)}</span><input type="text" inputmode="decimal" name="lc" placeholder="50000"></label></div>
+      <small class="hint">填了右邊兩格會自動計算匯率。</small>
+    </form>
+    <div class="sheet-foot">${w.cashRate ? `<button class="btn danger" data-act="cash-rate-clear">不固定</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="cash-rate-save">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 function moneyHTML() {
   const m = S.doc.meta || {};
   const cur = localCur();
   const rows = costRows();
-  const plan = sumHK(rows, "plan"), act = sumHK(rows, "actual");
-  const diff = act.s - plan.s;
-  let html = `<div class="dayhead"><div><h2>旅行支出表</h2><div class="sub">預計與實際消費 · 以港幣合計</div></div>
+  const tot = sumHK(rows, "eff"), act = sumHK(rows, "actual");
+  const planOnly = rows.filter((r) => r.actual == null && r.plan != null);
+  const po = sumHK(planOnly, "plan");
+  let html = `<div class="dayhead"><div><h2>旅行支出表</h2><div class="sub">有實際金額用實際，否則用預計 · 以港幣合計</div></div>
     <div class="headtools"><button class="manage" data-act="trip-settings">${icon("gear")}設定</button></div></div><div class="money">`;
+  // 總計：只顯示支出總額
+  html += `<div class="mcard total"><div class="tk">支出總額</div><div class="tv">${money(tot.s, "HKD")}</div>
+    ${cur !== "HKD" ? `<div class="tl">${money(sumLocal(rows, "eff"), cur)}</div>` : ""}
+    <div class="tsplit"><span>已付 ${money(act.s, "HKD")}</span><span>預計中 ${money(po.s, "HKD")}</span><span>${rows.length} 項</span></div>
+    ${tot.missing ? `<p class="hint" style="margin:8px 0 0">⚠ 有 ${tot.missing} 筆使用其他貨幣、未能換算，未計入合計。</p>` : ""}</div>`;
   // 整個行程預算（手動設定）
   const b = m.budget;
   const bHK = b && b.amount ? toHKD(b.amount, b.cur || "HKD") : null;
   if (bHK != null) {
-    const pctA = Math.min(100, (act.s / bHK) * 100), pctP = Math.min(100, (plan.s / bHK) * 100);
-    const left = bHK - act.s;
+    const pct = Math.min(100, (tot.s / bHK) * 100), left = bHK - tot.s;
     html += `<div class="mcard budget"><h3>${icon("wallet")} 行程預算<span class="right"><button class="btn small" data-act="budget-edit">${icon("pencil")}修改</button></span></h3>
       <div class="bnum"><b>${money(b.amount, b.cur || "HKD")}</b>${(b.cur || "HKD") !== "HKD" ? `<span class="hint">≈ ${money(bHK, "HKD")}</span>` : ""}</div>
-      <div class="bbar"><i class="p" style="width:${pctP}%"></i><i class="a ${act.s > bHK ? "over" : ""}" style="width:${pctA}%"></i></div>
-      <div class="blegend"><span><i class="a"></i>實際 ${money(act.s, "HKD")}（${Math.round((act.s / bHK) * 100)}%）</span><span><i class="p"></i>預計 ${money(plan.s, "HKD")}（${Math.round((plan.s / bHK) * 100)}%）</span></div>
-      <div class="bleft ${left < 0 ? "over" : ""}">${left < 0 ? `已超出預算 ${money(-left, "HKD")}` : `尚餘 ${money(left, "HKD")}`}${plan.s > bHK ? `<small>預計消費已超出預算 ${money(plan.s - bHK, "HKD")}</small>` : ""}</div></div>`;
+      <div class="bbar"><i class="a ${tot.s > bHK ? "over" : ""}" style="width:${pct}%"></i></div>
+      <div class="blegend"><span><i class="a"></i>已用 ${money(tot.s, "HKD")}（${Math.round((tot.s / bHK) * 100)}%）</span></div>
+      <div class="bleft ${left < 0 ? "over" : ""}">${left < 0 ? `已超出預算 ${money(-left, "HKD")}` : `尚餘 ${money(left, "HKD")}`}</div></div>`;
   } else {
     html += `<div class="mcard budget empty-b"><h3>${icon("wallet")} 行程預算</h3><p class="hint" style="margin:0 0 10px">設定整個行程的總預算，就可以看到已用多少、還剩多少。</p><button class="btn primary" data-act="budget-edit">${icon("plus")}設定預算</button></div>`;
   }
-  // 匯率
+  html += walletHTML(rows);
+  // 市場匯率
   html += `<div class="mcard"><div class="rate">${icon("swap")}
-    ${cur === "HKD" ? `<span>旅程貨幣為港幣，不需要換算。</span>` : m.rate ? `<span>1 ${cur} = <b>${m.rate.toFixed(4)}</b> HKD</span><span class="muted">（${m.rateManual ? "手動輸入" : "自動"} · ${m.rateDate ? new Date(m.rateDate).toLocaleDateString("zh-HK") : ""}）</span>` : `<span>未取得 ${CUR_NAME[cur] || cur} 匯率</span>`}
-    ${cur !== "HKD" ? `<button class="btn small" data-act="rate-refresh">${icon("refresh")}更新</button>` : ""}</div>
-    ${cur !== "HKD" && m.rate ? `<div class="hint" style="margin-top:6px">例如 ${money(1000, cur)} ≈ ${money(1000 * m.rate, "HKD")}</div>` : ""}</div>`;
-  // 總計
-  html += `<div class="mcard"><h3>${icon("wallet")} 總計</h3><div class="stats">
-    <div class="stat"><div class="k">預計</div><div class="v">${money(plan.s, "HKD")}</div><div class="s">${cur !== "HKD" ? money(sumLocal(rows, "plan"), cur) : ""}</div></div>
-    <div class="stat"><div class="k">實際</div><div class="v">${money(act.s, "HKD")}</div><div class="s">${cur !== "HKD" ? money(sumLocal(rows, "actual"), cur) : ""}</div></div>
-    <div class="stat ${diff > 0 ? "over" : ""}"><div class="k">${diff > 0 ? "實際多於預計" : "實際少於預計"}</div><div class="v">${money(Math.abs(diff), "HKD")}</div><div class="s">${rows.length} 項</div></div>
-    </div>${plan.missing + act.missing ? `<p class="hint" style="margin:8px 0 0">⚠ 有 ${plan.missing + act.missing} 筆使用其他貨幣、未能換算，未計入合計。</p>` : ""}</div>`;
+    ${cur === "HKD" ? `<span>旅程貨幣為港幣，不需要換算。</span>` : m.rate ? `<span>市場匯率 1 ${cur} = <b>${m.rate.toFixed(4)}</b> HKD</span><span class="muted">（${m.rateManual ? "手動輸入" : "自動"} · ${m.rateDate ? new Date(m.rateDate).toLocaleDateString("zh-HK") : ""}）</span>` : `<span>未取得 ${CUR_NAME[cur] || cur} 匯率</span>`}
+    ${cur !== "HKD" ? `<button class="btn small" data-act="rate-refresh">${icon("refresh")}更新</button>` : ""}</div></div>`;
   if (!rows.length) {
-    html += `<div class="empty">還沒有消費紀錄。<br>在行程的「編輯 → 消費」輸入預計和實際金額，<br>或按下方「＋ 新增支出」加入其他支出（例如交通卡、手信）。</div></div>`;
-    return html;
+    html += `<div class="empty">還沒有消費紀錄。<br>在行程的「編輯 → 消費」輸入預計和實際金額，<br>或按下方「＋ 新增支出」加入其他支出（例如交通卡、手信）。</div>`;
+    return html + `<button class="btn" style="width:100%" data-act="expense-new">${icon("plus")} 新增其他支出（交通卡、手信等）</button></div>`;
   }
   // 類別
   const byType = {};
-  for (const r of rows) {
-    const t = byType[r.type] = byType[r.type] || { plan: 0, act: 0 };
-    const p = toHKD(r.plan, r.cur), a = toHKD(r.actual, r.cur);
-    if (p != null) t.plan += p; if (a != null) t.act += a;
-  }
-  const maxT = Math.max(1, ...Object.values(byType).map((x) => Math.max(x.plan, x.act)));
-  html += `<div class="mcard"><h3>${icon("sliders")} 分類<span class="right">實際（預計）</span></h3><div class="bars">${Object.entries(byType).sort((a, b) => Math.max(b[1].act, b[1].plan) - Math.max(a[1].act, a[1].plan)).map(([t, x]) =>
-    `<div class="bar" style="--c:${catVar(t)}"><span class="lbl">${icon(catOf(t)[1])}${catOf(t)[0]}</span><span class="tr"><i style="width:${(Math.max(x.act, x.plan) / maxT) * 100}%;opacity:${x.act ? 1 : .45}"></i></span><span class="amt">${money(x.act, "HKD")} <span class="hint">(${money(x.plan, "HKD")})</span></span></div>`).join("")}</div></div>`;
+  for (const r of rows) { const h = toHKD(effOf(r), r.cur, r.pay); if (h != null) byType[r.type] = (byType[r.type] || 0) + h; }
+  const maxT = Math.max(1, ...Object.values(byType));
+  html += `<div class="mcard"><h3>${icon("sliders")} 分類</h3><div class="bars">${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([t, x]) =>
+    `<div class="bar" style="--c:${catVar(t)}"><span class="lbl">${icon(catOf(t)[1])}${catOf(t)[0]}</span><span class="tr"><i style="width:${(x / maxT) * 100}%"></i></span><span class="amt">${money(x, "HKD")}</span></div>`).join("")}</div></div>`;
   // 每天
   const groups = [];
   for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = rows.filter((r) => r.day === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
   const noDay = rows.filter((r) => !r.day); if (noDay.length) groups.push(["全程／其他", noDay]);
   for (const [label, g] of groups) {
-    const gp = sumHK(g, "plan").s, ga = sumHK(g, "actual").s;
-    html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(ga, "HKD")} / ${money(gp, "HKD")}</span></h3>
-      <table class="mtable"><thead><tr><th>項目</th><th>預計</th><th>實際</th></tr></thead><tbody>
-      ${g.map((r) => `<tr><td><button class="t" data-act="${r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
-        <td>${moneyCell(r.plan, r.cur)}</td><td>${moneyCell(r.actual, r.cur, r.plan)}</td></tr>`).join("")}
+    html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(sumHK(g, "eff").s, "HKD")}</span></h3>
+      <table class="mtable"><thead><tr><th>項目</th><th>金額</th></tr></thead><tbody>
+      ${g.map((r) => `<tr><td><button class="t" data-act="${r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.pay && PAY[r.pay] ? " · " + payLabel(r.pay) : ""}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
+        <td>${moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`).join("")}
       </tbody></table></div>`;
   }
   return html + `<button class="btn" style="width:100%" data-act="expense-new">${icon("plus")} 新增其他支出（交通卡、手信等）</button></div>`;
@@ -1542,7 +1611,7 @@ function openExpenseEditor(id) {
       <label class="field"><span>項目</span><input type="text" name="title" value="${esc(e.title)}" placeholder="例如：ICOCA 交通卡、手信"></label>
       <div class="grid2"><label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label>
       <label class="field"><span>日期</span><select name="dayId"><option value="">全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === e.dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label></div>
-      ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur }, curs)}
+      ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur, pay: e.pay }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(e.note || "")}"></label>
     </form>
     <div class="sheet-foot">${id ? `<button class="btn danger" data-act="expense-delete" data-id="${esc(id)}">刪除</button>` : ""}<span class="grow"></span>
@@ -1557,12 +1626,15 @@ function costFields(c, curs) {
       <label class="field"><span>預計</span><input type="text" inputmode="decimal" name="costPlan" value="${c.plan ?? ""}" placeholder="0"></label>
       <label class="field"><span>實際</span><input type="text" inputmode="decimal" name="costActual" value="${c.actual ?? ""}" placeholder="0"></label>
       <label class="field"><span>貨幣</span><select name="costCur">${curs.map((k) => `<option value="${k}" ${k === (c.cur || curs[0]) ? "selected" : ""}>${k === "HKD" ? "港幣 HK$" : (CUR_NAME[k] || k) + " " + (CUR[k] || "")}</option>`).join("")}</select></label>
-    </div><small class="hint">直接輸入當地貨幣金額，會自動換算成港幣。</small></div>`;
+    </div>
+    <div class="field"><span>付款方式</span><div class="payseg">${Object.entries(PAY).map(([k, [t, e]]) => `<label><input type="radio" name="costPay" value="${k}" ${k === (c.pay || "cash") ? "checked" : ""}><span>${e} ${t}</span></label>`).join("")}</div></div>
+    <small class="hint">直接輸入當地貨幣金額，會自動換算成港幣。現金和 IC 卡會用支出頁設定的現金匯率。</small></div>`;
 }
 function readCost(f) {
   const plan = numOrNull(f.costPlan.value), actual = numOrNull(f.costActual.value);
   if (plan == null && actual == null) return null;
-  return { plan, actual, cur: f.costCur.value };
+  const pay = f.costPay ? (f.querySelector("[name=costPay]:checked") || {}).value : undefined;
+  return { plan, actual, cur: f.costCur.value, ...(pay ? { pay } : {}) };
 }
 function updateCostPreview() {
   const el = $("#costPreview"); if (!el) return;
@@ -1571,7 +1643,8 @@ function updateCostPreview() {
   const cur = f.costCur.value;
   const p = numOrNull(f.costPlan.value), a = numOrNull(f.costActual.value);
   if (cur === "HKD") { el.textContent = ""; return; }
-  const part = (lbl, n) => { if (n == null) return ""; const h = toHKD(n, cur); return `${lbl} ≈ ${h == null ? "未有匯率" : money(h, "HKD")}`; };
+  const pay = (f.querySelector("[name=costPay]:checked") || {}).value;
+  const part = (lbl, n) => { if (n == null) return ""; const h = toHKD(n, cur, pay); return `${lbl} ≈ ${h == null ? "未有匯率" : money(h, "HKD")}`; };
   el.textContent = [part("預計", p), part("實際", a)].filter(Boolean).join(" · ");
 }
 
@@ -1582,6 +1655,7 @@ function openMenu() {
   const trips = S.trips.length ? S.trips : [{ id: S.tripId, title: (S.doc.meta || {}).title || "目前旅程", dates: (S.doc.meta || {}).dates }];
   const m = S.doc.meta || {};
   sheet.innerHTML = `<div class="sheet-body menu-body"><div class="sheet-head"><h2>旅行手帳</h2><button class="btn ghost" data-act="close" aria-label="關閉">${icon("x")}</button></div>
+    <button class="menu-diary" data-act="diary-go">${icon("book")}<span><b>旅程日記</b><small>回顧每個旅程的相片和經歷</small></span>${icon("arrow")}</button>
     <div class="menu-sec">我的旅程</div>
     <div class="menu-list">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="trip-open" data-id="${esc(t.id)}">${icon("suitcase")}<span>${esc(t.id === S.tripId ? m.title || t.title : t.title)}<span class="tsub">${esc(t.id === S.tripId ? m.dates || "" : t.dates || "")}${t.days ? ` · ${t.days} 天` : ""}</span></span></button>`).join("")}
       <button data-act="trip-new">${icon("plus")}新增旅程</button></div>
@@ -2568,6 +2642,19 @@ function openBranchCreator(id) {
   sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 
+// 重畫時保持畫面停在同一個行程（例如按「整理」會多了工具列，內容會變長）
+function keepAnchor(fn) {
+  const top = ($("#tabs").getBoundingClientRect().bottom || 0) + 4;
+  const els = $$("#main [data-dnd], #main [data-tid], #main .dayhead, #main .period > summary").filter((x) => x.offsetParent);
+  // 以畫面上第一個完整開始的行程為準
+  const a = els.find((x) => x.getBoundingClientRect().top >= top) || els.find((x) => x.getBoundingClientRect().bottom > top);
+  const key = a ? (a.dataset.dnd ? `[data-dnd="${a.dataset.dnd}"]` : a.dataset.tid ? `[data-tid="${a.dataset.tid}"]` : null) : null;
+  const off = a ? a.getBoundingClientRect().top : 0;
+  fn();
+  if (!key) return;
+  const b = $("#main " + key);
+  if (b) window.scrollBy(0, b.getBoundingClientRect().top - off);
+}
 // ---------- 拖放調整次序 ----------
 // 把 id 移到 key 那一組（"top" = 共用行程，"r:路線id" = 分叉路線）中 refId 之前／之後（refId 空 = 最後）
 function moveItem(doc, dayId, id, key, refId, after) {
@@ -2671,7 +2758,7 @@ document.addEventListener("click", async (e) => {
   switch (a) {
     // ---- 新版：菜單、旅程、支出、外觀 ----
     case "menu": openMenu(); break;
-    case "manage": S.manage = !S.manage; render(); toast(S.manage ? "整理模式：可以編輯、新增、分叉、移到備選" : "已完成整理"); break;
+    case "manage": keepAnchor(() => { S.manage = !S.manage; render(); }); toast(S.manage ? "整理模式：可以編輯、新增、分叉、移到備選" : "已完成整理"); break;
     case "trip-open": if (id === S.tripId) closeSheet(); else switchTrip(id); break;
     case "trip-new": openTripNew(); break;
     case "trip-create": {
@@ -2734,6 +2821,43 @@ document.addEventListener("click", async (e) => {
       commit((doc) => { doc.meta = doc.meta || {}; doc.meta.budget = { amount, cur }; }, "已設定行程預算");
       break;
     }
+    case "wallet-add": openWalletAdd(id); break;
+    case "wallet-save": {
+      const f = $("#walletForm"), amount = numOrNull(f.amount.value);
+      if (amount == null || amount <= 0) { fieldErrorIn(f, "amount", "請輸入金額"); break; }
+      const x = { id: "w-" + uid(), kind: id, amount, note: f.note.value.trim(), t: Date.now() };
+      if (id === "ic") x.from = (f.querySelector("[name=from]:checked") || {}).value || "cash";
+      const hkd = f.hkd ? numOrNull(f.hkd.value) : null;
+      closeSheet();
+      commit((doc) => {
+        doc.wallet = doc.wallet || { log: [] }; doc.wallet.log = doc.wallet.log || [];
+        if (hkd > 0) x.hkd = hkd;
+        doc.wallet.log.push(x);
+        // 填了港幣：按所有換錢紀錄計算平均現金匯率（未手動固定時）
+        if (hkd > 0 && !doc.wallet.cashRateManual) {
+          const ex = doc.wallet.log.filter((e) => e.kind === "cash" && e.hkd > 0);
+          doc.wallet.cashRate = ex.reduce((a, e) => a + e.hkd, 0) / ex.reduce((a, e) => a + e.amount, 0);
+        }
+      });
+      break;
+    }
+    case "wallet-del": {
+      if (!t.dataset.sure) { t.innerHTML = "確定？"; t.dataset.sure = "1"; break; }
+      commit((doc) => { if (doc.wallet) doc.wallet.log = (doc.wallet.log || []).filter((x) => x.id !== id); });
+      break;
+    }
+    case "cash-rate": openCashRate(); break;
+    case "cash-rate-save": {
+      const f = $("#rateForm");
+      let r = numOrNull(f.rate.value);
+      const hk = numOrNull(f.hk.value), lc = numOrNull(f.lc.value);
+      if (hk > 0 && lc > 0) r = hk / lc;
+      if (!(r > 0)) { fieldErrorIn(f, "rate", "請輸入匯率，或填港幣和換到的金額"); break; }
+      closeSheet();
+      commit((doc) => { doc.wallet = doc.wallet || { log: [] }; doc.wallet.cashRate = r; doc.wallet.cashRateManual = true; });
+      break;
+    }
+    case "cash-rate-clear": closeSheet(); commit((doc) => { if (doc.wallet) { delete doc.wallet.cashRate; delete doc.wallet.cashRateManual; } }); break;
     case "budget-clear": closeSheet(); commit((doc) => { if (doc.meta) delete doc.meta.budget; }, "已清除預算"); break;
     case "pdf-make": makeHandbook(); break;
     case "add": addFromBottom(); break;
@@ -3035,6 +3159,8 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "diary-jump": { const el = document.getElementById("dd-" + id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - ($("#tabs").offsetHeight || 0) - 8, behavior: "smooth" }); break; }
+    case "diary-go": closeSheet(); S.dayId = DIARY; S.manage = false; render(); window.scrollTo(0, 0); if (S.trips.length < 2) loadTrips().then(() => { if (S.dayId === DIARY && S.trips.length > 1) render(); }); break;
+    case "diary-trip": if (id !== S.tripId) { await switchTrip(id); S.dayId = DIARY; render(); window.scrollTo(0, 0); } break;
     case "diary-filter": S.diaryAll = id === "all"; ls.set("trip.diaryAll", S.diaryAll ? "1" : ""); render(); break;
     case "photo": {
       const lb = $("#lightbox");
