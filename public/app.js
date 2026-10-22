@@ -905,7 +905,7 @@ function stopCardHTML(d, stops) {
   </div>`;
 }
 function pinIcon(s, i) {
-  return L.divIcon({ className: "", iconSize: [46, 46], iconAnchor: [23, 23],
+  return L.divIcon({ className: "", iconSize: [34, 34], iconAnchor: [17, 17],
     html: `<div class="mpin ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""} ${s.sub ? "sub" : ""}" style="--c:${catVar(s.type)}"><b>${i + 1}</b><span class="mbadge">${icon(catOf(s.type)[1])}</span></div>` });
 }
 // 只更新選取狀態（不重畫整張地圖）
@@ -921,7 +921,7 @@ function selectStop(d, i, pan) {
       m.setIcon(pinIcon(stops[k], k));
       m.setZIndexOffset(k === i ? 1000 : 0);
       m.unbindTooltip();
-      if (k === i) m.bindTooltip(`<b>${esc(stops[k].v.title)}</b><span style="color:${catVar(stops[k].type)}">${catOf(stops[k].type)[0]}</span>`, { permanent: true, direction: "right", offset: [24, 0], className: "mtip" }).openTooltip();
+      if (k === i) m.bindTooltip(`<b>${esc(stops[k].v.title)}</b><span style="color:${catVar(stops[k].type)}">${catOf(stops[k].type)[0]}</span>`, { permanent: true, direction: "right", offset: [18, 0], className: "mtip" }).openTooltip();
     });
     const g = geoOf(stops[i]);
     if (pan && g) S.map.panTo(g, { animate: true });
