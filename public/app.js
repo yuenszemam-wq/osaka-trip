@@ -818,8 +818,9 @@ function summaryOf(v) {
 // 地圖連結：一直顯示在卡片上（不摺疊）
 function mapLinksHTML(v) {
   const maps = (v.links || []).filter((l) => isMapLink(l) && safeUrl(l.url));
-  if (!maps.length) return "";
-  return `<div class="quick maps">${maps.map((l) => `<a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">${icon("nav")}<span>${esc(l.label || "地圖")}</span></a>`).join("")}</div>`;
+  if (!maps.length && !linksHTML(v)) return "";
+  const web = linksHTML(v);
+  return `<div class="quick maps">${maps.map((l) => `<a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">${icon("nav")}<span>${esc(l.label || "地圖")}</span></a>`).join("")}${web}</div>`;
 }
 function linksHTML(v) {
   const all = (v.links || []).filter((l) => !isMapLink(l));
@@ -989,9 +990,8 @@ function costHTML(v, it) {
 }
 // 詳情一直放在頁面上，用 CSS 動畫展開／摺疊（不用重畫整頁）
 function detailHTML(it, v, forceOpen) {
-  const links = linksHTML(v);
-  const inner = `${v.details ? `<div class="detailtext">${esc(v.details)}</div>` : !links && !forceOpen ? `<div class="detailtext hint">尚未填寫詳情</div>` : ""}
-    <div class="quick">${links}${!v.cost || (v.cost.plan == null && v.cost.actual == null) ? `<button data-act="cost-edit" data-id="${esc(it.id)}">${icon("wallet")}記錄消費</button>` : ""}</div>`;
+  const inner = `${v.details ? `<div class="detailtext">${esc(v.details)}</div>` : !forceOpen ? `<div class="detailtext hint">尚未填寫詳情</div>` : ""}
+    <div class="quick">${!v.cost || (v.cost.plan == null && v.cost.actual == null) ? `<button data-act="cost-edit" data-id="${esc(it.id)}">${icon("wallet")}記錄消費</button>` : ""}</div>`;
   if (forceOpen) return mapLinksHTML(v) + inner;
   return `<div class="dwrap ${S.open.has(it.id) ? "open" : ""}" data-dw="${esc(it.id)}"><div class="dinner">${inner}</div></div>`;
 }
