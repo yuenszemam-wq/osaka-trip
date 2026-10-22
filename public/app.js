@@ -491,12 +491,12 @@ const noteIcon = (d) => d.id === "stay" || /住宿/.test(d.label) ? "bed" : isId
 
 function renderChrome() {
   const m = S.doc.meta || {};
-  $("#brand").innerHTML = `<button class="iconbtn" data-act="menu" aria-label="菜單">${icon("menu")}</button>
-    <div style="min-width:0;flex:1"><div class="kicker">${esc(m.dates || "")}</div>
+  $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${esc(m.dates || "")}</div>
     <h1>${esc(m.name || m.title || "Trip.")}<small>${esc(m.subtitle || m.title || "")}</small></h1></div>`;
   const notes = S.doc.days.filter((x) => x.kind !== "day");
   const days = S.doc.days.filter((x) => x.kind === "day");
   $("#tabs").innerHTML = `<div class="rowtabs" role="tablist" aria-label="備注">
+      <button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button>
       ${notes.map((x) => `<button class="ntab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${icon(noteIcon(x))}${esc(x.label)}</button>`).join("")}
       <button class="ntab" data-act="tab" data-id="${MONEY}" aria-pressed="${S.dayId === MONEY}">${icon("wallet")}支出</button>
       <button class="addtab" data-act="add-day" data-kind="info" aria-label="新增備注頁">＋</button>
@@ -648,7 +648,7 @@ function photosHTML(it, v) {
   flush();
   return photos;
 }
-function costHTML(v) {
+function costHTML(v, it) {
   const c = v.cost; if (!c || (c.plan == null && c.actual == null)) return "";
   const cur = c.cur || localCur();
   const part = (label, n) => {
@@ -657,14 +657,14 @@ function costHTML(v) {
     return `<span class="tag">${label} <b>${money(n, cur)}</b>${hk != null ? `<span class="hk">≈${money(hk, "HKD")}</span>` : ""}</span>`;
   };
   const over = c.plan != null && c.actual != null && c.actual > c.plan;
-  return `<div class="cost">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預算</span>` : ""}</div>`;
+  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預算</span>` : ""}</button>`;
 }
 function detailHTML(it, v, forceOpen) {
   const open = forceOpen || S.open.has(it.id);
   if (!open) return "";
   const links = linksHTML(v);
   return `${v.details ? `<div class="detailtext">${esc(v.details)}</div>` : !links && !forceOpen ? `<div class="detailtext hint">尚未填寫詳情</div>` : ""}
-    ${links ? `<div class="quick">${links}</div>` : ""}`;
+    <div class="quick">${links}${!v.cost || (v.cost.plan == null && v.cost.actual == null) ? `<button data-act="cost-edit" data-id="${esc(it.id)}">${icon("wallet")}記錄消費</button>` : ""}</div>`;
 }
 function altsHTML(it) {
   if (it.variants.length < 2) return "";
@@ -702,7 +702,7 @@ function childHTML(c, d) {
       ${c.start != null ? `<div class="time">${timeLabel(c)}</div>` : ""}
       <button class="ctitle" data-act="toggle" data-id="${esc(c.id)}">↳ ${esc(v.title || "（未命名）")}</button>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}
-      ${costHTML(v)}${detailHTML(c, v, info)}${photosHTML(c, v)}${altsHTML(c)}
+      ${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${altsHTML(c)}
     </div>${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || d.kind !== "day" ? "" : checkBtn(c)}</div></div>`;
 }
 function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
@@ -724,7 +724,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
       <div class="itemtop"><span class="number">${icon("info")}</span><div class="itemmeta"><div class="category">${icon("info")}資訊${origin}</div></div>${editTop(it)}</div>
       <div class="itemtitle"><button>${esc(v.title || "（未命名）")}</button></div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}
-      ${detailHTML(it, v, true)}${costHTML(v)}${photosHTML(it, v)}
+      ${detailHTML(it, v, true)}${costHTML(v, it)}${photosHTML(it, v)}
       ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
       ${S.manage ? toolsHTML(it, d, pos) : ""}
     </article>${after}`;
@@ -734,7 +734,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
       <div class="transportline"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
         ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " · 固定" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
         ${S.manage ? editTop(it) : ""}${foldBtn(it)}${checkBtn(it)}</div>
-      ${warnHTML}${costHTML(v)}${detailHTML(it, v)}${photosHTML(it, v)}
+      ${warnHTML}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
       ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
       ${S.manage ? toolsHTML(it, d, pos) : ""}
     </article>${after}`;
@@ -747,7 +747,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     ${warnHTML}
     <div class="itemtitle"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${esc(v.title || "（未命名）")}</button>${chev}</div>
     ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}
-    ${costHTML(v)}${detailHTML(it, v)}${photosHTML(it, v)}
+    ${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
     ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
     ${S.manage ? toolsHTML(it, d, pos) : ""}
   </article>${after}`;
@@ -1048,11 +1048,29 @@ function moneyHTML() {
     const gp = sumHK(g, "plan").s, ga = sumHK(g, "actual").s;
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(ga, "HKD")} / ${money(gp, "HKD")}</span></h3>
       <table class="mtable"><thead><tr><th>項目</th><th>預計</th><th>實際</th></tr></thead><tbody>
-      ${g.map((r) => `<tr><td><button class="t" data-act="${r.extra ? "expense-edit" : "edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.extra ? " · 其他支出" : ""}</small></button></td>
+      ${g.map((r) => `<tr><td><button class="t" data-act="${r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.extra ? " · 其他支出" : ""}</small></button></td>
         <td>${moneyCell(r.plan, r.cur)}</td><td>${moneyCell(r.actual, r.cur, r.plan)}</td></tr>`).join("")}
       </tbody></table></div>`;
   }
   return html + `<button class="btn" style="width:100%" data-act="expense-new">${icon("plus")} 新增其他支出（交通卡、手信等）</button></div>`;
+}
+
+// ---------- 快速記錄消費（不用進入整理模式） ----------
+function openCostEditor(id) {
+  const f = findItem(id); if (!f) return;
+  const v = V(f.item);
+  const curs = [...new Set([localCur(), "HKD", v.cost && v.cost.cur].filter(Boolean))];
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>記錄消費</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">${esc(f.day.label)}${f.item.start != null ? " · " + fmt(f.item.start) : ""} · <b style="color:var(--ink)">${esc(v.title)}</b>${f.item.variants.length > 1 ? `（方案 ${planLetter(f.item.active || 0)}）` : ""}</p>
+    <form id="costForm" onsubmit="return false">${costFields(v.cost, curs)}</form>
+    <div class="sheet-foot">${v.cost ? `<button class="btn danger" data-act="cost-clear" data-id="${esc(id)}">清除</button>` : ""}
+      <button class="btn" data-act="edit" data-id="${esc(id)}">完整編輯</button><span class="grow"></span>
+      <button class="btn" data-act="close">取消</button><button class="btn primary" data-act="cost-save" data-id="${esc(id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  updateCostPreview();
+  setTimeout(() => { const i = $("#costForm [name=" + (v.cost && v.cost.plan != null ? "costActual" : "costPlan") + "]"); if (i) i.focus(); }, 80);
 }
 
 // ---------- 其他支出（不屬於任何行程） ----------
@@ -1726,6 +1744,14 @@ document.addEventListener("click", async (e) => {
     case "theme": setTheme(id); openMenu(); break;
     case "rate-refresh": updateRate(true); break;
     case "map-filter": S.mapFilter = id; render(); break;
+    case "cost-edit": closeSheet(); openCostEditor(id); break;
+    case "cost-save": {
+      const c = readCost($("#costForm"));
+      closeSheet();
+      commit(() => { const f = findItem(id); if (!f) return; const v = V(f.item); if (c) v.cost = c; else delete v.cost; }, c ? "已儲存消費" : "已清除消費");
+      break;
+    }
+    case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
     case "variant-out": {
       const k = +t.dataset.k;
       commit(() => {
@@ -1881,7 +1907,7 @@ document.addEventListener("click", async (e) => {
     case "add-main": openEditor({ mode: "new-main", at: +t.dataset.at, type: t.dataset.type, route: t.dataset.route || "" }); break;
     case "fold": S.expanded.has(id) ? S.expanded.delete(id) : S.expanded.add(id); render(); break;
     case "add-child": openEditor({ mode: "new-child", id }); break;
-    case "edit": openEditor({ mode: "edit", id }); break;
+    case "edit": closeSheet(); openEditor({ mode: "edit", id }); break;
     case "quick-photo": {
       const inp = $("#quickPhoto"); inp.dataset.id = id; inp.value = ""; inp.click(); break;
     }
