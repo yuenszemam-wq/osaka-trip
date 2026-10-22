@@ -1,0 +1,9 @@
+{
+  "name": "osaka-trip",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-sqlite scripts/devserver.mjs",
+    "seed": "node scripts/convert.mjs scripts/original.json"
+  }
+}
