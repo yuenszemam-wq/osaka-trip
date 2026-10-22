@@ -321,6 +321,15 @@ function planBar(d) {
     <button class="plan add" data-act="plan-add" aria-label="新增方案">＋</button></div></div>`;
 }
 
+// 每張圖片的顯示方式：圖片自己的設定 → 行程的設定 → 底部按鈕的整體設定
+function photoModeOf(it, v, p) {
+  const own = v.photoModes && v.photoModes[p];
+  if (own === "full" || own === "thumb") return own;
+  if (it.photoMode === "full" || it.photoMode === "thumb") return it.photoMode;
+  return S.photoMode;
+}
+const MODE_LABEL = { auto: "跟隨", full: "大圖", thumb: "縮圖" };
+
 function bodyHTML(it, isChild) {
   const v = V(it);
   const open = S.open.has(it.id);
@@ -333,15 +342,22 @@ function bodyHTML(it, isChild) {
   const hasMap = (v.links || []).some((l) => /maps/.test(l.url || ""));
   const autoMap = !hasMap && v.title && (v.type === "place" || v.type === "food")
     ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.title)}" target="_blank" rel="noopener">📍 地圖</a>` : "";
-  const mode = it.photoMode === "full" || it.photoMode === "thumb" ? it.photoMode : S.photoMode;
-  const photos = (v.photos || []).map((p) => `<img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="photo" data-id="${esc(it.id)}" data-photo="${esc(p)}">`).join("");
+  // 連續的縮圖排成一行橫向捲動；大圖獨立一行，保持原本次序
+  let photos = "", run = "";
+  const flush = () => { if (run) { photos += `<div class="photos">${run}</div>`; run = ""; } };
+  for (const p of v.photos || []) {
+    const img = `<img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="photo" data-id="${esc(it.id)}" data-photo="${esc(p)}">`;
+    if (photoModeOf(it, v, p) === "full") { flush(); photos += `<div class="photos full">${img}</div>`; }
+    else run += img;
+  }
+  flush();
   const chips = it.variants.length > 1
     ? `<div class="alt-label">備選方案（點選切換）</div><div class="variants">${it.variants.map((x, k) =>
         `<button class="chip ${k === (it.active || 0) ? "on" : ""}" data-act="variant" data-id="${esc(it.id)}" data-k="${k}">${String.fromCharCode(65 + k)}・${esc(x.title || "未命名")}</button>`).join("")}</div>` : "";
   const H = isChild ? "h3" : "h2";
   return `${chips}<${H}>${esc(v.title || "（未命名）")}</${H}>
     ${v.details ? `<div class="details ${long && !open ? "clamp" : ""}">${esc(v.details)}</div>${long ? `<button class="more" data-act="toggle" data-id="${esc(it.id)}">${open ? "收起" : "展開全部"}</button>` : ""}` : ""}
-    ${photos ? `<div class="photos ${mode === "full" ? "full" : ""}">${photos}</div>` : ""}
+    ${photos}
     ${links || autoMap ? `<div class="links">${links}${autoMap}</div>` : ""}`;
 }
 
@@ -452,7 +468,7 @@ function renderEditor() {
         <p class="hint">儲存時，目前正在編輯的方案會設為「使用中」。${it.variants.length > 1 ? `<button type="button" class="btn small danger" data-act="ed-del-variant" style="margin-left:6px">刪除此方案</button>` : ""}</p></div>` : ""}
       <label class="field"><span>標題</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：大阪城公園"></label>
       <label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === v.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-      <label class="field"><span>圖片顯示方式</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="field"><span>這個行程的圖片顯示方式（個別圖片可再按下方標籤設定）</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       ${ED.info ? "" : `<div class="grid2">
         <label class="field"><span>開始時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="start" value="${hhmm(it.start)}"></label>
         <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"></label>
@@ -475,7 +491,8 @@ function renderEditor() {
   document.body.style.overflow = "hidden";
 }
 function editPhotos(v) {
-  return (v.photos || []).map((p, i) => `<div class="ep"><img src="${esc(photoUrl(p))}" alt=""><button type="button" class="x" data-act="ed-del-photo" data-i="${i}">✕</button></div>`).join("")
+  return (v.photos || []).map((p, i) => { const m = (v.photoModes && v.photoModes[p]) || "auto";
+    return `<div class="ep"><img src="${esc(photoUrl(p))}" alt=""><button type="button" class="x" data-act="ed-del-photo" data-i="${i}">✕</button><button type="button" class="pm ${m}" data-act="ed-photo-mode" data-i="${i}">${MODE_LABEL[m]}</button></div>`; }).join("")
     + (ED.uploading ? `<div class="ep"><div class="ph">上傳中 ${ED.uploading}</div></div>` : "")
     + `<button type="button" class="addphoto" data-act="ed-add-photo">＋ 圖片</button>`;
 }
@@ -699,13 +716,22 @@ document.addEventListener("click", async (e) => {
     }
     case "photo": {
       const lb = $("#lightbox");
-      lb.innerHTML = `<img src="${esc(photoUrl(t.dataset.photo))}" alt=""><button data-act="lb-close">✕</button><button class="del" data-act="lb-del" data-id="${esc(id)}" data-photo="${esc(t.dataset.photo)}">移除圖片</button>`;
+      const f = findItem(id), pv = V(f.item), cur = photoModeOf(f.item, pv, t.dataset.photo);
+      const next = cur === "full" ? "thumb" : "full";
+      lb.innerHTML = `<img src="${esc(photoUrl(t.dataset.photo))}" alt=""><button data-act="lb-close">✕</button>
+        <div class="lb-tools"><button data-act="lb-mode" data-id="${esc(id)}" data-photo="${esc(t.dataset.photo)}" data-mode="${next}">${next === "full" ? "🖼 這張改為大圖顯示" : "▦ 這張改為縮圖顯示"}</button>
+        <button data-act="lb-del" data-id="${esc(id)}" data-photo="${esc(t.dataset.photo)}">移除圖片</button></div>`;
       lb.hidden = false; break;
     }
     case "lb-close": $("#lightbox").hidden = true; break;
     case "lb-del":
       $("#lightbox").hidden = true;
-      commit(() => { const f = findItem(id); const v = V(f.item); v.photos = v.photos.filter((p) => p !== t.dataset.photo); }, "已移除圖片");
+      commit(() => { const f = findItem(id); const v = V(f.item); v.photos = v.photos.filter((p) => p !== t.dataset.photo); if (v.photoModes) delete v.photoModes[t.dataset.photo]; }, "已移除圖片");
+      break;
+    case "lb-mode":
+      $("#lightbox").hidden = true;
+      commit(() => { const f = findItem(id); const v = V(f.item); v.photoModes = v.photoModes || {}; v.photoModes[t.dataset.photo] = t.dataset.mode; },
+        t.dataset.mode === "full" ? "這張圖片改為大圖顯示" : "這張圖片改為縮圖顯示");
       break;
     case "close": closeSheet(); break;
     case "ed-save": saveEditor(); break;
@@ -724,7 +750,15 @@ document.addEventListener("click", async (e) => {
       if (ED.draft.variants.length > 1) { ED.draft.variants.splice(ED.k, 1); ED.k = Math.max(0, ED.k - 1); renderEditor(); }
       break;
     case "ed-add-photo": $("#edFile").value = ""; $("#edFile").click(); break;
-    case "ed-del-photo": readForm(); ED.draft.variants[ED.k].photos.splice(+t.dataset.i, 1); $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]); break;
+    case "ed-photo-mode": {
+      const v = ED.draft.variants[ED.k], p = v.photos[+t.dataset.i];
+      const order = ["auto", "full", "thumb"];
+      const next = order[(order.indexOf((v.photoModes && v.photoModes[p]) || "auto") + 1) % 3];
+      v.photoModes = v.photoModes || {};
+      if (next === "auto") delete v.photoModes[p]; else v.photoModes[p] = next;
+      readForm(); $("#edPhotos").innerHTML = editPhotos(v); break;
+    }
+    case "ed-del-photo": readForm(); { const v = ED.draft.variants[ED.k]; if (v.photoModes) delete v.photoModes[v.photos[+t.dataset.i]]; } ED.draft.variants[ED.k].photos.splice(+t.dataset.i, 1); $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]); break;
     case "day-save": {
       const f = $("#dayForm");
       const vals = { label: f.label.value.trim() || "未命名", sub: f.sub.value.trim(), title: f.title.value.trim(), subtitle: f.subtitle.value.trim(), kind: f.kind.value };
