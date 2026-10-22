@@ -1283,7 +1283,8 @@ function handbookHTML(o) {
   .cover{padding:40px 0 24px;border-bottom:2px solid #72598e;margin-bottom:10px;page-break-after:always}
   .cover .k{letter-spacing:3px;font-size:9pt;color:#877d8d}.cover h1{font:400 46pt/1.1 Georgia,serif;margin:10px 0 6px}.cover .s{color:#72598e;letter-spacing:3px}
   .toc{margin:36px 0 0;padding:0;list-style:none}.toc li{padding:10px 0;border-bottom:1px solid #e9e2eb}.toc b{color:#72598e;margin-right:10px}.toc span{display:block;color:#877d8d;font-size:9.5pt}
-  .day{page-break-before:always}.day:first-of-type{page-break-before:auto}
+  .day{page-break-before:always;break-before:page;margin-top:64px;padding-top:30px;border-top:3px solid #ece5f1}.day:first-of-type{page-break-before:auto}
+  .day h2{margin-bottom:8px}.day .ds{margin-bottom:18px}
   h2{font-size:17pt;margin:0 0 4px;display:flex;gap:12px;align-items:baseline}h2 span{font-size:10pt;color:#fff;background:#72598e;border-radius:6px;padding:2px 9px;letter-spacing:1px;white-space:nowrap}
   .ds{color:#877d8d;margin:0 0 12px}
   .it{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid #eee8f0;page-break-inside:avoid}.it.sub{padding-left:22px}.it.sub .ti{font-size:10.5pt}
@@ -1296,7 +1297,7 @@ function handbookHTML(o) {
   .al{font-size:9pt;color:#72598e;margin-top:3px}.ph{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.ph img{max-width:48%;max-height:240px;border-radius:6px}
   .br{margin:12px 0 4px;padding:6px 10px;background:#ece5f1;color:#72598e;border-radius:6px;font-size:9.5pt;font-weight:600}.br small{font-weight:400}.br.alt{background:#f6f4f0}.br.end{background:none;padding:2px 0;font-weight:400}
   table{width:100%;border-collapse:collapse;font-size:9.5pt}th,td{border-bottom:1px solid #eee8f0;padding:6px 4px;text-align:left}th{color:#877d8d;font-weight:500}td:nth-child(3),td:nth-child(4),th:nth-child(3),th:nth-child(4){text-align:right;white-space:nowrap}
-  @media print{.bar{display:none}.wrap{padding:0;max-width:none}}`;
+  @media print{.bar{display:none}.wrap{padding:0;max-width:none}.day{margin-top:0;padding-top:6mm;border-top:0}}`;
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(m.title || "旅行手冊")}</title><style>${css}</style></head>
     <body><div class="bar"><button class="back" onclick="if(window.opener){window.close()}setTimeout(function(){location.href='${location.origin}/'},150)">← 返回行程</button><span class="bt">${esc(m.title || "旅行手冊")}</span><button onclick="window.print()">列印／儲存為 PDF</button></div><div class="wrap">${html}</div>
     <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})<\/script></body></html>`;
@@ -1499,6 +1500,7 @@ function renderEditor() {
     <div class="sheet-foot">
       ${ED.mode === "edit" ? `<button class="btn danger" data-act="ed-delete">刪除</button>` : ""}
       ${ED.mode === "edit" && !ED.isChild ? (ED.info ? `<button class="btn" data-act="move-in" data-id="${esc(ED.draft.id)}">↩ 加回行程</button>` : `<button class="btn" data-act="move-out" data-id="${esc(ED.draft.id)}">↘ 移到備選</button>`) : ""}
+      ${prevMainOf() ? `<button class="btn" data-act="ed-to-child" title="併入「${esc(V(prevMainOf()).title)}」">↳ 移到子行程<small class="hint" style="margin-left:4px">併入「${esc(V(prevMainOf()).title).slice(0, 10)}」</small></button>` : ""}
       <span class="grow"></span>
       <button class="btn" data-act="close">取消</button>
       <button class="btn primary" data-act="ed-save">儲存</button>
@@ -1510,6 +1512,15 @@ function renderEditor() {
   updateCostPreview();
 }
 // 地圖、連結：每行分開填「名稱」和「網址」
+// 上一個主行程（「移到子行程」用）
+function prevMainOf() {
+  if (!ED || ED.mode !== "edit" || ED.isChild || ED.info) return null;
+  const d = S.doc.days.find((x) => x.id === ED.dayId); if (!d) return null;
+  const list = seq(d).map((x) => x.item);
+  const i = list.findIndex((x) => x.id === ED.draft.id);
+  for (let k = i - 1; k >= 0; k--) if (!isInfo(list[k]) && V(list[k]).type !== "transport") return list[k];
+  return null;
+}
 // 層級：主行程，或某個主行程下的子行程
 function levelField() {
   if (ED.info || ED.mode !== "edit" || V(ED.draft).type === "info") return "";
@@ -1933,7 +1944,7 @@ document.addEventListener("click", async (e) => {
     case "refresh": forceRefresh(); break;
     case "undo-btn": undo(); break;
     case "sync": if (S.pending) { S.saveError = null; save(); } else forceRefresh(); break;
-    case "photo-mode": setPhotoMode(id); render(); openMenu(); toast(id === "full" ? "圖片改為大圖顯示" : "圖片改為縮圖顯示"); break;
+    case "photo-mode": setPhotoMode(id); render(); openMenu(); break;
     case "cost-edit": closeSheet(); openCostEditor(id); break;
     case "cost-save": {
       const c = readCost($("#costForm"));
@@ -2113,15 +2124,21 @@ document.addEventListener("click", async (e) => {
     case "lb-close": $("#lightbox").hidden = true; break;
     case "lb-del":
       $("#lightbox").hidden = true;
-      commit(() => { const f = findItem(id); const v = V(f.item); v.photos = v.photos.filter((p) => p !== t.dataset.photo); if (v.photoModes) delete v.photoModes[t.dataset.photo]; }, "已移除圖片");
+      commit(() => { const f = findItem(id); const v = V(f.item); v.photos = v.photos.filter((p) => p !== t.dataset.photo); if (v.photoModes) delete v.photoModes[t.dataset.photo]; });
       break;
     case "lb-mode":
       $("#lightbox").hidden = true;
-      commit(() => { const f = findItem(id); const v = V(f.item); v.photoModes = v.photoModes || {}; v.photoModes[t.dataset.photo] = t.dataset.mode; },
-        t.dataset.mode === "full" ? "這張圖片改為大圖顯示" : "這張圖片改為縮圖顯示");
+      commit(() => { const f = findItem(id); const v = V(f.item); v.photoModes = v.photoModes || {}; v.photoModes[t.dataset.photo] = t.dataset.mode; });
       break;
     case "close": closeSheet(); break;
     case "ed-save": saveEditor(); break;
+    case "ed-to-child": {
+      const prev = prevMainOf(); if (!prev) break;
+      readForm(); ED.level = prev.id;
+      const lv = $("#edForm [name=level]"); if (lv) lv.value = prev.id;
+      saveEditor();
+      break;
+    }
     case "ed-delete": deleteFromEditor(); break;
     case "ed-delete-go": doDelete(!!t.dataset.pull); break;
     case "ed-variant": readForm(); ED.k = +t.dataset.k; renderEditor(); break;
@@ -2304,10 +2321,9 @@ document.addEventListener("change", async (e) => {
   }
   if (e.target.id === "quickPhoto") {
     const files = [...e.target.files], id = e.target.dataset.id; if (!files.length) return;
-    toast(`上傳中（${files.length} 張）…`);
     try {
       const ids = await uploadFiles(files);
-      commit(() => { const f = findItem(id); V(f.item).photos.push(...ids); }, `已加入 ${ids.length} 張圖片`);
+      commit(() => { const f = findItem(id); V(f.item).photos.push(...ids); });
     } catch (err) { toast("圖片上傳失敗：" + err.message); }
   }
   if (e.target.id === "importFile") {
