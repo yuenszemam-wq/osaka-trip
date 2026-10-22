@@ -588,3 +588,41 @@ html, body { overflow-x: clip; }
 .sres-top .time { color: var(--purple); }
 .flash-new { animation: flashnew 2.4s ease; }
 @keyframes flashnew { 0%, 60% { box-shadow: 0 0 0 3px var(--purple); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* 拖放 */
+.dnd { border: 0; background: transparent; color: var(--muted); width: 26px; height: 32px; margin: 0 2px 0 -6px; padding: 0; display: grid; place-items: center; touch-action: none; cursor: grab; flex: none; }
+.dnd svg.i { width: 18px; height: 18px; fill: currentColor; stroke: none; }
+.dragging { position: relative; z-index: 30; opacity: .92; box-shadow: 0 14px 40px #1a102a55; transition: none !important; }
+.dnd-line { position: fixed; height: 3px; border-radius: 3px; background: var(--purple); z-index: 40; pointer-events: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--purple) 25%, transparent); }
+.mbranch { display: flex; align-items: center; gap: 8px; margin: 0 14px 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.mbranch > svg.i { color: var(--purple); }
+.mbranch .branchchoices { flex: 1 1 100%; }
+.twinhint { display: flex; gap: 6px; align-items: flex-start; }
+
+/* 購物清單 */
+.shop { padding: 0 16px 40px; }
+.shop-add { display: flex; gap: 8px; margin: 14px 0 12px; }
+.shop-add input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--w); color: var(--ink); border-radius: 12px; padding: 10px 12px; font-size: 16px; outline: none; }
+.shop-add input:focus { border-color: var(--purple); }
+.shop-add .btn { flex: none; display: inline-flex; gap: 4px; align-items: center; }
+.shop-sum { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.shop-sum > div { background: var(--w); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.shop-sum b { font-size: 22px; color: var(--purple); }
+.shop-sum span { font-size: 13px; color: var(--ink-2); }
+.shop-sum small { flex: 1 1 100%; font-size: 12px; color: var(--muted); }
+.shop-group { margin-bottom: 16px; }
+.shop-group h3 { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-2); margin: 0 2px 8px; }
+.shop-group h3 > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shop-group h3 svg.i { color: var(--c-shop); width: 16px; height: 16px; }
+.shop-group h3 a { font-size: 12px; color: var(--purple); text-decoration: none; display: inline-flex; gap: 3px; align-items: center; font-weight: 500; }
+.shop-row { display: flex; align-items: center; gap: 10px; background: var(--w); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 7px; }
+.shop-row .check { flex: none; }
+.shop-body { flex: 1; min-width: 0; border: 0; background: transparent; text-align: left; padding: 0; display: flex; flex-direction: column; gap: 2px; color: var(--ink); }
+.shop-name { font-size: 15px; font-weight: 600; }
+.shop-name small { color: var(--muted); font-weight: 500; }
+.shop-body > small { font-size: 12px; color: var(--muted); }
+.shop-amt { flex: none; text-align: right; font-size: 13.5px; font-weight: 600; display: flex; flex-direction: column; }
+.shop-amt small { font-size: 11px; color: var(--muted); font-weight: 500; }
+.shop-row.done .shop-name { text-decoration: line-through; color: var(--muted); }
+.shop-row.done { opacity: .75; }
+.switch .cnt { margin-left: 4px; font-size: 11px; opacity: .7; }

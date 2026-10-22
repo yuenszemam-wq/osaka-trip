@@ -40,6 +40,8 @@ const ICONS = {
   branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="7" r="2.5"/><path d="M6 8.5v7M18 9.5c0 4.5-6 3.5-10.5 7"/>',
   nav: '<path d="m3 11 19-9-9 19-2-8z"/>',
   ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  grip: '<circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>',
+  cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
   wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m12 7 5 5"/><path d="M19 2v3M20.5 3.5h-3M5 3v3M6.5 4.5h-3"/>',
   book: '<path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19"/><path d="M8 7h7M8 11h5"/>',
   wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3M21 12v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M17 12h4v4h-4a2 2 0 0 1 0-4z"/>',
@@ -94,6 +96,8 @@ const S = {
 };
 const MONEY = "__money";
 const DIARY = "__diary";
+const SHOP = "__shop";
+const isSpecial = (id) => id === MONEY || id === DIARY || id === SHOP;
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -263,11 +267,59 @@ const durText = (m) => m >= 60 ? `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m %
 function commit(mut, msg) {
   S.undo.push(JSON.stringify(S.doc));
   if (S.undo.length > 40) S.undo.shift();
+  const before = twinKeys(S.doc);
   const res = mut(S.doc);
+  syncTwins(S.doc, before);
   persistLocal(true);
   render();
   scheduleSave();
   if (msg || (res && res.msg)) toast(msg || res.msg, true);
+}
+// ---------- 分叉路線：同名的行程共用內容（只有時間不同） ----------
+const twinTitle = (it) => (V(it).title || "").trim();
+function twinContent(it) {
+  return JSON.stringify([it.active || 0, it.variants.map(({ id, dur, ...r }) => r)]);
+}
+function twinKeys(doc) {
+  const m = new Map();
+  for (const d of doc.days) for (const n of d.items) if (isBranch(n)) for (const r of n.routes) for (const it of r.items) m.set(it.id, twinContent(it));
+  return m;
+}
+function syncTwins(doc, before) {
+  let n = 0;
+  for (const d of doc.days) for (const b of d.items) {
+    if (!isBranch(b) || b.routes.length < 2) continue;
+    const groups = new Map();
+    for (const r of b.routes) for (const it of r.items) {
+      const t = twinTitle(it); if (!t || isInfo(it)) continue;
+      if (!groups.has(t)) groups.set(t, []);
+      groups.get(t).push([r, it]);
+    }
+    for (const g of groups.values()) {
+      if (new Set(g.map(([r]) => r)).size < 2) continue;
+      const src = g.find(([, it]) => before.get(it.id) !== twinContent(it));
+      if (!src) continue;
+      const s = src[1];
+      for (const [r, it] of g) {
+        if (it === s || r === src[0]) continue;
+        it.variants = s.variants.map((v, k) => ({ ...clone(v), id: (it.variants[k] && it.variants[k].id) || uid(), dur: it.variants[k] ? it.variants[k].dur : v.dur }));
+        it.active = s.active || 0;
+        n++;
+      }
+    }
+  }
+  return n;
+}
+// 編輯時：其他路線中同名的行程
+function twinsOf(id) {
+  const out = [];
+  for (const d of S.doc.days) for (const b of d.items) {
+    if (!isBranch(b)) continue;
+    const mine = b.routes.find((r) => r.items.some((x) => x.id === id)); if (!mine) continue;
+    const t = twinTitle(mine.items.find((x) => x.id === id));
+    for (const r of b.routes) if (r !== mine) for (const x of r.items) if (twinTitle(x) === t) out.push([r, x]);
+  }
+  return out;
 }
 // 不需要「復原」的背景修改（例如定位結果、匯率）
 function quietSave() { persistLocal(true); scheduleSave(); }
@@ -510,6 +562,7 @@ function renderChrome() {
       <button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button>
       ${notes.map((x) => `<button class="ntab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${icon(noteIcon(x))}${esc(x.label)}</button>`).join("")}
       <button class="ntab" data-act="tab" data-id="${MONEY}" aria-pressed="${S.dayId === MONEY}">${icon("wallet")}支出</button>
+      <button class="ntab" data-act="tab" data-id="${SHOP}" aria-pressed="${S.dayId === SHOP}">${icon("cart")}購物清單</button>
       <button class="ntab" data-act="tab" data-id="${DIARY}" aria-pressed="${S.dayId === DIARY}">${icon("book")}日記</button>
       <button class="addtab" data-act="add-day" data-kind="info" aria-label="新增備注頁">＋</button>
     </div>
@@ -517,25 +570,29 @@ function renderChrome() {
       ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}</small></button>`).join("")}
       <button class="addtab day" data-act="add-day" data-kind="day" aria-label="新增一天">＋</button>
     </div>
-    ${S.dayId !== MONEY && S.dayId !== DIARY && day() ? `<div class="toprow3">
+    ${!isSpecial(S.dayId) && day() ? `<div class="toprow3">
       ${day().kind === "day" ? `<div class="switch"><button data-act="view" data-id="list" aria-pressed="${S.view !== "map"}">${icon("list")} 行程</button><button data-act="view" data-id="map" aria-pressed="${S.view === "map"}">${icon("map")} 是日路線</button></div>` : `<div class="grow"></div>`}
       <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
       <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>`
     : S.dayId === MONEY ? `<div class="toprow3"><div class="grow"></div><button class="manage add" data-act="add">${icon("plus")}新增支出</button></div>`
+    : S.dayId === SHOP ? (() => { const L = S.doc.shopping || [], nd = L.filter((x) => x.done).length;
+      return `<div class="toprow3"><div class="switch">${[["todo", "未買", L.length - nd], ["done", "已買", nd], ["all", "全部", L.length]].map(([k, t, n]) => `<button data-act="shop-filter" data-id="${k}" aria-pressed="${(S.shopFilter || "todo") === k}">${t}<small class="cnt">${n}</small></button>`).join("")}</div>
+      <button class="manage add" data-act="add">${icon("plus")}新增</button></div>`; })()
     : S.dayId === DIARY ? `<div class="toprow3"><div class="switch"><button data-act="diary-filter" data-id="done" aria-pressed="${S.diaryAll !== true}">${icon("check")} 已完成</button><button data-act="diary-filter" data-id="all" aria-pressed="${S.diaryAll === true}">${icon("list")} 全部行程</button></div></div>` : ""}`;
   const on = $("#tabs [aria-pressed=true]"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
-  document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : S.dayId === DIARY ? " · 日記" : day() ? " · " + day().label : ""}`;
+  document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : S.dayId === DIARY ? " · 日記" : S.dayId === SHOP ? " · 購物清單" : day() ? " · " + day().label : ""}`;
 }
 
 function render() {
   if (!S.doc) return;
-  if (S.dayId !== MONEY && S.dayId !== DIARY && !S.doc.days.some((d) => d.id === S.dayId)) S.dayId = (S.doc.days.find((d) => d.kind === "day") || S.doc.days[0]).id;
+  if (!isSpecial(S.dayId) && !S.doc.days.some((d) => d.id === S.dayId)) S.dayId = (S.doc.days.find((d) => d.kind === "day") || S.doc.days[0]).id;
   ls.set(K("day"), S.dayId);
   renderChrome();
   let html = "";
   if (S.conflict) html += `<div class="banner"><b>行程已在其他裝置更新。</b><br>這部手機也有未上傳的修改，請選擇保留哪一個版本。
     <div class="row"><button class="btn" data-act="take-server">載入最新版本</button><button class="btn" data-act="force-save">用我的版本覆蓋</button></div></div>`;
   if (S.dayId === MONEY) { finishRender(html + moneyHTML()); return; }
+  if (S.dayId === SHOP) { finishRender(html + shopHTML()); return; }
   if (S.dayId === DIARY) {
     // 正在寫日記時重畫（例如同步），保留輸入位置
     const ae = document.activeElement, key = ae && ae.dataset ? (ae.dataset.journal ? `[data-journal="${ae.dataset.journal}"]` : ae.dataset.memo && ae.classList.contains("de-note") ? `textarea[data-memo="${ae.dataset.memo}"]` : "") : "";
@@ -666,6 +723,68 @@ function linksHTML(v) {
     return `<a href="${esc(u)}" target="_blank" rel="noopener">${icon(isMapLink(l) ? "nav" : "ext")}<span>${esc(l.label || u)}</span></a>`;
   }).join("");
 }
+// ---------- 購物清單 ----------
+// doc.shopping = [{ id, name, qty, where, forWho, note, plan, actual, cur, done }]
+function placeTitles() {
+  const out = [];
+  for (const d of S.doc.days) for (const it of d.kind === "day" ? seq(d).map((x) => x.item) : d.items) {
+    for (const x of [it, ...(it.children || [])]) { const v = V(x); if (v.type !== "transport" && v.type !== "info" && v.type !== "flight" && v.title) out.push([v.title, v.type, x]); }
+  }
+  return out.sort((a, b) => (a[1] === "shop" ? 0 : 1) - (b[1] === "shop" ? 0 : 1));
+}
+function shopHTML() {
+  const L = S.doc.shopping || [];
+  const f = S.shopFilter || "todo";
+  const shown = L.filter((x) => f === "all" || (f === "done" ? x.done : !x.done));
+  const hk = (rows, key) => rows.reduce((a, x) => { const n = x[key]; if (n == null) return a; const h = (x.cur || localCur()) === "HKD" ? n : toHKD(n, x.cur || localCur()); return a + (h || 0); }, 0);
+  const todo = L.filter((x) => !x.done), done = L.filter((x) => x.done);
+  let html = `<div class="shop">
+    <form class="shop-add" id="shopAdd" onsubmit="return false"><input type="text" name="q" placeholder="新增要買的東西，例如：Sanrio 手信" enterkeyhint="done"><button class="btn primary" data-act="shop-quick">${icon("plus")}加入</button></form>
+    <div class="shop-sum"><div><b>${todo.length}</b><span>未買</span><small>${hk(todo, "plan") ? "預算 ≈ " + money(hk(todo, "plan"), "HKD") : "&nbsp;"}</small></div>
+      <div><b>${done.length}</b><span>已買</span><small>${hk(done, "actual") ? "實際 ≈ " + money(hk(done, "actual"), "HKD") : "&nbsp;"}</small></div></div>`;
+  if (!shown.length) html += `<div class="empty">${L.length ? (f === "done" ? "還沒有買了的東西" : "全部都買齊了 🎉") : "購物清單是空的。<br>在上面輸入要買的東西就可以加入。"}</div>`;
+  const groups = new Map();
+  for (const x of shown) { const k = (x.where || "").trim(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+  const keys = [...groups.keys()].sort((a, b) => (a ? 0 : 1) - (b ? 0 : 1));
+  const places = placeTitles();
+  for (const k of keys) {
+    const p = k && places.find(([t]) => t === k);
+    const link = p ? (V(p[2]).links || []).find(isMapLink) : null;
+    html += `<section class="shop-group"><h3>${icon(k ? "bag" : "cart")}<span>${esc(k || "未指定地點")}</span>${link ? `<a href="${esc(link.url)}" target="_blank" rel="noopener">${icon("nav")}地圖</a>` : ""}</h3>`;
+    for (const x of groups.get(k).sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0))) {
+      const cur = x.cur || localCur(), amt = x.done && x.actual != null ? x.actual : x.plan;
+      html += `<div class="shop-row ${x.done ? "done" : ""}"><button class="check ${x.done ? "on" : ""}" data-act="shop-done" data-id="${esc(x.id)}" aria-label="${x.done ? "改為未買" : "已買"}：${esc(x.name)}">${x.done ? "✓" : ""}</button>
+        <button class="shop-body" data-act="shop-edit" data-id="${esc(x.id)}"><span class="shop-name">${esc(x.name)}${x.qty > 1 ? `<small> ×${x.qty}</small>` : ""}</span>
+          ${x.forWho || x.note ? `<small>${[x.forWho ? "給 " + esc(x.forWho) : "", esc(x.note || "")].filter(Boolean).join(" · ")}</small>` : ""}</button>
+        ${amt != null ? `<span class="shop-amt">${money(amt, cur)}${cur !== "HKD" && toHKD(amt, cur) != null ? `<small>≈${money(toHKD(amt, cur), "HKD")}</small>` : ""}</span>` : ""}</div>`;
+    }
+    html += `</section>`;
+  }
+  return html + `<p class="hint" style="margin-top:14px">已買而且有填金額的東西，會自動計入「支出」。</p></div>`;
+}
+function openShopEditor(id) {
+  const x = id ? (S.doc.shopping || []).find((e) => e.id === id) : { id: "", name: "", qty: 1, where: "", forWho: "", note: "", plan: null, actual: null, cur: localCur() };
+  if (!x) return;
+  const curs = [...new Set([localCur(), "HKD", x.cur].filter(Boolean))];
+  const titles = [...new Set(placeTitles().map(([t]) => t))];
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("cart")} ${id ? "編輯購物項目" : "新增購物項目"}</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="shopForm" onsubmit="return false">
+      <label class="field"><span>要買甚麼</span><input type="text" name="name" value="${esc(x.name)}" placeholder="例如：Kuromi 毛公仔"></label>
+      <div class="grid2"><label class="field"><span>數量</span><input type="number" name="qty" min="1" step="1" inputmode="numeric" value="${x.qty || 1}"></label>
+      <label class="field"><span>買給誰（可留空）</span><input type="text" name="forWho" value="${esc(x.forWho || "")}" placeholder="例如：媽媽"></label></div>
+      <label class="field"><span>在哪裡買（可留空）</span><input type="text" name="where" list="shopWhere" value="${esc(x.where || "")}" placeholder="可揀行程中的地點，或自己輸入"><datalist id="shopWhere">${titles.map((t) => `<option value="${esc(t)}">`).join("")}</datalist></label>
+      ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur }, curs)}
+      <label class="field"><span>備註</span><input type="text" name="note" value="${esc(x.note || "")}" placeholder="顏色、尺寸、款式…"></label>
+      ${id ? `<label class="checkline"><input type="checkbox" name="done" ${x.done ? "checked" : ""}><span>已買</span></label>` : ""}
+    </form>
+    <div class="sheet-foot">${id ? `<button class="btn danger" data-act="shop-delete" data-id="${esc(id)}">刪除</button>` : ""}<span class="grow"></span>
+      <button class="btn" data-act="close">取消</button><button class="btn primary" data-act="shop-save" data-id="${esc(id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  updateCostPreview();
+}
+
 // ---------- 旅程日記 ----------
 // 旅行相片和感受存在行程本身（it.memo），每天的日記存在 day.journal
 const memoOf = (it) => it.memo || { photos: [], note: "" };
@@ -830,14 +949,17 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
   const style = `style="--c:${catVar(type)}"`;
   const chev = `<span class="chev">${icon("down")}</span>`;
   const openCls = S.open.has(it.id) ? "is-open" : "";
+  // 拖放調整次序（整理模式）；固定時間的行程不能拖
+  const dnd = `data-dnd="${esc(it.id)}" data-arr="${pos.route ? "r:" + esc(pos.route) : "top"}"`;
+  const handle = S.manage && !(it.locked && !listPage) ? `<button class="dnd" data-act="dnd" aria-label="按住拖放調整次序">${icon("grip")}</button>` : "";
 
   if (collapsed(it)) {
-    return `<article class="${type === "transport" ? "transport" : "place"} done" ${style}><div class="folded">
+    return `<article class="${type === "transport" ? "transport" : "place"} done" ${dnd} ${style}><div class="folded">${handle}
       ${it.start != null && !listPage ? `<span class="time">${fmt(it.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${listPage ? "" : memoBtn(it)}${foldBtn(it)}${checkBtn(it)}</div>${listPage ? "" : memoStrip(it)}</article>${after}`;
   }
   if (type === "info") {
-    return `<article class="place info" ${style}>
-      <div class="itemtop"><span class="number">${icon("info")}</span><div class="itemmeta"><div class="category">${icon("info")}資訊${origin}</div></div>${editTop(it)}</div>
+    return `<article class="place info" ${dnd} ${style}>
+      <div class="itemtop">${handle}<span class="number">${icon("info")}</span><div class="itemmeta"><div class="category">${icon("info")}資訊${origin}</div></div>${editTop(it)}</div>
       <div class="itemtitle"><button>${esc(v.title || "（未命名）")}</button></div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}
       ${detailHTML(it, v, true)}${costHTML(v, it)}${photosHTML(it, v)}
@@ -846,8 +968,8 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     </article>${after}`;
   }
   if (type === "transport" && !listPage) {
-    return `<article class="transport ${it.done ? "done" : ""} ${openCls} ${S.flash && S.flash.has(it.id) ? "flash-new" : ""}" data-tid="${esc(it.id)}" ${style}>
-      <div class="transportline"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
+    return `<article class="transport ${it.done ? "done" : ""} ${openCls} ${S.flash && S.flash.has(it.id) ? "flash-new" : ""}" data-tid="${esc(it.id)}" ${dnd} ${style}>
+      <div class="transportline">${handle}<button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
         ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " · 固定" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
         ${S.manage ? editTop(it) : ""}${foldBtn(it)}${checkBtn(it)}</div>
       ${warnHTML}${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${memoSection(it)}
@@ -856,9 +978,9 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     </article>${after}`;
   }
   const num = listPage ? icon(cat[1]) : pos.num != null ? pos.num : icon(cat[1]);
-  return `<article class="place ${it.done ? "done" : ""} ${openCls} ${S.flash && S.flash.has(it.id) ? "flash-new" : ""}" data-tid="${esc(it.id)}" ${style}>
+  return `<article class="place ${it.done ? "done" : ""} ${openCls} ${S.flash && S.flash.has(it.id) ? "flash-new" : ""}" data-tid="${esc(it.id)}" ${dnd} ${style}>
     <div class="taphead" data-act="toggle" data-id="${esc(it.id)}" role="button" aria-expanded="${S.open.has(it.id)}">
-    <div class="itemtop"><span class="number">${num}</span>
+    <div class="itemtop">${handle}<span class="number">${num}</span>
       <div class="itemmeta metaline">${!listPage && it.start != null ? `<span class="time">${timeLabelLocked(it)}</span>` : ""}<span class="category">${icon(cat[1])}${cat[0]}${origin}</span></div>
       ${S.manage ? editTop(it) : ""}${foldBtn(it)}${listPage ? "" : checkBtn(it)}</div>
     ${warnHTML}
@@ -1055,7 +1177,9 @@ const stopDim = (s) => S.mapFilter !== "all" && s.type !== S.mapFilter;
 function routeViewHTML(d) {
   const stops = routeStops(d);
   const hasBranch = d.items.some(isBranch);
-  if (!stops.length) return `<div class="route-wrap"><div class="empty">這天的行程還沒有加入地圖地點。<br>在行程「編輯 → 📍 地圖」填上地點名稱，就會顯示在這裡。</div></div>`;
+  const bar = d.items.filter(isBranch).map((b) => { const r = activeRoute(b);
+    return `<div class="mbranch">${icon("branch")}<span>分叉路線</span><div class="branchchoices">${b.routes.map((x, i) => `<button data-act="route" data-branch="${esc(b.id)}" data-id="${esc(x.id)}" aria-pressed="${x.id === r.id}">${planLetter(i)} · ${esc(x.name || "路線 " + planLetter(i))}</button>`).join("")}</div></div>`; }).join("");
+  if (!stops.length) return bar + `<div class="route-wrap"><div class="empty">這天的行程還沒有加入地圖地點。<br>在行程「編輯 → 📍 地圖」填上地點名稱，就會顯示在這裡。</div></div>`;
   if (S.mapSel == null || S.mapSel >= stops.length || S.mapDay !== d.id) { S.mapSel = 0; S.mapDay = d.id; }
   const types = Object.keys(CATS).filter((t) => stops.some((s) => s.type === t));
   const chunks = [];
@@ -1063,12 +1187,14 @@ function routeViewHTML(d) {
   // 分類篩選：圓角圖示按鈕
   let html = `<div class="mfilters">${[["all", "全部", "layers"], ...types.map((t) => [t, catOf(t)[0], catOf(t)[1]])].map(([k, t, ic]) =>
     `<button data-act="map-filter" data-id="${k}" aria-pressed="${S.mapFilter === k}" style="--c:${k === "all" ? "var(--purple)" : catVar(k)}"><span class="mf-ic">${icon(ic)}</span>${t}</button>`).join("")}</div>`;
+  html += bar;
+
   html += `<div class="route-wrap"><div class="route-box"><div id="routeMap" class="route-map"><div class="map-msg">地圖載入中…</div></div>
     <div class="map-label">${esc(d.label)} / 行程路線</div></div>
     <div id="stopCard">${stopCardHTML(d, stops)}</div>
     <p class="hint" id="geoStatus"></p>
     <div class="route-actions">${chunks.map((c, i) => `<a class="btn" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("map")} Google 地圖${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
-    ${hasBranch ? `<p class="hint">有分叉路線的話，這裡顯示的是目前選擇的路線。</p>` : ""}
+    ${hasBranch ? `<p class="hint">地圖顯示目前選擇的分叉路線，可以在上面切換其他路線。</p>` : ""}
     <p class="hint">按圓圈數字在地圖上查看；按行程可以直接修改地點。</p>
     <ol class="stops">`;
   // 列出這天所有行程（資訊卡除外），沒有地點的也列出
@@ -1198,6 +1324,10 @@ function costRows() {
     const list = d.kind === "day" ? seq(d).map((x) => x.item) : d.items;
     for (const it of list) { add(it, d, false); for (const ch of it.children || []) add(ch, d, true); }
   }
+  for (const x of S.doc.shopping || []) {
+    if (!x.done || (x.plan == null && x.actual == null)) continue;
+    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), note: x.where });
+  }
   for (const e of S.doc.expenses || []) {
     rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), note: e.note });
   }
@@ -1274,7 +1404,7 @@ function moneyHTML() {
     const gp = sumHK(g, "plan").s, ga = sumHK(g, "actual").s;
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(ga, "HKD")} / ${money(gp, "HKD")}</span></h3>
       <table class="mtable"><thead><tr><th>項目</th><th>預計</th><th>實際</th></tr></thead><tbody>
-      ${g.map((r) => `<tr><td><button class="t" data-act="${r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.extra ? " · 其他支出" : ""}</small></button></td>
+      ${g.map((r) => `<tr><td><button class="t" data-act="${r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
         <td>${moneyCell(r.plan, r.cur)}</td><td>${moneyCell(r.actual, r.cur, r.plan)}</td></tr>`).join("")}
       </tbody></table></div>`;
   }
@@ -1678,6 +1808,7 @@ function renderEditor() {
   sheet.innerHTML = `<div class="sheet-body" role="dialog" aria-label="${title}">
     <div class="sheet-head"><h2>${title}</h2><button class="btn ghost" data-act="close">✕</button></div>
     ${ED.isChild ? `<p class="hint">子行程顯示在主行程下面，新增或修改都<b>不會</b>改動其他行程的時間。</p>` : ""}
+    ${ED.mode === "edit" && twinsOf(ED.draft.id).length ? `<p class="hint twinhint">${icon("branch")} 其他路線（${twinsOf(ED.draft.id).map(([r]) => esc(r.name || "另一條路線")).join("、")}）也有「${esc(V(ED.draft).title)}」，內容會一起更新，只有時間各自不同。</p>` : ""}
     <form id="edForm" autocomplete="off" onsubmit="return false">
       ${it.variants.length > 1 || ED.mode === "edit" ? `<div class="box"><div class="box-title"><span>備選方案</span><button type="button" class="btn small" data-act="ed-add-variant">＋ 新增方案</button></div>
         <div class="vtabs">${it.variants.map((x, k) => `<button type="button" class="chip ${k === ED.k ? "on" : ""}" data-act="ed-variant" data-k="${k}">${String.fromCharCode(65 + k)}・${esc(x.title || "未命名")}</button>`).join("")}</div>
@@ -1940,6 +2071,19 @@ function openDayEditor(isNew, kind) {
 
 // ---------- 選單 ----------
 // ---------- 移到備選／加回行程 ----------
+// 備選地點不分子行程：全部拆成獨立項目
+function flattenIdeas(d) {
+  if (!d) return false;
+  let changed = false;
+  for (let i = 0; i < d.items.length; i++) {
+    const it = d.items[i];
+    if (!(it.children || []).length) continue;
+    const kids = it.children; it.children = [];
+    d.items.splice(i + 1, 0, ...kids.map((c) => ({ ...c, children: [], locked: false, done: false, from: c.from || it.from, fromDay: it.fromDay, fromStart: c.start ?? it.fromStart })));
+    changed = true;
+  }
+  return changed;
+}
 function ideasDayOf(doc, create) {
   let d = doc.days.find((x) => x.id === "ideas") || doc.days.find((x) => x.kind === "info" && /備選/.test(x.label + x.title));
   if (!d && create) { d = { id: "ideas", kind: "info", label: "備選地點", sub: "IDEAS", title: "備選地點", subtitle: "未排進行程的地點，可以先放這裡", items: [] }; doc.days.push(d); }
@@ -1951,7 +2095,7 @@ function openMoveOut(id) {
   const sheet = $("#sheet");
   sheet.className = "sheet";
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>↘ 移到備選地點</h2><button class="btn ghost" data-act="close">✕</button></div>
-    <p>「${esc(V(f.item).title)}」會移到「備選地點」，${f.item.children && f.item.children.length ? "子行程、" : ""}圖片和備選方案都會保留。之後可以在那裡按「↩ 加回行程」放回任何一天。</p>
+    <p>「${esc(V(f.item).title)}」會移到「備選地點」，圖片和備選方案都會保留。${f.item.children && f.item.children.length ? `它的 ${f.item.children.length} 個子行程會分拆成獨立的地點。` : ""}之後可以在那裡按「↩ 加回行程」放回任何一天。</p>
     <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button>
     ${timed ? `<button class="btn" data-act="move-out-go" data-id="${esc(id)}">只移走</button><button class="btn primary" data-act="move-out-go" data-pull="1" data-id="${esc(id)}">移走並提前之後時間</button>`
       : `<button class="btn primary" data-act="move-out-go" data-id="${esc(id)}">移到備選</button>`}</div></div>`;
@@ -1972,8 +2116,14 @@ function doMoveOut(id, pull) {
     it.from = `${d.label}${it.start != null ? " " + fmt(it.start) : ""}`;
     it.fromDay = d.id; it.fromStart = it.start;
     it.done = false;
-    if (!it.children) it.children = [];
-    ideasDayOf(doc, true).items.push(it);
+    // 子行程分拆成獨立的地點
+    const kids = it.children || [];
+    it.children = [];
+    const ideas = ideasDayOf(doc, true);
+    ideas.items.push(it);
+    for (const c of kids) ideas.items.push({ ...c, children: [], locked: false, done: false,
+      from: `${d.label}${c.start != null ? " " + fmt(c.start) : ""}・${V(it).title}`, fromDay: d.id, fromStart: c.start ?? it.start });
+    flattenIdeas(ideas);
     return { msg: `已移到「備選地點」${n ? `，之後 ${n} 項提前 ${durText(dur)}` : ""}` };
   });
 }
@@ -2255,7 +2405,80 @@ function openBranchCreator(id) {
   sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 
-// ---------- 事件 ----------
+// ---------- 拖放調整次序 ----------
+// 把 id 移到同一組（共用行程或同一條分叉路線）中 beforeId 之前（null = 最後）
+function reorderItem(doc, dayId, key, id, beforeId) {
+  const d = doc.days.find((x) => x.id === dayId); if (!d) return;
+  const arr = key === "top" ? d.items : (findRoute(d, key.slice(2)) || {}).route?.items;
+  if (!arr) return;
+  const from = arr.findIndex((x) => x.id === id); if (from < 0) return;
+  const oldArr = arr.slice();
+  const [it] = arr.splice(from, 1);
+  let to = beforeId ? arr.findIndex((x) => x.id === beforeId) : arr.length;
+  if (to < 0) to = arr.length;
+  arr.splice(to, 0, it);
+  if (d.kind !== "day" || from === to) return;
+  // 重新計算時間：保留原本每個位置之間的空檔，固定時間的行程不動
+  const lo = Math.min(from, to), hi = Math.max(from, to);
+  const timed = (a) => a.slice(lo, hi + 1).filter((x) => !isBranch(x) && x.start != null && !isInfo(x));
+  const slotsOld = timed(oldArr), slotsNew = timed(arr);
+  if (!slotsOld.length) return;
+  const gaps = slotsOld.map((x, k) => k ? Math.max(0, x.start - endOf(slotsOld[k - 1])) : 0);
+  const oldEnd = endOf(slotsOld[slotsOld.length - 1]);
+  let cur = slotsOld[0].start;
+  slotsNew.forEach((x, k) => {
+    if (k) cur += gaps[k];
+    if (x.locked) { cur = Math.max(cur, endOf(x)); return; }
+    shiftItem(x, cur - x.start);
+    cur = endOf(x);
+  });
+  const delta = cur - oldEnd;
+  if (delta > 0) rippleFrom(d, seq(d).findIndex((e) => e.item === slotsNew[slotsNew.length - 1]), delta);
+}
+let DRAG = null;
+document.addEventListener("pointerdown", (e) => {
+  const h = e.target.closest(".dnd"); if (!h) return;
+  const art = h.closest("[data-dnd]"); if (!art) return;
+  e.preventDefault();
+  const key = art.dataset.arr;
+  const sibs = $$(`#main [data-arr="${CSS.escape(key)}"]`);
+  const line = document.createElement("div"); line.className = "dnd-line"; document.body.appendChild(line);
+  DRAG = { art, key, sibs, y0: e.clientY, s0: window.scrollY, y: e.clientY, before: undefined, line, raf: 0 };
+  art.classList.add("dragging");
+  try { h.setPointerCapture(e.pointerId); } catch {}
+  dragMove(e.clientY);
+  const tick = () => { if (!DRAG) return; const top = ($("#tabs").getBoundingClientRect().bottom || 0) + 40;
+    if (DRAG.y < top) window.scrollBy(0, -10); else if (DRAG.y > innerHeight - 50) window.scrollBy(0, 10);
+    dragMove(DRAG.y); DRAG.raf = requestAnimationFrame(tick); };
+  DRAG.raf = requestAnimationFrame(tick);
+});
+function dragMove(y) {
+  const g = DRAG; g.y = y;
+  g.art.style.transform = `translateY(${y - g.y0 + window.scrollY - g.s0}px)`;
+  const others = g.sibs.filter((x) => x !== g.art && x.offsetParent);
+  let before = null, lineY = null;
+  for (const x of others) { const r = x.getBoundingClientRect(); if (y < r.top + r.height / 2) { before = x; lineY = r.top - 5; break; } }
+  if (!before && others.length) lineY = others[others.length - 1].getBoundingClientRect().bottom + 5;
+  g.before = before;
+  const box = g.art.parentElement.getBoundingClientRect();
+  Object.assign(g.line.style, { top: lineY + "px", left: box.left + 8 + "px", width: box.width - 16 + "px" });
+}
+document.addEventListener("pointermove", (e) => { if (DRAG) { e.preventDefault(); DRAG.y = e.clientY; } }, { passive: false });
+const endDrag = (cancel) => {
+  if (!DRAG) return;
+  const g = DRAG; DRAG = null;
+  cancelAnimationFrame(g.raf); g.line.remove();
+  g.art.classList.remove("dragging"); g.art.style.transform = "";
+  if (cancel) return;
+  const id = g.art.dataset.dnd, beforeId = g.before ? g.before.dataset.dnd : null;
+  const idx = g.sibs.indexOf(g.art), nextId = g.sibs[idx + 1] ? g.sibs[idx + 1].dataset.dnd : null;
+  if (beforeId === nextId || beforeId === id) return;
+  const dayId = S.dayId;
+  commit((doc) => reorderItem(doc, dayId, g.key, id, beforeId));
+};
+document.addEventListener("pointerup", () => endDrag(false));
+document.addEventListener("pointercancel", () => endDrag(true));
+
 // ---------- 事件 ----------
 document.addEventListener("click", async (e) => {
   const t = e.target.closest("[data-act]");
@@ -2347,6 +2570,38 @@ document.addEventListener("click", async (e) => {
     }
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
     case "sched-open": openScheduler(); break;
+    case "shop-filter": S.shopFilter = id; render(); break;
+    case "shop-quick": {
+      const f = $("#shopAdd"), name = f.q.value.trim();
+      if (!name) { f.q.focus(); break; }
+      commit((doc) => { doc.shopping = doc.shopping || []; doc.shopping.push({ id: "s-" + uid(), name, qty: 1, cur: localCur(), done: false }); });
+      if (S.shopFilter === "done") { S.shopFilter = "todo"; render(); }
+      const q = $("#shopAdd [name=q]"); if (q) q.focus();
+      break;
+    }
+    case "shop-done": commit((doc) => { const x = (doc.shopping || []).find((e) => e.id === id); if (x) x.done = !x.done; }); break;
+    case "shop-edit": openShopEditor(id); break;
+    case "shop-save": {
+      const f = $("#shopForm");
+      const name = f.name.value.trim();
+      if (!name) { fieldErrorIn(f, "name", "請輸入要買甚麼"); break; }
+      const c = readCost(f) || { plan: null, actual: null, cur: f.costCur.value };
+      const vals = { name, qty: Math.max(1, parseInt(f.qty.value, 10) || 1), forWho: f.forWho.value.trim(), where: f.where.value.trim(), note: f.note.value.trim(), ...c };
+      if (f.done) vals.done = f.done.checked;
+      closeSheet();
+      commit((doc) => {
+        doc.shopping = doc.shopping || [];
+        if (id) Object.assign(doc.shopping.find((e) => e.id === id), vals);
+        else doc.shopping.push({ id: "s-" + uid(), done: false, ...vals });
+      });
+      break;
+    }
+    case "shop-delete": {
+      if (!t.dataset.sure) { t.textContent = "再按一次確定刪除"; t.dataset.sure = "1"; break; }
+      closeSheet();
+      commit((doc) => { doc.shopping = (doc.shopping || []).filter((e) => e.id !== id); });
+      break;
+    }
     case "sched-calc": schedCalc(); break;
     case "sched-apply": schedApply(); break;
     case "variant-idea": {
@@ -2720,6 +2975,7 @@ function addFromBottom() {
   if (!S.doc) return;
   if (S.dayId === MONEY) { openExpenseEditor(""); return; }
   if (S.dayId === DIARY) return;
+  if (S.dayId === SHOP) { openShopEditor(""); return; }
   const d = day();
   if (d.kind === "day") {
     const last = d.items.length - 1;
@@ -2814,6 +3070,9 @@ window.addEventListener("online", () => { S.offline = false; save(); });
 window.addEventListener("offline", () => { S.offline = true; syncUI(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { S.pending ? save() : refresh(); } });
 setInterval(() => { S.pending ? save() : refresh(); }, 30000);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.form && e.target.form.id === "shopAdd" && !e.isComposing) { e.preventDefault(); $("[data-act=shop-quick]").click(); }
+});
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeSheet(); $("#lightbox").hidden = true; } });
 
 window.addEventListener("hashchange", () => { const h = (location.hash.match(/t=([\w-]+)/) || [])[1]; if (h && h !== S.tripId) switchTrip(h); });
