@@ -86,6 +86,30 @@ function conflicts(d) {
   }
   return out;
 }
+// ---------- 路線方案（整天或一段行程的不同安排） ----------
+// d.items 永遠是「使用中」方案的行程；其他方案存在 d.planItems[planId]
+function ensurePlans(d) {
+  if (!d.plans || !d.plans.length) { d.plans = [{ id: "plan-" + uid(), name: "方案 A" }]; d.activePlan = d.plans[0].id; }
+  d.planItems = d.planItems || {};
+}
+function switchPlan(d, pid) {
+  ensurePlans(d);
+  if (d.activePlan === pid || !d.planItems[pid]) return false;
+  d.planItems[d.activePlan] = d.items;
+  d.items = d.planItems[pid];
+  delete d.planItems[pid];
+  d.activePlan = pid;
+  return true;
+}
+function copyItems(items) {
+  return clone(items).map((it) => ({
+    ...it, id: uid(), done: false,
+    children: (it.children || []).map((c) => ({ ...c, id: uid(), done: false, variants: c.variants.map((v) => ({ ...v, id: uid() })) })),
+    variants: it.variants.map((v) => ({ ...v, id: uid() })),
+  }));
+}
+const planLetter = (i) => String.fromCharCode(65 + i);
+
 const durText = (m) => m >= 60 ? `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ""}` : `${m} 分鐘`;
 
 // ---------- 修改與儲存 ----------
@@ -260,6 +284,7 @@ function render() {
     <div class="day-head"><h1>${d.kind === "day" ? `${esc(d.label)}<span class="sep"></span>` : ""}${esc(d.title)}</h1>
     <button class="btn" data-act="edit-day">✎ 編輯</button></div>
     ${d.subtitle ? `<p class="subtitle">${esc(d.subtitle)}</p>` : ""}
+    ${d.kind === "day" ? planBar(d) : ""}
     <div class="tools">
       ${all.length ? `<div class="progress">${done} / ${all.length} 已完成<div class="track"><i style="width:${all.length ? (done / all.length) * 100 : 0}%"></i></div></div>` : ""}
       <input class="search" type="search" placeholder="搜尋地點或交通…" value="${esc(S.q)}" data-act="search">
@@ -283,6 +308,16 @@ function render() {
   main.innerHTML = html;
   if (focused) { const s = $(".search"); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
   syncUI();
+}
+
+function planBar(d) {
+  const plans = d.plans && d.plans.length ? d.plans : null;
+  if (!plans || plans.length < 2) {
+    return `<div class="plans single"><button class="plan-add" data-act="plan-add">＋ 建立另一個路線方案</button><span class="hint">例如「準時抵達」與「航班延誤」兩種安排</span></div>`;
+  }
+  return `<div class="plans"><div class="plans-label">路線方案<button class="plan-edit" data-act="plan-edit">✎ 改名／刪除</button></div>
+    <div class="plan-chips">${plans.map((p, i) => `<button class="plan ${p.id === d.activePlan ? "on" : ""}" data-act="plan" data-id="${esc(p.id)}"><b>${planLetter(i)}</b><span>${esc(p.name.replace(/^方案\s*[A-Z][：:]?\s*/, "") || p.name)}</span></button>`).join("")}
+    <button class="plan add" data-act="plan-add" aria-label="新增方案">＋</button></div></div>`;
 }
 
 function bodyHTML(it, isChild) {
@@ -540,6 +575,19 @@ function openDayEditor(isNew) {
 }
 
 // ---------- 選單 ----------
+function openPlanEditor() {
+  const d = day(); ensurePlans(d);
+  const i = d.plans.findIndex((p) => p.id === d.activePlan);
+  const p = d.plans[i];
+  const sheet = $("#sheet");
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>路線方案 ${planLetter(i)}</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="planForm" onsubmit="return false"><label class="field"><span>方案名稱</span><input type="text" name="name" value="${esc(p.name)}"></label></form>
+    <p class="hint">每個路線方案是一套獨立的行程，修改其中一個不會影響其他方案。只改單一行程時，可以在行程的「編輯」裡加入備選方案。</p>
+    <div class="sheet-foot">${d.plans.length > 1 ? `<button class="btn danger" data-act="plan-delete">刪除此方案</button>` : ""}<span class="grow"></span>
+    <button class="btn" data-act="close">取消</button><button class="btn primary" data-act="plan-save">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+
 function openMenu() {
   const sheet = $("#sheet");
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>更多</h2><button class="btn ghost" data-act="close">✕</button></div>
@@ -582,6 +630,45 @@ document.addEventListener("click", async (e) => {
     case "edit-day": openDayEditor(false); break;
     case "done": commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
     case "toggle": S.open.has(id) ? S.open.delete(id) : S.open.add(id); render(); break;
+    case "plan": {
+      const d = day(); const i = d.plans.findIndex((p) => p.id === id);
+      commit((doc) => { switchPlan(doc.days.find((x) => x.id === d.id), id); }, `已切換到路線方案 ${planLetter(i)}`);
+      break;
+    }
+    case "plan-add": {
+      const did = day().id;
+      commit((doc) => {
+        const d = doc.days.find((x) => x.id === did); ensurePlans(d);
+        const pid = "plan-" + uid();
+        const letter = planLetter(d.plans.length);
+        d.plans.push({ id: pid, name: "方案 " + letter });
+        d.planItems[pid] = copyItems(d.items);
+        switchPlan(d, pid);
+        return { msg: `已複製成方案 ${letter}，修改它不會影響原本的方案` };
+      });
+      break;
+    }
+    case "plan-edit": openPlanEditor(); break;
+    case "plan-save": {
+      const name = $("#planForm").name.value.trim(); const did = day().id;
+      closeSheet();
+      commit((doc) => { const d = doc.days.find((x) => x.id === did); d.plans.find((p) => p.id === d.activePlan).name = name || "未命名方案"; }, "已儲存");
+      break;
+    }
+    case "plan-delete": {
+      if (!t.dataset.sure) { t.textContent = "再按一次確定刪除"; t.dataset.sure = "1"; break; }
+      const did = day().id; closeSheet();
+      commit((doc) => {
+        const d = doc.days.find((x) => x.id === did);
+        const cur = d.activePlan;
+        const other = d.plans.find((p) => p.id !== cur);
+        switchPlan(d, other.id);
+        d.plans = d.plans.filter((p) => p.id !== cur);
+        delete d.planItems[cur];
+        return { msg: "已刪除方案" };
+      });
+      break;
+    }
     case "variant": {
       const k = +t.dataset.k;
       const f = findItem(id);
