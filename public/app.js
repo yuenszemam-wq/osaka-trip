@@ -1033,17 +1033,23 @@ function toolsHTML(it, d, pos) {
     ${listPage ? `<button class="strong" data-act="move-in" data-id="${id}">${icon("back")}加回行程</button>` : `<button data-act="move-out" data-id="${id}">${icon("archive")}備選</button>`}
   </div>`;
 }
+// 子行程：和主行程一樣的卡片（分類、詳情摺疊、外框），只是顯示在主行程下面
 function childHTML(c, d) {
-  const v = V(c);
-  if (collapsed(c)) return `<div class="child done"><div class="folded">${c.start != null ? `<span class="time">${fmt(c.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${d.kind === "day" ? memoBtn(c) : ""}${foldBtn(c)}${checkBtn(c)}</div>${d.kind === "day" ? memoStrip(c) : ""}</div>`;
+  const v = V(c), type = v.type || "place", cat = catOf(type), dayPage = d.kind === "day";
+  const style = `style="--c:${catVar(type)}"`;
+  if (collapsed(c)) return `<div class="child card done" ${style}><div class="folded"><span class="cnum">${icon(cat[1])}</span>${c.start != null ? `<span class="time">${fmt(c.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${dayPage ? memoBtn(c) : ""}${foldBtn(c)}${checkBtn(c)}</div>${dayPage ? memoStrip(c) : ""}</div>`;
   const info = isInfo(c);
-  return `<div class="child ${c.done ? "done" : ""} ${S.open.has(c.id) ? "is-open" : ""}" data-tid="${esc(c.id)}" style="--c:${catVar(v.type)}"><div class="crow"><div class="cbody">
-      <div class="taphead" ${info ? "" : `data-act="toggle" data-id="${esc(c.id)}" role="button" aria-expanded="${S.open.has(c.id)}"`}>
-      ${c.start != null ? `<div class="time">${timeLabel(c)}</div>` : ""}
-      <div class="ctitle">↳ ${esc(v.title || "（未命名）")}${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
+  const open = S.open.has(c.id);
+  return `<div class="child card ${c.done ? "done" : ""} ${open ? "is-open" : ""} ${info ? "info" : ""}" data-tid="${esc(c.id)}" ${style}>
+    <div class="taphead" ${info ? "" : `data-act="toggle" data-id="${esc(c.id)}" role="button" aria-expanded="${open}"`}>
+      <div class="itemtop"><span class="cnum">${icon(info ? "info" : cat[1])}</span>
+        <div class="itemmeta metaline">${c.start != null && dayPage ? `<span class="time">${timeLabel(c)}</span>` : ""}<span class="category">${icon(info ? "info" : cat[1])}${info ? "資訊" : cat[0]}<small class="subtag">子行程</small></span></div>
+        ${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || !dayPage ? "" : checkBtn(c)}</div>
+      <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
-      ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${d.kind === "day" ? memoSection(c) : ""}${altsHTML(c, d)}
-    </div>${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || d.kind !== "day" ? "" : checkBtn(c)}</div></div>`;
+    ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${dayPage ? memoSection(c) : ""}${altsHTML(c, d)}
+    ${S.manage ? `<div class="edtools"><button data-act="quick-photo" data-id="${esc(c.id)}">${icon("camera")}圖片</button>${dayPage ? `<button data-act="move-out" data-id="${esc(c.id)}">${icon("archive")}備選</button>` : ""}</div>` : ""}
+  </div>`;
 }
 function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
   const v = V(it), type = v.type || "place", cat = catOf(type);
