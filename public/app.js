@@ -880,7 +880,7 @@ function openShopEditor(id) {
       <div class="grid2"><label class="field"><span>數量</span><input type="number" name="qty" min="1" step="1" inputmode="numeric" value="${x.qty || 1}"></label>
       <label class="field"><span>買給誰（可留空）</span><input type="text" name="forWho" value="${esc(x.forWho || "")}" placeholder="例如：媽媽"></label></div>
       <label class="field"><span>在哪裡買（可留空）</span><input type="text" name="where" list="shopWhere" value="${esc(x.where || "")}" placeholder="可揀行程中的地點，或自己輸入"><datalist id="shopWhere">${titles.map((t) => `<option value="${esc(t)}">`).join("")}</datalist></label>
-      ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur, pay: x.pay }, curs)}
+      ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur, pay: x.pay, share: x.share }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(x.note || "")}" placeholder="顏色、尺寸、款式…"></label>
       ${id ? `<label class="checkline"><input type="checkbox" name="done" ${x.done ? "checked" : ""}><span>已買</span></label>` : ""}
     </form>
@@ -985,7 +985,7 @@ function costHTML(v, it) {
     return `<span class="tag">${label} <b>${money(n, cur)}</b>${hk != null ? `<span class="hk">≈${money(hk, "HKD")}</span>` : ""}</span>`;
   };
   const over = c.plan != null && c.actual != null && c.actual > c.plan;
-  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預計</span>` : ""}${c.pay && PAY[c.pay] ? `<span class="paytag">${payLabel(c.pay)}</span>` : ""}</button>`;
+  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預計</span>` : ""}${c.share === "shared" ? `<span class="paytag">👥 共同</span>` : ""}${c.pay && PAY[c.pay] ? `<span class="paytag">${payLabel(c.pay)}</span>` : ""}</button>`;
 }
 // 詳情一直放在頁面上，用 CSS 動畫展開／摺疊（不用重畫整頁）
 function detailHTML(it, v, forceOpen) {
@@ -1426,7 +1426,7 @@ function costRows() {
   const add = (it, d, sub) => {
     const v = V(it); const c = v.cost;
     if (!c || (c.plan == null && c.actual == null)) return;
-    rows.push({ id: it.id, title: v.title, type: v.type || "place", day: d, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, time: it.start });
+    rows.push({ id: it.id, title: v.title, type: v.type || "place", day: d, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, time: it.start });
   };
   for (const d of S.doc.days) {
     if (isIdeas(d)) continue;
@@ -1435,10 +1435,10 @@ function costRows() {
   }
   for (const x of S.doc.shopping || []) {
     if (!x.done || (x.plan == null && x.actual == null)) continue;
-    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, note: x.where });
+    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, share: x.share, note: x.where });
   }
   for (const e of S.doc.expenses || []) {
-    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, note: e.note });
+    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, share: e.share, note: e.note });
   }
   return rows;
 }
@@ -1536,6 +1536,10 @@ function moneyHTML() {
   html += `<div class="mcard total"><div class="tk">支出總額</div><div class="tv">${money(tot.s, "HKD")}</div>
     ${cur !== "HKD" ? `<div class="tl">${money(sumLocal(rows, "eff"), cur)}</div>` : ""}
     <div class="tsplit"><span>已付 ${money(act.s, "HKD")}</span><span>預計中 ${money(po.s, "HKD")}</span><span>${rows.length} 項</span></div>
+    ${(() => { const sh = rows.filter((r) => r.share === "shared"), me = rows.filter((r) => r.share !== "shared");
+      const ss = sumHK(sh, "eff").s, ms = sumHK(me, "eff").s, n = Math.max(1, +(S.doc.meta.people || 2));
+      return `<div class="shares"><div><span>👤 個人</span><b>${money(ms, "HKD")}</b></div><div><span>👥 共同</span><b>${money(ss, "HKD")}</b>${sh.length ? `<small>每人 ${money(ss / n, "HKD")}</small>` : ""}</div>
+        <div class="mine"><span>我要付</span><b>${money(ms + ss / n, "HKD")}</b><small>個人＋共同 ÷ <button class="linkbtn" data-act="people-edit">${n} 人</button></small></div></div>`; })()}
     ${tot.missing ? `<p class="hint" style="margin:8px 0 0">⚠ 有 ${tot.missing} 筆使用其他貨幣、未能換算，未計入合計。</p>` : ""}</div>`;
   // 整個行程預算（手動設定）
   const b = m.budget;
@@ -1572,7 +1576,7 @@ function moneyHTML() {
   for (const [label, g] of groups) {
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(sumHK(g, "eff").s, "HKD")}</span></h3>
       <table class="mtable"><thead><tr><th>項目</th><th>金額</th></tr></thead><tbody>
-      ${g.map((r) => `<tr><td><button class="t" data-act="${r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.pay && PAY[r.pay] ? " · " + payLabel(r.pay) : ""}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
+      ${g.map((r) => `<tr><td><button class="t" data-act="${r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${r.share === "shared" ? " · 👥 共同" : ""}${r.pay && PAY[r.pay] ? " · " + payLabel(r.pay) : ""}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
         <td>${moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`).join("")}
       </tbody></table></div>`;
   }
@@ -1625,7 +1629,7 @@ function openExpenseEditor(id) {
       <label class="field"><span>項目</span><input type="text" name="title" value="${esc(e.title)}" placeholder="例如：ICOCA 交通卡、手信"></label>
       <div class="grid2"><label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label>
       <label class="field"><span>日期</span><select name="dayId"><option value="">全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === e.dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label></div>
-      ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur, pay: e.pay }, curs)}
+      ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur, pay: e.pay, share: e.share }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(e.note || "")}"></label>
     </form>
     <div class="sheet-foot">${id ? `<button class="btn danger" data-act="expense-delete" data-id="${esc(id)}">刪除</button>` : ""}<span class="grow"></span>
@@ -1641,6 +1645,7 @@ function costFields(c, curs) {
       <label class="field"><span>實際</span><input type="text" inputmode="decimal" name="costActual" value="${c.actual ?? ""}" placeholder="0"></label>
       <label class="field"><span>貨幣</span><select name="costCur">${curs.map((k) => `<option value="${k}" ${k === (c.cur || curs[0]) ? "selected" : ""}>${k === "HKD" ? "港幣 HK$" : (CUR_NAME[k] || k) + " " + (CUR[k] || "")}</option>`).join("")}</select></label>
     </div>
+    <div class="field"><span>個人／共同</span><div class="payseg">${[["me", "👤 個人"], ["shared", "👥 共同"]].map(([k, t]) => `<label><input type="radio" name="costShare" value="${k}" ${k === (c.share || "me") ? "checked" : ""}><span>${t}</span></label>`).join("")}</div></div>
     <div class="field"><span>付款方式</span><div class="payseg">${Object.entries(PAY).map(([k, [t, e]]) => `<label><input type="radio" name="costPay" value="${k}" ${k === (c.pay || "cash") ? "checked" : ""}><span>${e} ${t}</span></label>`).join("")}</div></div>
     <small class="hint">直接輸入當地貨幣金額，會自動換算成港幣。現金和 IC 卡會用支出頁設定的現金匯率。</small></div>`;
 }
@@ -1648,7 +1653,8 @@ function readCost(f) {
   const plan = numOrNull(f.costPlan.value), actual = numOrNull(f.costActual.value);
   if (plan == null && actual == null) return null;
   const pay = f.costPay ? (f.querySelector("[name=costPay]:checked") || {}).value : undefined;
-  return { plan, actual, cur: f.costCur.value, ...(pay ? { pay } : {}) };
+  const share = (f.querySelector("[name=costShare]:checked") || {}).value;
+  return { plan, actual, cur: f.costCur.value, ...(pay ? { pay } : {}), ...(share === "shared" ? { share } : {}) };
 }
 function updateCostPreview() {
   const el = $("#costPreview"); if (!el) return;
@@ -2861,6 +2867,14 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "cash-rate": openCashRate(); break;
+    case "people-edit": {
+      const sheet = $("#sheet"); sheet.className = "sheet";
+      sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>👥 共同支出人數</h2><button class="btn ghost" data-act="close">✕</button></div>
+        <form id="peopleForm" onsubmit="return false"><label class="field"><span>共同支出由幾多人分擔（包括你）</span><input type="number" name="n" min="1" step="1" inputmode="numeric" value="${S.doc.meta.people || 2}"></label></form>
+        <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="people-save">儲存</button></div></div>`;
+      sheet.hidden = false; document.body.style.overflow = "hidden"; break;
+    }
+    case "people-save": { const n = parseInt($("#peopleForm").n.value, 10); if (!(n >= 1)) { fieldErrorIn($("#peopleForm"), "n", "請輸入人數"); break; } closeSheet(); commit((doc) => { doc.meta.people = n; }); break; }
     case "cash-rate-save": {
       const f = $("#rateForm");
       let r = numOrNull(f.rate.value);
@@ -2931,7 +2945,7 @@ document.addEventListener("click", async (e) => {
       const name = f.name.value.trim();
       if (!name) { fieldErrorIn(f, "name", "請輸入要買甚麼"); break; }
       const c = readCost(f) || { plan: null, actual: null, cur: f.costCur.value };
-      const vals = { name, qty: Math.max(1, parseInt(f.qty.value, 10) || 1), forWho: f.forWho.value.trim(), where: f.where.value.trim(), note: f.note.value.trim(), ...c };
+      const vals = { name, qty: Math.max(1, parseInt(f.qty.value, 10) || 1), forWho: f.forWho.value.trim(), where: f.where.value.trim(), note: f.note.value.trim(), share: undefined, ...c };
       if (f.done) vals.done = f.done.checked;
       closeSheet();
       commit((doc) => {
@@ -3033,7 +3047,7 @@ document.addEventListener("click", async (e) => {
       if (!f.title.value.trim()) { fieldErrorIn(f, "title", "請輸入項目名稱"); break; }
       const c = readCost(f);
       if (!c) { fieldErrorIn(f, "costPlan", "請輸入預計或實際金額"); break; }
-      const vals = { title: f.title.value.trim(), type: f.type.value, dayId: f.dayId.value, note: f.note.value.trim(), ...c };
+      const vals = { title: f.title.value.trim(), type: f.type.value, dayId: f.dayId.value, note: f.note.value.trim(), share: undefined, ...c };
       closeSheet();
       commit((doc) => {
         doc.expenses = doc.expenses || [];
