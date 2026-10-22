@@ -19,6 +19,7 @@ const isInfo = (it) => V(it).type === "info";
 
 const ICONS = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5M2 17l10 5 10-5"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
   map: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
@@ -87,7 +88,7 @@ const S = {
   tripId: null, trips: [], doc: null, version: 0, dayId: null, q: "",
   saving: false, pending: false, timer: null, conflict: null, offline: false,
   undo: [], open: new Set(), expanded: new Set(), closed: new Set(), altOpen: new Set(),
-  photoMode: null, ideaFilter: "all", mapFilter: "all", view: "list", map: null, manage: false, theme: "auto",
+  photoMode: null, ideaFilter: "all", mapFilter: "all", mapSel: 0, mapDay: null, markers: [], view: "list", map: null, manage: false, theme: "auto",
 };
 const MONEY = "__money";
 
@@ -490,9 +491,9 @@ const noteIcon = (d) => d.id === "stay" || /住宿/.test(d.label) ? "bed" : isId
 
 function renderChrome() {
   const m = S.doc.meta || {};
-  $("#brand").innerHTML = `<div style="min-width:0"><div class="kicker">${esc(m.dates || "")}</div>
-    <h1>${esc(m.name || m.title || "Trip.")}<small>${esc(m.subtitle || m.title || "")}</small></h1></div>
-    <button class="iconbtn" data-act="menu" aria-label="菜單">${icon("menu")}</button>`;
+  $("#brand").innerHTML = `<button class="iconbtn" data-act="menu" aria-label="菜單">${icon("menu")}</button>
+    <div style="min-width:0;flex:1"><div class="kicker">${esc(m.dates || "")}</div>
+    <h1>${esc(m.name || m.title || "Trip.")}<small>${esc(m.subtitle || m.title || "")}</small></h1></div>`;
   const notes = S.doc.days.filter((x) => x.kind !== "day");
   const days = S.doc.days.filter((x) => x.kind === "day");
   $("#tabs").innerHTML = `<div class="rowtabs" role="tablist" aria-label="備注">
@@ -503,7 +504,10 @@ function renderChrome() {
     <div class="rowtabs" role="tablist" aria-label="旅遊日">
       ${days.map((x) => `<button class="dtab" data-act="tab" data-id="${esc(x.id)}" aria-pressed="${x.id === S.dayId}">${esc(x.label)}<small>${esc(x.sub || "")}</small></button>`).join("")}
       <button class="addtab day" data-act="add-day" data-kind="day" aria-label="新增一天">＋</button>
-    </div>`;
+    </div>
+    ${S.dayId !== MONEY && day() ? `<div class="toprow3">
+      ${day().kind === "day" ? `<div class="switch"><button data-act="view" data-id="list" aria-pressed="${S.view !== "map"}">${icon("list")} 行程</button><button data-act="view" data-id="map" aria-pressed="${S.view === "map"}">${icon("map")} 是日路線</button></div>` : `<div class="grow"></div>`}
+      <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button></div>` : ""}`;
   const on = $("#tabs [aria-pressed=true]"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
   document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : day() ? " · " + day().label : ""}`;
   $("#addBtn").innerHTML = `${icon("plus")} ${S.dayId === MONEY ? "新增支出" : "新增"}`;
@@ -523,10 +527,9 @@ function render() {
   const q = S.q.trim().toLowerCase();
   html += `<div class="dayhead"><div style="min-width:0"><h2>${esc(d.title || d.label)}</h2>${d.subtitle ? `<div class="sub">${esc(d.subtitle)}</div>` : ""}</div>
     <div class="headtools">${S.manage ? `<button class="manage" data-act="edit-day">${icon("pencil")}${d.kind === "day" ? "這天" : "分頁"}</button>` : ""}
-    <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button></div></div>`;
+</div></div>`;
 
   if (d.kind === "day") {
-    html += `<div class="switch"><button data-act="view" data-id="list" aria-pressed="${S.view !== "map"}">${icon("list")} 行程</button><button data-act="view" data-id="map" aria-pressed="${S.view === "map"}">${icon("map")} 是日路線</button></div>`;
     if (S.view === "map") { html += routeViewHTML(d); finishRender(html); drawRouteMap(d); return; }
     const all = seq(d).flatMap(({ item: it }) => [it, ...(it.children || [])]).filter((x) => !isInfo(x));
     const done = all.filter((x) => x.done).length;
@@ -862,57 +865,109 @@ function routeViewHTML(d) {
   const stops = routeStops(d);
   const hasBranch = d.items.some(isBranch);
   if (!stops.length) return `<div class="route-wrap"><div class="empty">這天的行程還沒有加入地圖地點。<br>在行程「編輯 → 📍 地圖」填上地點名稱，就會顯示在這裡。</div></div>`;
-  const types = [...new Set(stops.map((s) => s.type))];
+  if (S.mapSel == null || S.mapSel >= stops.length || S.mapDay !== d.id) { S.mapSel = 0; S.mapDay = d.id; }
+  const types = Object.keys(CATS).filter((t) => stops.some((s) => s.type === t));
   const chunks = [];
   for (let i = 0; i < stops.length; i += 9) chunks.push(stops.slice(i === 0 ? 0 : i - 1, i + 9));
-  let html = types.length > 1 ? `<div class="filters">${[["all", "全部"], ...types.map((t) => [t, catOf(t)[0]])].map(([k, t]) => `<button data-act="map-filter" data-id="${k}" aria-pressed="${S.mapFilter === k}">${t}</button>`).join("")}</div>` : "";
-  html += `<div class="route-wrap"><div id="routeMap" class="route-map"><div class="map-msg">地圖載入中…</div></div>
+  // 分類篩選：圓角圖示按鈕
+  let html = `<div class="mfilters">${[["all", "全部", "layers"], ...types.map((t) => [t, catOf(t)[0], catOf(t)[1]])].map(([k, t, ic]) =>
+    `<button data-act="map-filter" data-id="${k}" aria-pressed="${S.mapFilter === k}" style="--c:${k === "all" ? "var(--purple)" : catVar(k)}"><span class="mf-ic">${icon(ic)}</span>${t}</button>`).join("")}</div>`;
+  html += `<div class="route-wrap"><div class="route-box"><div id="routeMap" class="route-map"><div class="map-msg">地圖載入中…</div></div>
+    <div class="map-label">${esc(d.label)} / 行程路線</div></div>
+    <div id="stopCard">${stopCardHTML(d, stops)}</div>
     <p class="hint" id="geoStatus"></p>
-    <div class="route-actions">${chunks.map((c, i) => `<a class="btn primary" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("nav")} 在 Google 地圖開啟${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
+    <div class="route-actions">${chunks.map((c, i) => `<a class="btn" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("map")} Google 地圖${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
     ${hasBranch ? `<p class="hint">有分叉路線的話，這裡顯示的是目前選擇的路線。</p>` : ""}
     <ol class="stops">`;
   stops.forEach((s, i) => {
-    html += `<li class="${s.sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""}" style="--c:${catVar(s.type)}"><span class="num">${i + 1}</span><div class="st-body">
+    html += `<li class="${s.sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="map-sel" data-i="${i}"><span class="num">${i + 1}</span><div class="st-body">
       <div>${s.it.start != null ? `<b class="time">${fmt(s.it.start)}</b> ` : ""}${esc(s.v.title)}${s.sub ? ` <small class="hint">子行程</small>` : ""}</div>
-      <a href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener" class="st-place">📍 ${esc(s.link.label || s.q)}</a>
+      <span class="st-place">${icon(catOf(s.type)[1])} ${esc(s.link.label || s.q)}</span>
       <span class="st-geo" data-i="${i}"></span></div></li>`;
     if (stops[i + 1]) html += `<li class="leg"><a href="${esc(gmapsLeg(s, stops[i + 1]))}" target="_blank" rel="noopener">${icon("train")} ${i + 1} → ${i + 2} 交通路線</a></li>`;
   });
   return html + `</ol></div>`;
+}
+// 選中的地點：資料卡
+function stopCardHTML(d, stops) {
+  const s = stops[S.mapSel]; if (!s) return "";
+  const cat = catOf(s.type);
+  const sum = summaryOf(s.v);
+  return `<div class="stopcard" style="--c:${catVar(s.type)}">
+    <div class="sc-top"><span class="sc-kicker">STOP ${String(S.mapSel + 1).padStart(2, "0")} / ${esc(d.label)}</span><span class="sc-chip">${icon(cat[1])}${cat[0]}</span></div>
+    <h3>${esc(s.v.title)}</h3>
+    <div class="sub">${s.it.start != null ? `${timeLabel(s.it)} · ` : ""}${esc(sum || s.link.label || s.q)}</div>
+    <div class="sc-actions"><a class="btn primary" href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">${icon("nav")} 開啟導航</a>
+      ${S.mapSel > 0 ? `<a class="btn" href="${esc(gmapsLeg(stops[S.mapSel - 1], s))}" target="_blank" rel="noopener">${icon("train")} 由上一站前往</a>` : ""}
+      <button class="btn" data-act="map-goto" data-id="${esc(s.it.id)}">查看行程</button></div>
+    <div class="sc-nav"><button class="btn small" data-act="map-step" data-dir="-1" ${S.mapSel === 0 ? "disabled" : ""}>‹ 上一站</button><span class="hint">${S.mapSel + 1} / ${stops.length}</span><button class="btn small" data-act="map-step" data-dir="1" ${S.mapSel >= stops.length - 1 ? "disabled" : ""}>下一站 ›</button></div>
+  </div>`;
+}
+function pinIcon(s, i) {
+  return L.divIcon({ className: "", iconSize: [46, 46], iconAnchor: [23, 23],
+    html: `<div class="mpin ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""} ${s.sub ? "sub" : ""}" style="--c:${catVar(s.type)}"><b>${i + 1}</b><span class="mbadge">${icon(catOf(s.type)[1])}</span></div>` });
+}
+// 只更新選取狀態（不重畫整張地圖）
+function selectStop(d, i, pan) {
+  const stops = routeStops(d);
+  if (!stops[i]) return;
+  S.mapSel = i;
+  const card = $("#stopCard"); if (card) card.innerHTML = stopCardHTML(d, stops);
+  $$(".stops li[data-i]").forEach((li) => li.classList.toggle("sel", +li.dataset.i === i));
+  if (S.map && S.markers) {
+    S.markers.forEach((m, k) => {
+      if (!m) return;
+      m.setIcon(pinIcon(stops[k], k));
+      m.setZIndexOffset(k === i ? 1000 : 0);
+      m.unbindTooltip();
+      if (k === i) m.bindTooltip(`<b>${esc(stops[k].v.title)}</b><span style="color:${catVar(stops[k].type)}">${catOf(stops[k].type)[0]}</span>`, { permanent: true, direction: "right", offset: [24, 0], className: "mtip" }).openTooltip();
+    });
+    const g = geoOf(stops[i]);
+    if (pan && g) S.map.panTo(g, { animate: true });
+  }
 }
 async function drawRouteMap(d, noGeocode) {
   const el = $("#routeMap"); if (!el) return;
   try { await loadLeaflet(); } catch (e) { el.innerHTML = `<div class="map-msg">${esc(e.message)}，下面的 Google 地圖連結仍可使用。</div>`; return; }
   if (!$("#routeMap") || S.view !== "map") return;
   const stops = routeStops(d);
+  const first = !S.map;
   if (!S.map) {
     el.innerHTML = "";
-    S.map = L.map(el, { zoomControl: true, attributionControl: true });
+    S.map = L.map(el, { zoomControl: false, attributionControl: true });
+    L.control.zoom && L.control.zoom({ position: "bottomright" }).addTo(S.map);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(S.map);
     S.layer = L.layerGroup().addTo(S.map);
   }
   S.layer.clearLayers();
+  S.markers = [];
   const pts = [];
   stops.forEach((s, i) => {
     const g = geoOf(s);
     const tag = $(`.st-geo[data-i="${i}"]`);
     if (tag) tag.textContent = g ? "" : (s.link.geo && s.link.geo.fail ? "⚠ 地圖上未能定位，可在編輯中改用更準確的地點名稱" : "定位中…");
-    if (!g) return;
+    if (!g) { S.markers.push(null); return; }
     pts.push(g);
-    const ic = L.divIcon({ className: "", html: `<div class="pin ${stopDim(s) ? "dim" : ""}" style="--c:${catVar(s.type)}">${i + 1}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
-    L.marker(g, { icon: ic }).addTo(S.layer).bindPopup(`<b>${i + 1}. ${esc(s.v.title)}</b><br>${s.it.start != null ? fmt(s.it.start) + "<br>" : ""}<a href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">在 Google 地圖開啟</a>`);
+    const mk = L.marker(g, { icon: pinIcon(s, i) }).addTo(S.layer);
+    mk.on("click", () => selectStop(d, i, false));
+    S.markers.push(mk);
   });
   const css = getComputedStyle(document.documentElement);
-  if (pts.length > 1) L.polyline(pts, { color: css.getPropertyValue("--purple").trim() || "#72598e", weight: 4, opacity: 0.75, dashArray: "8 8" }).addTo(S.layer);
-  if (pts.length) {
-    const km = (a, b) => Math.hypot((a[0] - b[0]) * 111, (a[1] - b[1]) * 111 * Math.cos(a[0] * Math.PI / 180));
-    const sorted = (k) => pts.map((x) => x[k]).sort((a, b) => a - b);
-    const mid = [sorted(0)[pts.length >> 1], sorted(1)[pts.length >> 1]];
-    const near = pts.filter((x) => km(x, mid) < 150);
-    S.map.fitBounds(L.latLngBounds(near.length ? near : pts).pad(0.15), { maxZoom: 15 });
-  } else S.map.setView([34.6937, 135.5023], 11);
+  if (pts.length > 1) L.polyline(pts, { color: css.getPropertyValue("--purple").trim() || "#72598e", weight: 3, opacity: 0.6, dashArray: "6 9" }).addTo(S.layer);
+  // 第一次、或新定位到更多地點時，調整地圖範圍
+  if (first || !noGeocode || pts.length !== S.fitN) {
+    S.fitN = pts.length;
+    if (pts.length) {
+      const km = (a, b) => Math.hypot((a[0] - b[0]) * 111, (a[1] - b[1]) * 111 * Math.cos(a[0] * Math.PI / 180));
+      const sorted = (k) => pts.map((x) => x[k]).sort((a, b) => a - b);
+      const mid = [sorted(0)[pts.length >> 1], sorted(1)[pts.length >> 1]];
+      const near = pts.filter((x) => km(x, mid) < 150);
+      S.map.fitBounds(L.latLngBounds(near.length ? near : pts).pad(0.18), { maxZoom: 15 });
+    } else S.map.setView([34.6937, 135.5023], 11);
+  }
+  selectStop(d, S.mapSel || 0, false);
   if (!noGeocode) geocodeMissing(d);
 }
 
@@ -1670,6 +1725,15 @@ document.addEventListener("click", async (e) => {
     case "theme": setTheme(id); openMenu(); break;
     case "rate-refresh": updateRate(true); break;
     case "map-filter": S.mapFilter = id; render(); break;
+    case "map-sel": selectStop(day(), +t.dataset.i, true); $("#routeMap") && $("#routeMap").scrollIntoView({ block: "center", behavior: "smooth" }); break;
+    case "map-step": { const n = routeStops(day()).length; selectStop(day(), Math.max(0, Math.min(n - 1, (S.mapSel || 0) + +t.dataset.dir)), true); break; }
+    case "map-goto": {
+      S.view = "list"; ls.set("trip.view", "list"); S.open.add(id); S.q = "";
+      const f = findItem(id); if (f && f.item.done) S.expanded.add(id);
+      render();
+      requestAnimationFrame(() => { const el = $(`[data-act=toggle][data-id="${CSS.escape(id)}"]`); if (el) el.scrollIntoView({ block: "center", behavior: "smooth" }); });
+      break;
+    }
     case "expense-new": openExpenseEditor(""); break;
     case "expense-edit": openExpenseEditor(id); break;
     case "expense-save": {
