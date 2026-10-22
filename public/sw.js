@@ -2,7 +2,7 @@
 // - 網站外殼（HTML/CSS/JS）：網絡優先，沒有網絡時用快取
 // - 圖片：快取優先（看過或在「準備離線使用」下載過的圖片，離線時都可以看）
 // - 地圖程式庫（cdnjs）和地圖底圖：快取優先，底圖最多保留約 1500 張
-const SHELL = "shell-v42", PHOTOS = "photos-v1", LIBS = "libs-v1", TILES = "tiles-v1";
+const SHELL = "shell-v43", PHOTOS = "photos-v1", LIBS = "libs-v1", TILES = "tiles-v1";
 const FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest", "/icon-192.png", "/icon-180.png", "/icon-64.png"];
 
 self.addEventListener("install", (e) => {
@@ -25,7 +25,7 @@ async function cacheFirst(name, req, limit) {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET") return;
-  if (url.hostname === "cdnjs.cloudflare.com") { e.respondWith(cacheFirst(LIBS, e.request)); return; }
+  if (url.hostname === "cdnjs.cloudflare.com" || url.hostname === "cdn.jsdelivr.net") { e.respondWith(cacheFirst(LIBS, e.request)); return; }
   if (url.hostname === "tile.openstreetmap.org") { e.respondWith(cacheFirst(TILES, e.request, 1500).catch(() => new Response("", { status: 504 }))); return; }
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith("/api/photos/")) { e.respondWith(cacheFirst(PHOTOS, e.request)); return; }

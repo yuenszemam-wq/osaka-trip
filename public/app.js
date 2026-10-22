@@ -793,6 +793,7 @@ function listPageHTML(d, q) {
   let html = "";
   const shown = d.items.map((it, idx) => ({ it, idx })).filter(({ it }) => hit(it) && (f === "all" || (V(it).type || "place") === f));
   html += `<div class="listpage">`;
+  if (isIdeas(d)) html += `<button class="sched-bar imp" data-act="imp-open">${icon("image")}<span><b>由圖片匯入</b><small>截圖中的店名、地址、電話、營業時間自動填入</small></span>${icon("arrow")}</button>`;
   if (isIdeas(d) && d.items.some((x) => !isInfo(x))) html += `<button class="sched-bar" data-act="sched-open">${icon("wand")}<span><b>自動排程</b><small>揀選地點，按距離和空檔放進行程</small></span>${icon("arrow")}</button>`;
   html += shown.map(({ it, idx }) => itemHTML(it, d, null, { at: idx, route: "", shared: false })).join("");
   if (!shown.length) html += `<div class="empty">${q ? `找不到「${esc(S.q)}」` : d.items.length ? "這個類型還沒有項目" : isIdeas(d) ? "還沒有項目。<br>在行程「整理」中按「備選」就會放到這裡。" : "還沒有內容。"}</div>`;
@@ -2437,6 +2438,132 @@ function doMoveOut(id, pull) {
     return { msg: `已移到「備選地點」${n ? `，之後 ${n} 項提前 ${durText(dur)}` : ""}` };
   });
 }
+// 把圖片文字（或貼上的文字）分析成行程資料
+function parsePlaceText(text) {
+  const CJK = "぀-ヿ㐀-鿿豈-﫿＀-￯";
+  let t = String(text || "").replace(/\r/g, "")
+    .replace(new RegExp(`(?<=[${CJK}])[ \\t]+(?=[${CJK}])`, "g"), "") // OCR 在中日文字之間加的空格
+    .replace(new RegExp(`(?<=[${CJK}])[ \\t]+(?=[0-9０-９])|(?<=[0-9０-９])[ \\t]+(?=[${CJK}])`, "g"), "")
+    .replace(/[：︰]/g, ":");
+  const emojiRe = /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu;
+  const raw = t.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = raw.map((l) => {
+    const em = (l.match(emojiRe) || []).join("");
+    const body = l.replace(emojiRe, "").replace(/^\s*[:：\-・•]\s*/, "").trim();
+    return { l, em, body };
+  }).filter((x) => x.body);
+  const out = { title: "", address: "", phone: "", hours: "", station: "", closed: "", url: "", price: "", notes: [] };
+  const lab = (re, s) => re.test(s);
+  const isPhone = (s) => /(\+81[\s-]?|0)\d{1,4}[-‐ー−\s]\d{1,4}[-‐ー−\s]\d{3,4}/.test(s) || /^(電話|TEL|Tel|☎)/i.test(s);
+  const isHours = (s) => /\d{1,2}[:：]\d{2}\s*[-~〜～–—]\s*\d{1,2}[:：]\d{2}/.test(s) || /^(營業|営業|時間|Open|OPEN|Hours)/i.test(s);
+  const isAddr = (s) => /(都|道|府|県|縣)?.{0,6}[市区區町村郡].{0,20}(\d|丁目|番地?|号|號)/.test(s) || /^(地址|住所|Address|地點)/i.test(s) || /^〒/.test(s);
+  const isStation = (s, em) => /🚇|🚉|🚃|🚆|🚄|🚈|🚊/.test(em) || /(駅|站|Station|最寄|車站)/i.test(s) || /^#/.test(s);
+  const strip = (s) => s.replace(/^(地址|住所|Address|地點|電話|TEL|營業時間|営業時間|營業|時間|Open|Hours|定休日|休息日|車站|最寄駅|交通)\s*[:：]?\s*/i, "").trim();
+  let addrIdx = -1;
+  lines.forEach((x, i) => {
+    const s = x.body, em = x.em;
+    if (!out.url && /https?:\/\//.test(s)) { out.url = s.match(/https?:\/\/\S+/)[0]; return; }
+    if (!out.phone && (/☎|📞|📱/.test(em) || isPhone(s)) && /\d{2,}/.test(s)) { out.phone = strip(s); return; }
+    if (!out.hours && (/⏰|🕐|🕒|⌚|🕙|⏱/.test(em) || isHours(s))) { out.hours = strip(s); return; }
+    if (/定休|休息日|公休|Closed/i.test(s)) { out.closed = strip(s); return; }
+    if (!out.address && (/🚗|📍|🏠|🗺|📮/.test(em) || isAddr(s)) && !isStation(s, "")) { out.address = strip(s); addrIdx = i; return; }
+    if (!out.station && isStation(s, em)) { out.station = strip(s).replace(/^#\s*/, "").replace(/\s*#\s*/g, "、"); return; }
+    if (/[¥￥]\s?\d|円|預算|価格|price/i.test(s)) { out.price = strip(s); return; }
+    // 地址換行：接在地址後面、不是其他資料的短行
+    if (addrIdx === i - 1 && !em && s.length <= 20 && out.title) { out.address += s; addrIdx = i; return; }
+    if (!out.title) { out.title = s; return; }
+    out.notes.push(s);
+  });
+  if (!out.title && out.address) out.title = out.address;
+  const all = raw.join(" ");
+  out.type = /鮨|寿司|壽司|すし|ラーメン|らーめん|拉麵|拉面|うどん|そば|蕎麦|丼|焼肉|燒肉|焼き|食堂|居酒屋|カフェ|喫茶|珈琲|コーヒー|cafe|café|レストラン|餐廳|餐|料理|食|ベーカリー|パン|甜品|スイーツ|bar|バー|酒場|ramen|sushi|restaurant/i.test(all) ? "food"
+    : /ホテル|hotel|旅館|民宿|hostel|酒店/i.test(all) ? "stay"
+    : /店|ショップ|shop|store|モール|百貨|ドンキ|outlet|商場|商店|書店|専門/i.test(all) ? "shop" : "place";
+  return out;
+}
+
+// ---------- 由圖片匯入（瀏覽器內文字辨識，Tesseract.js） ----------
+let ocrWorker = null;
+function loadScript(src) {
+  return new Promise((res, rej) => { if ([...document.scripts].some((x) => x.src === src)) return res(); const sc = document.createElement("script"); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error("未能載入文字辨識（需要網絡）")); document.head.appendChild(sc); });
+}
+async function ocrImage(file, onProgress) {
+  if (!ocrWorker) {
+    await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
+    ocrWorker = await window.Tesseract.createWorker(["jpn", "chi_tra"], 1, { logger: (m) => onProgress && onProgress(m) });
+  }
+  const r = await ocrWorker.recognize(file);
+  return r.data.text || "";
+}
+let IMP = null; // { items: [{ file, url, text, data, keep }] }
+function openImport() {
+  IMP = { items: [] };
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("image")} 由圖片匯入地點</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">揀選店舖資料的截圖，會自動辨識文字，填入名稱、地址、電話、營業時間和車站。可以一次揀多張，每張變成一個備選地點。</p>
+    <div class="imp-actions"><button class="btn primary" data-act="imp-pick">${icon("image")} 揀選圖片</button><button class="btn" data-act="imp-text">${icon("note")} 貼上文字</button></div>
+    <input type="file" id="impFile" accept="image/*" multiple hidden>
+    <div id="impPaste" hidden><label class="field"><span>貼上文字（iPhone 可以在相片上長按文字選取複製，最準確）</span><textarea name="impText" rows="6" placeholder="鮨難波中&#10;🚗: 大阪市浪速区難波中３丁目17-22&#10;☎️: 050-5303-2247&#10;⏰: 10:00-14:00、17:00-22:00"></textarea></label><button class="btn" data-act="imp-parse-text">分析文字</button></div>
+    <p class="hint" id="impMsg"></p>
+    <div id="impList"></div>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="imp-add" id="impGo" disabled>加入備選地點</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function impCardHTML(x, i) {
+  const d = x.data;
+  const f = (k, label, ph) => `<label class="field"><span>${label}</span><input type="text" data-imp="${i}" data-k="${k}" value="${esc(d[k] || "")}" placeholder="${ph || ""}"></label>`;
+  return `<div class="imp-card">
+    <div class="imp-top">${x.url ? `<img src="${x.url}" alt="">` : ""}<label class="checkline"><input type="checkbox" data-imp-use="${i}" ${x.use !== false ? "checked" : ""}><span>加入這個地點</span></label></div>
+    ${f("title", "名稱")}
+    <label class="field"><span>類型</span><select data-imp="${i}" data-k="type">${Object.entries(TYPES).filter(([k]) => k !== "info" && k !== "transport" && k !== "flight").map(([k, t]) => `<option value="${k}" ${k === d.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+    ${f("address", "地址")}${f("phone", "電話")}${f("hours", "營業時間")}${f("station", "最近車站")}${d.closed ? f("closed", "休息日") : ""}${d.price ? f("price", "價錢") : ""}
+    ${x.url ? `<label class="checkline"><input type="checkbox" data-imp-keep="${i}" ${x.keep !== false ? "checked" : ""}><span>把這張圖片存入地點</span></label>` : ""}
+    ${x.text ? `<details><summary class="hint">辨識到的文字</summary><pre class="imp-raw">${esc(x.text)}</pre></details>` : ""}
+  </div>`;
+}
+function impRender() {
+  const list = $("#impList"); if (!list) return;
+  list.innerHTML = IMP.items.map(impCardHTML).join("");
+  const n = IMP.items.filter((x) => x.data && x.use !== false && x.data.title).length;
+  const go = $("#impGo"); if (go) { go.disabled = !n; go.textContent = n ? `加入備選地點（${n}）` : "加入備選地點"; }
+}
+async function impFiles(files) {
+  const msg = (t) => { const m = $("#impMsg"); if (m) m.innerHTML = t; };
+  for (let k = 0; k < files.length; k++) {
+    const file = files[k];
+    msg(`辨識第 ${k + 1} / ${files.length} 張…（第一次使用要先下載文字辨識資料，約 10 秒）`);
+    let text = "";
+    try {
+      text = await ocrImage(file, (m) => { if (m.status && m.progress != null) msg(`${m.status === "recognizing text" ? `辨識第 ${k + 1} / ${files.length} 張` : "下載文字辨識資料"}… ${Math.round(m.progress * 100)}%`); });
+    } catch (e) { msg(`⚠ ${esc(e.message)}。可以改用「貼上文字」。`); }
+    if (!IMP) return;
+    IMP.items.push({ file, url: URL.createObjectURL(file), text, data: parsePlaceText(text), keep: true });
+    impRender();
+  }
+  msg(IMP.items.length ? "請檢查辨識結果，有需要可以直接修改。" : "");
+}
+async function impAdd() {
+  const go = $("#impGo"); go.disabled = true;
+  const use = IMP.items.filter((x) => x.use !== false && x.data.title);
+  const made = [];
+  for (const x of use) {
+    let photos = [];
+    if (x.file && x.keep !== false) { go.textContent = "上傳圖片中…"; try { photos = await uploadFiles([x.file]); } catch {} }
+    const d = x.data;
+    const details = [d.address && `地址：${d.address}`, d.phone && `電話：${d.phone}`, d.hours && `營業時間：${d.hours}`, d.closed && `休息日：${d.closed}`, d.station && `車站：${d.station}`, d.price && `價錢：${d.price}`, ...(d.notes || [])].filter(Boolean).join("\n");
+    const links = [];
+    if (d.address || d.title) links.push({ kind: "map", label: d.title, url: "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(d.title + (d.address ? " " + d.address : "")), ...(d.address ? { addr: d.address } : {}) });
+    if (d.url && safeUrl(d.url)) links.push({ kind: "web", label: "網站", url: d.url });
+    made.push({ id: uid(), start: null, locked: false, done: false, active: 0, children: [], from: "由圖片匯入",
+      variants: [{ id: uid(), title: d.title, type: d.type || "place", dur: d.type === "food" ? 60 : 45, summary: [d.station && `${d.station}`, d.hours].filter(Boolean).join(" · "), details, links, photos }] });
+  }
+  closeSheet();
+  IMP = null;
+  commit((doc) => { ideasDayOf(doc, true).items.push(...made); });
+  S.dayId = ideasDayOf(S.doc, false).id; S.ideaFilter = "all"; render();
+}
+
 // ---------- 自動排程：把備選地點按距離和空檔放進行程 ----------
 function coordOfItem(it) {
   for (const x of [it, ...(it.children || [])]) {
@@ -2955,6 +3082,11 @@ document.addEventListener("click", async (e) => {
     }
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
     case "sched-open": openScheduler(); break;
+    case "imp-open": openImport(); break;
+    case "imp-pick": { const inp = $("#impFile"); inp.value = ""; inp.click(); break; }
+    case "imp-text": $("#impPaste").hidden = false; $("#impPaste textarea").focus(); break;
+    case "imp-parse-text": { const v = $("#impPaste textarea").value.trim(); if (!v) break; IMP.items.push({ text: v, data: parsePlaceText(v) }); $("#impPaste textarea").value = ""; impRender(); break; }
+    case "imp-add": impAdd(); break;
     case "offline-prep": prepareOffline(); break;
     case "auth-open": openAuth(); break;
     case "auth-setup": {
@@ -3449,6 +3581,7 @@ document.addEventListener("input", (e) => {
   if (e.target.classList && e.target.classList.contains("invalid")) { e.target.classList.remove("invalid"); const er = e.target.closest(".field")?.querySelector(".field-err"); if (er) er.remove(); }
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
   if (/^cost(Plan|Actual)$/.test(e.target.name || "")) updateCostPreview();
+  if (e.target.dataset && e.target.dataset.imp != null && e.target.dataset.k && IMP) { const x = IMP.items[+e.target.dataset.imp]; x.data[e.target.dataset.k] = e.target.value; if (e.target.dataset.k === "title") { const n = IMP.items.filter((y) => y.use !== false && y.data.title).length; const go = $("#impGo"); if (go) { go.disabled = !n; go.textContent = n ? `加入備選地點（${n}）` : "加入備選地點"; } } }
   if (e.target.dataset && e.target.dataset.journal) { const id = e.target.dataset.journal, val = e.target.value; autosize(e.target); diaryWrite((doc) => { const d = doc.days.find((x) => x.id === id); if (d) { if (val.trim()) d.journal = val; else delete d.journal; } }); }
   if (e.target.dataset && e.target.dataset.memo && e.target.classList.contains("de-note")) { const id = e.target.dataset.memo, val = e.target.value; autosize(e.target); diaryWrite(() => { const f = findItem(id); if (!f) return; f.item.memo = f.item.memo || { photos: [] }; f.item.memo.note = val; }); }
   if ((e.target.name === "start" || e.target.name === "tdur") && e.target.form && e.target.form.id === "edForm" && $("#arrHint")) {
@@ -3481,6 +3614,10 @@ document.addEventListener("change", async (e) => {
       $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]);
     } catch (err) { if (ED) { ED.uploading = null; $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]); } toast("圖片上傳失敗：" + err.message); }
   }
+  if (e.target.id === "impFile") { const files = [...e.target.files]; if (files.length) impFiles(files); return; }
+  if (e.target.dataset && e.target.dataset.impUse != null && IMP) { IMP.items[+e.target.dataset.impUse].use = e.target.checked; impRender(); return; }
+  if (e.target.dataset && e.target.dataset.impKeep != null && IMP) { IMP.items[+e.target.dataset.impKeep].keep = e.target.checked; return; }
+  if (e.target.dataset && e.target.dataset.imp != null && e.target.tagName === "SELECT" && IMP) { IMP.items[+e.target.dataset.imp].data.type = e.target.value; return; }
   if (e.target.id === "shopFile") {
     const files = [...e.target.files]; if (!files.length || !SHOPED) return;
     try {
