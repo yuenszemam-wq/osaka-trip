@@ -1,5 +1,5 @@
 // 離線支援：網站外殼用「網絡優先」，圖片用「快取優先」
-const SHELL = "shell-v9", PHOTOS = "photos-v1";
+const SHELL = "shell-v10", PHOTOS = "photos-v1";
 const FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (e) => {

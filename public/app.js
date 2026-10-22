@@ -515,9 +515,9 @@ async function drawRouteMap(d, noGeocode) {
   if (!S.map) {
     el.innerHTML = "";
     S.map = L.map(el, { zoomControl: true, attributionControl: true });
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      maxZoom: 19, subdomains: "abcd",
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(S.map);
     S.layer = L.layerGroup().addTo(S.map);
   }
@@ -533,7 +533,14 @@ async function drawRouteMap(d, noGeocode) {
     L.marker(g, { icon }).addTo(S.layer).bindPopup(`<b>${i + 1}. ${esc(s.v.title)}</b><br>${s.it.start != null ? fmt(s.it.start) + "<br>" : ""}<a href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">在 Google 地圖開啟</a>`);
   });
   if (pts.length > 1) L.polyline(pts, { color: "#5b4a8b", weight: 4, opacity: 0.75, dashArray: "8 8" }).addTo(S.layer);
-  if (pts.length) S.map.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 15 });
+  if (pts.length) {
+    // 地圖範圍集中在主要地區（例如香港機場這類很遠的點仍會畫線，但不會把大阪縮到很小）
+    const km = (a, b) => Math.hypot((a[0] - b[0]) * 111, (a[1] - b[1]) * 111 * Math.cos(a[0] * Math.PI / 180));
+    const sorted = (k) => pts.map((x) => x[k]).sort((a, b) => a - b);
+    const mid = [sorted(0)[pts.length >> 1], sorted(1)[pts.length >> 1]];
+    const near = pts.filter((x) => km(x, mid) < 150);
+    S.map.fitBounds(L.latLngBounds(near.length ? near : pts).pad(0.15), { maxZoom: 15 });
+  }
   else S.map.setView([34.6937, 135.5023], 11);
   if (!noGeocode) geocodeMissing(d);
 }
