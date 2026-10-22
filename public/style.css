@@ -466,7 +466,8 @@ svg.i { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-widt
 .bleft small { display: block; font-weight: 400; font-size: 12px; color: var(--warn-ink); }
 
 /* 鎖定左右滑動 */
-html, body { overflow-x: hidden; }
+html, body { overflow-x: clip; }
+#app { overflow-x: clip; }
 .sheet-body { overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y; }
 .sheet-body * { min-width: 0; }
 .sheet-body .field select, .sheet-body .field input, .sheet-body textarea { max-width: 100%; }
@@ -475,3 +476,11 @@ html, body { overflow-x: hidden; }
 .ntab.menu { background: var(--purple); color: var(--on-purple); border-color: var(--purple); border-radius: 12px; width: 40px; height: 34px; padding: 0; justify-content: center; margin-right: 6px; }
 .ntab.menu svg.i { width: 19px; height: 19px; stroke-width: 2; }
 .rowtabs .ntab.menu + .ntab { margin-left: 2px; }
+
+/* 分類標誌在時間旁邊 */
+.metaline { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+.metaline .category { margin-top: 0; }
+/* 地圖連結常駐 */
+.quick.maps { margin-top: 8px; }
+.child .quick.maps { margin-top: 6px; }
+.transport .quick.maps { margin-left: 26px; }

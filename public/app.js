@@ -421,6 +421,7 @@ function syncUI() {
 
 let toastTimer;
 function toast(msg, withUndo = false) {
+  return; // 已取消所有彈出通知（復原在標題旁的按鈕）
   const el = $("#toast");
   el.innerHTML = `<span>${esc(msg)}</span>` + (withUndo ? `<button data-act="undo">復原</button>` : "");
   el.hidden = false;
@@ -638,9 +639,15 @@ function summaryOf(v) {
   const t = line.replace(/^(地址|地點|交通|搭乘|安排)[：:]\s*/, "");
   return t.length > 42 ? t.slice(0, 40) + "…" : t;
 }
+// 地圖連結：一直顯示在卡片上（不摺疊）
+function mapLinksHTML(v) {
+  const maps = (v.links || []).filter((l) => isMapLink(l) && safeUrl(l.url));
+  if (!maps.length) return "";
+  return `<div class="quick maps">${maps.map((l) => `<a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">${icon("nav")}<span>${esc(l.label || "地圖")}</span></a>`).join("")}</div>`;
+}
 function linksHTML(v) {
-  const all = v.links || [];
-  return [...all.filter(isMapLink), ...all.filter((l) => !isMapLink(l))].map((l) => {
+  const all = (v.links || []).filter((l) => !isMapLink(l));
+  return all.map((l) => {
     const u = safeUrl(l.url); if (!u) return "";
     return `<a href="${esc(u)}" target="_blank" rel="noopener">${icon(isMapLink(l) ? "nav" : "ext")}<span>${esc(l.label || u)}</span></a>`;
   }).join("");
@@ -672,7 +679,7 @@ function detailHTML(it, v, forceOpen) {
   const links = linksHTML(v);
   const inner = `${v.details ? `<div class="detailtext">${esc(v.details)}</div>` : !links && !forceOpen ? `<div class="detailtext hint">尚未填寫詳情</div>` : ""}
     <div class="quick">${links}${!v.cost || (v.cost.plan == null && v.cost.actual == null) ? `<button data-act="cost-edit" data-id="${esc(it.id)}">${icon("wallet")}記錄消費</button>` : ""}</div>`;
-  if (forceOpen) return inner;
+  if (forceOpen) return mapLinksHTML(v) + inner;
   return `<div class="dwrap ${S.open.has(it.id) ? "open" : ""}" data-dw="${esc(it.id)}"><div class="dinner">${inner}</div></div>`;
 }
 function toggleOpen(id) {
@@ -721,7 +728,7 @@ function childHTML(c, d) {
       ${c.start != null ? `<div class="time">${timeLabel(c)}</div>` : ""}
       <div class="ctitle">↳ ${esc(v.title || "（未命名）")}${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
-      ${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${altsHTML(c)}
+      ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${altsHTML(c)}
     </div>${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || d.kind !== "day" ? "" : checkBtn(c)}</div></div>`;
 }
 function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
@@ -754,7 +761,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
       <div class="transportline"><button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
         ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " · 固定" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
         ${S.manage ? editTop(it) : ""}${foldBtn(it)}${checkBtn(it)}</div>
-      ${warnHTML}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
+      ${warnHTML}${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
       ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
       ${S.manage ? toolsHTML(it, d, pos) : ""}
     </article>${after}`;
@@ -763,12 +770,12 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
   return `<article class="place ${it.done ? "done" : ""} ${openCls}" data-tid="${esc(it.id)}" ${style}>
     <div class="taphead" data-act="toggle" data-id="${esc(it.id)}" role="button" aria-expanded="${S.open.has(it.id)}">
     <div class="itemtop"><span class="number">${num}</span>
-      <div class="itemmeta">${!listPage && it.start != null ? `<div class="time">${timeLabelLocked(it)}</div>` : ""}<div class="category">${icon(cat[1])}${cat[0]}${origin}</div></div>
+      <div class="itemmeta metaline">${!listPage && it.start != null ? `<span class="time">${timeLabelLocked(it)}</span>` : ""}<span class="category">${icon(cat[1])}${cat[0]}${origin}</span></div>
       ${S.manage ? editTop(it) : ""}${foldBtn(it)}${listPage ? "" : checkBtn(it)}</div>
     ${warnHTML}
     <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${chev}</div>
     ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}</div>
-    ${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
+    ${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}
     ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it)}
     ${S.manage ? toolsHTML(it, d, pos) : ""}
   </article>${after}`;
