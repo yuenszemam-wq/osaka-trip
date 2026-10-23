@@ -851,3 +851,19 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .wbody small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wacts { display: flex; gap: 6px; flex: none; }
 .wacts .btn { display: inline-flex; align-items: center; gap: 3px; }
+
+/* 備選地點功能按鈕：一行 */
+.ideabar { display: flex; gap: 8px; margin-bottom: 8px; }
+.ideabar button { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid color-mix(in srgb, var(--purple) 35%, var(--line)); background: color-mix(in srgb, var(--purple) 12%, var(--w)); color: var(--ink); border-radius: 12px; padding: 10px 6px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.ideabar button svg.i { width: 16px; height: 16px; color: var(--purple); flex: none; }
+.ideabar button[data-act=wish-go] svg.i { color: #d0547a; }
+.ideahint { display: flex; align-items: center; gap: 5px; margin: 0 2px 10px; font-size: 12px; }
+.ideahint svg.i { width: 13px; height: 13px; color: #d0547a; flex: none; }
+
+/* 地區快捷按鈕（固定欄） */
+.areachips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 8px 0 0; padding: 0 2px; }
+.areachips::-webkit-scrollbar { display: none; }
+.areachips button { flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--w); color: var(--ink-2); border-radius: 999px; padding: 5px 11px; font-size: 12.5px; white-space: nowrap; }
+.areachips button svg.i { width: 13px; height: 13px; color: var(--purple); }
+.areachips button small { color: var(--muted); font-size: 11px; }
+.areachips button[aria-pressed=true] { border-color: var(--purple); color: var(--purple); }

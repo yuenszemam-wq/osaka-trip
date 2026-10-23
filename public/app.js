@@ -283,6 +283,7 @@ function commit(mut, msg) {
   const before = twinKeys(S.doc);
   const res = mut(S.doc);
   syncTwins(S.doc, before);
+  queueWishSync();
   persistLocal(true);
   render();
   scheduleSave();
@@ -447,6 +448,7 @@ async function load() {
   render(); syncUI();
   autoRate();
   loadWeather();
+  queueWishSync();
 }
 // ---------- 天氣（Open-Meteo，免費、不用 API key） ----------
 const WX = [[[0], "☀️", "晴"], [[1], "🌤️", "大致晴朗"], [[2], "⛅", "部分多雲"], [[3], "☁️", "陰天"], [[45, 48], "🌫️", "有霧"],
@@ -657,6 +659,16 @@ function typeTabsHTML(d) {
   return `<div class="type-tabs intop">${[["all", "全部", d.items.length], ...types.map((k) => [k, CATS[k][0], counts[k]])].map(([k, label, c]) =>
     `<button class="ttab" style="--c:${k === "all" ? "var(--purple)" : catVar(k)}" data-act="idea-filter" data-id="${k}" aria-pressed="${k === f}">${k === "all" ? "" : icon(catOf(k)[1])}${label}<small>${c}</small></button>`).join("")}</div>`;
 }
+// 備選地點：地區快捷按鈕（按下跳到該地區）
+function areaChipsHTML(d) {
+  if (!isIdeas(d)) return "";
+  const f = S.ideaFilter;
+  const items = d.items.filter((it) => !f || f === "all" || (V(it).type || "place") === f);
+  const cnt = new Map(); for (const it of items) { const a = areaOf(it); cnt.set(a, (cnt.get(a) || 0) + 1); }
+  if (cnt.size < 2) return "";
+  const keys = [...cnt.keys()].sort((a, b) => (a === "其他") - (b === "其他") || cnt.get(b) - cnt.get(a));
+  return `<div class="areachips">${keys.map((k) => `<button data-act="area-jump" data-id="${esc(k)}">${icon("nav")}${esc(k)}<small>${cnt.get(k)}</small></button>`).join("")}</div>`;
+}
 function renderChrome() {
   const m = S.doc.meta || {};
   $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${esc(m.dates || "")}</div>
@@ -686,7 +698,7 @@ function renderChrome() {
       <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>`
       : `<div class="toprow3">${ptitle(day().title || day().label, day().subtitle, S.manage ? "edit-day" : "")}
       <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
-      <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>${typeTabsHTML(day())}`)
+      <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>${typeTabsHTML(day())}${areaChipsHTML(day())}`)
     : S.dayId === MONEY ? `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="trip-settings" aria-label="設定">${icon("gear")}設定</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`
     : S.dayId === SHOP ? (() => { const L = S.doc.shopping || [], nd = L.filter((x) => x.done).length;
       return `<div class="toprow3">${ptitle("購物清單", `${L.length - nd} 件未買`)}<button class="manage add" data-act="add">${icon("plus")}新增</button></div>
@@ -806,9 +818,8 @@ function listPageHTML(d, q) {
   let html = "";
   const shown = d.items.map((it, idx) => ({ it, idx })).filter(({ it }) => hit(it) && (f === "all" || (V(it).type || "place") === f));
   html += `<div class="listpage">`;
-  if (isIdeas(d)) html += `<button class="sched-bar imp" data-act="imp-open">${icon("image")}<span><b>由圖片匯入</b><small>截圖中的店名、地址、電話、營業時間自動填入</small></span>${icon("arrow")}</button>`;
-  if (isIdeas(d) && d.items.some((x) => !isInfo(x))) html += `<button class="sched-bar" data-act="sched-open">${icon("wand")}<span><b>自動排程</b><small>揀選地點，按距離和空檔放進行程</small></span>${icon("arrow")}</button>`;
-  if (isIdeas(d) && shown.length) html += `<button class="sched-bar wish" data-act="wish-move-open">${icon("heart")}<span><b>移到旅行願望清單</b><small>這次去不到的地點，留待下次旅程</small></span>${icon("arrow")}</button>`;
+  if (isIdeas(d)) html += `<div class="ideabar"><button data-act="imp-open">${icon("image")}由圖片匯入</button>${d.items.some((x) => !isInfo(x)) ? `<button data-act="sched-open">${icon("wand")}自動排程</button>` : ""}<button data-act="wish-go">${icon("heart")}願望清單</button></div>
+    ${d.items.some((x) => !isInfo(x)) ? `<p class="hint ideahint">${icon("heart")} 這裡的地點會自動放進「旅行願望清單」，排進行程後才會從清單移除。</p>` : ""}`;
   if (isIdeas(d) && shown.length > 1) {
     // 按地區分組
     const groups = new Map();
@@ -980,6 +991,45 @@ function wishHTML() {
     html += `</section>`;
   }
   return html + `</div>`;
+}
+// 備選地點自動同步到願望清單：每個備選地點對應一項（link: { trip, id }）
+// 排進行程（移出備選地點、但仍在這個旅程）時，才從願望清單移除
+let wishSyncTimer = null;
+function queueWishSync() { clearTimeout(wishSyncTimer); wishSyncTimer = setTimeout(syncWish, 1500); }
+const wishContent = (it) => JSON.stringify([it.variants, it.active || 0, it.area || ""]);
+function wishSyncOps(doc, trip) {
+  // 傳回：要對願望清單做的修改（用在 wishCommit，衝突時可以重做）
+  const ideas = ideasDayOf(doc, false);
+  const ideaItems = ideas ? ideas.items.filter((x) => !isInfo(x)) : [];
+  const inTrip = new Set();
+  for (const d of doc.days) if (!isIdeas(d)) for (const n of d.items) for (const it of isBranch(n) ? n.routes.flatMap((r) => r.items) : [n]) { inTrip.add(it.id); for (const c of it.children || []) inTrip.add(c.id); }
+  const tripTitle = (doc.meta && doc.meta.title) || "";
+  return (w) => {
+    w.items = w.items || [];
+    let changed = false;
+    for (const it of ideaItems) {
+      let e = w.items.find((x) => x.link && x.link.trip === trip && x.link.id === it.id);
+      if (!e) {
+        const g = guessPlace(it, doc), a = areaOf(it);
+        e = { ...clone(it), id: uid(), link: { trip, id: it.id }, country: g.country, city: g.city, from: tripTitle, done: false, start: null };
+        if (a !== "其他") e.area = a; delete e.fromDay; delete e.fromStart;
+        w.items.push(e); changed = true;
+      } else if (wishContent(e) !== wishContent(it)) { e.variants = clone(it.variants); e.active = it.active || 0; if (it.area) e.area = it.area; changed = true; }
+    }
+    const ideaIds = new Set(ideaItems.map((x) => x.id));
+    const before = w.items.length;
+    w.items = w.items.filter((x) => !(x.link && x.link.trip === trip && !ideaIds.has(x.link.id) && inTrip.has(x.link.id)));
+    if (w.items.length !== before) changed = true;
+    return changed;
+  };
+}
+async function syncWish() {
+  if (!S.doc || !S.tripId || !navigator.onLine) return;
+  await wishLoad();
+  const op = wishSyncOps(S.doc, S.tripId);
+  const test = clone(S.wish.doc);
+  if (!op(test)) return; // 沒有需要更新
+  await wishCommit((w) => { op(w); });
 }
 function openWishEditor(id) {
   const x = id ? (S.wish.doc.items || []).find((e) => e.id === id) : null;
@@ -3392,6 +3442,12 @@ document.addEventListener("click", async (e) => {
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
     case "sched-open": openScheduler(); break;
     case "imp-open": openImport(); break;
+    case "area-jump": {
+      const el = $$("details.period.area").find((x) => x.dataset.key === "area:" + id); if (!el) break;
+      el.open = true; S.closed.delete(el.dataset.key);
+      window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - ($("#tabs").offsetHeight || 0) - 8, behavior: "smooth" });
+      $$(".areachips button").forEach((b) => b.setAttribute("aria-pressed", b === t)); break;
+    }
     case "wish-go": closeSheet(); S.wishPrev = isSpecial(S.dayId) ? S.wishPrev : S.dayId; S.dayId = WISH; S.manage = false; render(); window.scrollTo(0, 0); wishLoad(true).then(() => S.dayId === WISH && render()); break;
     case "wish-back": S.dayId = S.wishPrev && S.doc.days.some((x) => x.id === S.wishPrev) ? S.wishPrev : (S.doc.days.find((x) => x.kind === "day") || S.doc.days[0]).id; render(); window.scrollTo(0, 0); break;
     case "wish-filter": S.wishFilter = id; render(); break;
@@ -3421,13 +3477,15 @@ document.addEventListener("click", async (e) => {
     }
     case "wish-to-trip": {
       // 加到目前旅程的備選地點，並從願望清單移除
+      // 加到目前旅程的備選地點；排進行程後才會從願望清單移除
       const x = (S.wish.doc.items || []).find((e) => e.id === id); if (!x) break;
       closeSheet();
-      const ok = await wishCommit((doc) => { doc.items = (doc.items || []).filter((e) => e.id !== id); });
+      if (x.link && x.link.trip === S.tripId && findItem(x.link.id)) { const m = $("#wishMsg"); if (m) { m.hidden = false; m.textContent = `「${V(x).title}」已經在這個旅程的備選地點。`; } break; }
+      const it = clone(x); it.id = uid(); delete it.country; delete it.city; delete it.link; it.from = "願望清單"; it.children = it.children || [];
+      const ok = await wishCommit((doc) => { const e = (doc.items || []).find((y) => y.id === id); if (e) e.link = { trip: S.tripId, id: it.id }; });
       if (!ok) break;
-      const it = clone(x); delete it.country; delete it.city; it.from = "願望清單"; it.children = it.children || [];
       commit((doc) => { ideasDayOf(doc, true).items.push(it); });
-      const m = $("#wishMsg"); if (m) { m.hidden = false; m.textContent = `已把「${V(x).title}」加到「${(S.doc.meta || {}).title || "目前旅程"}」的備選地點。`; }
+      const m = $("#wishMsg"); if (m) { m.hidden = false; m.textContent = `已把「${V(x).title}」加到「${(S.doc.meta || {}).title || "目前旅程"}」的備選地點；排進行程後會從願望清單移除。`; }
       break;
     }
     case "wish-move-open": openWishMove(); break;
