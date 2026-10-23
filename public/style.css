@@ -870,3 +870,15 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 
 .de-cost { margin: 2px 0 8px; font-size: 12.5px; color: var(--ink-2); }
 .de-cost > span { display: block; margin-bottom: 5px; }
+
+.edtools button.del { color: #d0544b; }
+.edtools button.del svg.i { color: #d0544b; }
+.tprow { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 8px 0; background: var(--p); }
+.tptop { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.tptop b { color: var(--purple); flex: none; }
+.tptop span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpinfo { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.tpinfo.done { color: var(--ink-2); }
+.tprow .checkline { margin: 6px 0 2px; }
+.tprow a.hint { display: inline-flex; gap: 4px; align-items: center; text-decoration: none; color: var(--purple); font-size: 12px; }
+.route-actions { display: flex; gap: 8px; flex-wrap: wrap; }

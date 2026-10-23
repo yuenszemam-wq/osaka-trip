@@ -1293,6 +1293,7 @@ function toolsHTML(it, d, pos) {
     ${!listPage && !it.locked && it.start != null ? `<button data-act="snap" data-id="${id}">${icon("up")}接上一項</button>` : ""}
     ${!listPage && pos.shared ? `<button data-act="branch-new" data-id="${id}">${icon("branch")}分叉</button>` : ""}
     ${listPage ? `<button class="strong" data-act="move-in" data-id="${id}">${icon("back")}加回行程</button>` : `<button data-act="move-out" data-id="${id}">${icon("archive")}備選</button>`}
+    <button class="del" data-act="item-del" data-id="${id}">${icon("trash")}刪除</button>
   </div>`;
 }
 // 子行程：和主行程一樣的卡片（分類、詳情摺疊、外框），只是顯示在主行程下面
@@ -1313,7 +1314,7 @@ function childHTML(c, d, parent) {
       <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}${type === "stay" ? stayPeriodHTML(v) : ""}</div>
     ${info ? "" : mapLinksHTML(v)}${costHTML(v, c)}${detailHTML(c, v, info)}${photosHTML(c, v)}${dayPage ? memoSection(c) : ""}${altsHTML(c, d)}
-    ${S.manage ? `<div class="edtools"><button data-act="quick-photo" data-id="${esc(c.id)}">${icon("camera")}圖片</button>${dayPage ? `<button data-act="move-out" data-id="${esc(c.id)}">${icon("archive")}備選</button>` : ""}</div>` : ""}
+    ${S.manage ? `<div class="edtools"><button data-act="quick-photo" data-id="${esc(c.id)}">${icon("camera")}圖片</button>${dayPage ? `<button data-act="move-out" data-id="${esc(c.id)}">${icon("archive")}備選</button>` : ""}<button class="del" data-act="item-del" data-id="${esc(c.id)}">${icon("trash")}刪除</button></div>` : ""}
   </div>`;
 }
 function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
@@ -1570,7 +1571,7 @@ function routeViewHTML(d) {
     <div class="map-label">${esc(d.label)} / 行程路線</div>
     <div id="stopCard">${stopCardHTML(d, stops)}</div></div>
     <p class="hint" id="geoStatus"></p>
-    <div class="route-actions">${chunks.map((c, i) => `<a class="btn" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("map")} Google 地圖${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
+    <div class="route-actions"><button class="btn" data-act="tp-open">${icon("train")} 自動估算交通</button>${chunks.map((c, i) => `<a class="btn" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("map")} Google 地圖${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
     ${hasBranch ? `<p class="hint">地圖顯示目前選擇的分叉路線，可以在上面切換其他路線。</p>` : ""}
     <p class="hint">${S.manage ? "按住 ⠿ 拖放調整行程次序，行程頁會同步更新；時間會自動重新計算。" : "按圓圈數字在地圖上查看；按行程可以直接修改地點。按「整理」可以拖放調整次序。"}</p>
     <ol class="stops">`;
@@ -1613,6 +1614,81 @@ function routeViewHTML(d) {
   }
   flushNP();
   return html + `</ol></div>`;
+}
+// ---------- 自動估算交通 ----------
+// 步行：用 OpenStreetMap 步行路線（routing.openstreetmap.de）計算；較遠的用電車估算（等車＋行車時間）
+async function walkRoute(a, b) {
+  try {
+    const r = await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/foot/${a[1]},${a[0]};${b[1]},${b[0]}?overview=false`);
+    if (!r.ok) return null;
+    const j = await r.json(); const x = j.routes && j.routes[0];
+    return x ? { km: x.distance / 1000, min: Math.max(1, Math.round(x.duration / 60)) } : null;
+  } catch { return null; }
+}
+async function estimateLeg(a, b) {
+  const straight = kmBetween(a, b);
+  if (straight <= 2.2) {
+    const w = await walkRoute(a, b);
+    const km = w ? w.km : straight * 1.3, min = w ? w.min : Math.round(km / 4.5 * 60);
+    if (min <= 25) return { mode: "walk", emoji: "🚶", label: "步行", km, min: Math.max(5, Math.ceil(min / 5) * 5), exact: !!w };
+  }
+  const km = straight * 1.3;
+  const min = Math.max(10, Math.ceil((12 + km / 28 * 60) / 5) * 5);
+  return { mode: km > 60 ? "rail" : "train", emoji: "🚃", label: km > 60 ? "電車／新幹線" : "電車", km, min, exact: false };
+}
+async function openTransportPlan() {
+  const d = day(); if (!d || d.kind !== "day") return;
+  const stops = routeStops(d).filter((s) => !s.sub && s.type !== "transport" && s.type !== "flight");
+  const legs = legsOf(d, stops);
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("train")} 自動估算交通</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">按地圖位置估算每兩站之間的交通方式和時間：近的用步行路線計算，遠的按電車估算（包括等車和步行到車站）。準確的電車班次請按「Google 路線」查看。</p>
+    <div id="tpList"><p class="hint">計算中…</p></div>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="tp-apply" id="tpGo" disabled>加入交通</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  const rows = [];
+  for (let i = 1; i < stops.length; i++) {
+    const A = stops[i - 1], B = stops[i];
+    if (legs[i]) { rows.push({ i, A, B, has: legs[i] }); continue; }
+    const a = geoOf(A), b = geoOf(B);
+    if (!a || !b) { rows.push({ i, A, B, nogeo: true }); continue; }
+    const el = $("#tpList"); if (el) el.innerHTML = `<p class="hint">計算中… ${i} / ${stops.length - 1}</p>`;
+    rows.push({ i, A, B, est: await estimateLeg(a, b) });
+  }
+  S.tpRows = rows;
+  const el = $("#tpList"); if (!el) return;
+  const n = rows.filter((r) => r.est).length;
+  el.innerHTML = rows.length ? rows.map((r, k) => `<div class="tprow">
+    <div class="tptop"><span>${esc(r.A.v.title)} → ${esc(r.B.v.title)}</span></div>
+    ${r.has ? `<div class="tpinfo done">${r.has.emoji} 已有交通：${esc(r.has.title)}${r.has.dur ? ` · ${durText(r.has.dur)}` : ""}</div>`
+      : r.nogeo ? `<div class="tpinfo">⚠ 其中一站未能在地圖定位，未能估算</div>`
+      : `<label class="checkline"><input type="checkbox" data-tp="${k}" checked><span>${r.est.emoji} ${r.est.label} 約 ${durText(r.est.min)}<small>距離約 ${r.est.km < 1 ? Math.round(r.est.km * 1000) + " 米" : r.est.km.toFixed(1) + " 公里"}${r.est.exact ? "（按步行路線）" : "（估算）"}</small></span></label>`}
+    <a class="hint" href="${esc(gmapsLeg(r.A, r.B))}" target="_blank" rel="noopener">${icon("map")} Google 路線</a></div>`).join("") : `<p class="hint">這天未有兩個或以上已定位的地點。</p>`;
+  const go = $("#tpGo"); if (go) { go.disabled = !n; go.textContent = n ? `加入交通（${n}）` : "加入交通"; }
+}
+function applyTransportPlan() {
+  const picks = $$("[data-tp]:checked").map((x) => S.tpRows[+x.dataset.tp]).filter((r) => r && r.est);
+  closeSheet();
+  if (!picks.length) return;
+  const dayId = S.dayId;
+  commit((doc) => {
+    const d = doc.days.find((x) => x.id === dayId);
+    for (const r of picks) {
+      const fa = locate(d, r.A.it.id), fb = locate(d, r.B.it.id); if (!fa || !fb) continue;
+      const aMain = fa.parent || fa.item, list = seq(d), e = list.find((x) => x.item === aMain); if (!e) continue;
+      const end = endOf(aMain) ?? aMain.start;
+      const ti = newItem(end, "transport"); const v = V(ti);
+      v.title = `${r.A.v.title} → ${r.B.v.title}`; v.dur = r.est.min;
+      v.summary = `${r.est.label}，約 ${durText(r.est.min)}（${r.est.km < 1 ? Math.round(r.est.km * 1000) + " 米" : r.est.km.toFixed(1) + " 公里"}）`;
+      v.details = r.est.exact ? "按 OpenStreetMap 步行路線計算。" : "自動估算，實際班次請查看 Google 路線。";
+      v.links = [{ kind: "web", label: "Google 路線", url: gmapsLeg(r.A, r.B) }];
+      e.arr.splice(e.idx + 1, 0, ti);
+      // 和下一項重疊時，之後的行程順延
+      const l2 = seq(d), p = l2.findIndex((x) => x.item === ti);
+      const next = l2.slice(p + 1).map((x) => x.item).find((x) => x.start != null && !isInfo(x));
+      if (ti.start != null && next && endOf(ti) > next.start) rippleFrom(d, p, endOf(ti) - next.start);
+    }
+  });
 }
 // 兩站之間寫了的交通方式（行程中的「交通」項目）
 function modeIcon(t) {
@@ -2684,6 +2760,27 @@ function deleteFromEditor() {
     ${isMain ? `<button class="btn danger" data-act="ed-delete-go" data-pull="1">刪除並提前之後時間</button>` : ""}
     <button class="btn danger" data-act="ed-delete-go">${isMain ? "只刪除" : "刪除"}</button>
     <button class="btn" data-act="close">取消</button>`;
+}
+// 整理模式的「刪除」按鈕
+function openItemDelete(id) {
+  const f = findItem(id); if (!f) return;
+  const timedMain = !f.parent && f.day.kind === "day" && f.item.start != null && V(f.item).dur;
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("trash")} 刪除</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p>確定刪除「${esc(V(f.item).title || "（未命名）")}」？${(f.item.children || []).length ? `它的 ${f.item.children.length} 個子行程也會一併刪除。` : ""}刪除後可以按標題旁的復原。</p>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button>
+      ${timedMain ? `<button class="btn danger" data-act="item-del-go" data-id="${esc(id)}">只刪除</button><button class="btn danger" data-act="item-del-go" data-pull="1" data-id="${esc(id)}">刪除並提前之後時間</button>` : `<button class="btn danger" data-act="item-del-go" data-id="${esc(id)}">刪除</button>`}</div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function doItemDelete(id, pull) {
+  closeSheet();
+  keepAnchor(() => commit(() => {
+    const f = findItem(id); if (!f) return;
+    if (f.parent) { f.parent.children.splice(f.index, 1); return; }
+    const d = f.day, dur = f.item.start != null ? V(f.item).dur || 0 : 0, p = d.kind === "day" ? posOf(d, f.item) : -1;
+    f.arr.splice(f.index, 1);
+    if (pull && dur && p >= 0) rippleFrom(d, p - 1, -dur);
+  }));
 }
 function doDelete(pull) {
   const E = ED; closeSheet();
@@ -3867,6 +3964,10 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "ed-delete": deleteFromEditor(); break;
+    case "item-del": openItemDelete(id); break;
+    case "tp-open": openTransportPlan(); break;
+    case "tp-apply": applyTransportPlan(); break;
+    case "item-del-go": doItemDelete(id, !!t.dataset.pull); break;
     case "ed-delete-go": doDelete(!!t.dataset.pull); break;
     case "ed-variant": readForm(); ED.k = +t.dataset.k; renderEditor(); break;
     case "ed-add-variant": {
