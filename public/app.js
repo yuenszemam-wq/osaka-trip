@@ -46,6 +46,8 @@ const ICONS = {
   monitor: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
   unlock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>',
   wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m12 7 5 5"/><path d="M19 2v3M20.5 3.5h-3M5 3v3M6.5 4.5h-3"/>',
   book: '<path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19"/><path d="M8 7h7M8 11h5"/>',
   wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3M21 12v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M17 12h4v4h-4a2 2 0 0 1 0-4z"/>',
@@ -107,7 +109,8 @@ const S = {
 const MONEY = "__money";
 const DIARY = "__diary";
 const SHOP = "__shop";
-const isSpecial = (id) => id === MONEY || id === DIARY || id === SHOP;
+const WISH = "__wish";
+const isSpecial = (id) => id === MONEY || id === DIARY || id === SHOP || id === WISH;
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -688,9 +691,12 @@ function renderChrome() {
     : S.dayId === SHOP ? (() => { const L = S.doc.shopping || [], nd = L.filter((x) => x.done).length;
       return `<div class="toprow3">${ptitle("購物清單", `${L.length - nd} 件未買`)}<button class="manage add" data-act="add">${icon("plus")}新增</button></div>
       <div class="toprow4"><div class="switch">${[["todo", "未買", L.length - nd], ["done", "已買", nd], ["all", "全部", L.length]].map(([k, t, n]) => `<button data-act="shop-filter" data-id="${k}" aria-pressed="${(S.shopFilter || "todo") === k}">${t}<small class="cnt">${n}</small></button>`).join("")}</div></div>`; })()
+    : S.dayId === WISH ? (() => { const W = (S.wish && S.wish.doc.items) || []; const cs = [...new Set(W.map((x) => x.country || "未分類"))];
+      return `<div class="toprow3">${ptitle("旅行願望清單", `${W.length} 個地點`)}<button class="manage" data-act="wish-back">${icon("back")}返回</button><button class="manage add" data-act="wish-new">${icon("plus")}新增</button></div>
+      ${cs.length > 1 ? `<div class="type-tabs intop">${[["all", "全部"], ...cs.map((c) => [c, c])].map(([k, t]) => `<button class="ttab" data-act="wish-filter" data-id="${esc(k)}" aria-pressed="${(S.wishFilter || "all") === k}">${k === "all" ? icon("globe") : ""}${esc(t)}<small>${k === "all" ? W.length : W.filter((x) => (x.country || "未分類") === k).length}</small></button>`).join("")}</div>` : ""}`; })()
     : S.dayId === DIARY ? `<div class="toprow3">${ptitle("旅程日記", m.title || "")}<div class="switch compact"><button data-act="diary-filter" data-id="done" aria-pressed="${S.diaryAll !== true}">${icon("check")} 已完成</button><button data-act="diary-filter" data-id="all" aria-pressed="${S.diaryAll === true}">${icon("list")} 全部</button></div></div>` : ""}`;
   const on = $("#tabs [aria-pressed=true]"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
-  document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : S.dayId === DIARY ? " · 日記" : S.dayId === SHOP ? " · 購物清單" : day() ? " · " + day().label : ""}`;
+  document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : S.dayId === WISH ? " · 願望清單" : S.dayId === DIARY ? " · 日記" : S.dayId === SHOP ? " · 購物清單" : day() ? " · " + day().label : ""}`;
 }
 
 function render() {
@@ -703,6 +709,7 @@ function render() {
     <div class="row"><button class="btn" data-act="take-server">載入最新版本</button><button class="btn" data-act="force-save">用我的版本覆蓋</button></div></div>`;
   if (S.dayId === MONEY) { finishRender(html + moneyHTML()); return; }
   if (S.dayId === SHOP) { finishRender(html + shopHTML()); return; }
+  if (S.dayId === WISH) { finishRender(html + wishHTML()); return; }
   if (S.dayId === DIARY) {
     // 正在寫日記時重畫（例如同步），保留輸入位置
     const ae = document.activeElement, key = ae && ae.dataset ? (ae.dataset.journal ? `[data-journal="${ae.dataset.journal}"]` : ae.dataset.memo && ae.classList.contains("de-note") ? `textarea[data-memo="${ae.dataset.memo}"]` : "") : "";
@@ -801,7 +808,18 @@ function listPageHTML(d, q) {
   html += `<div class="listpage">`;
   if (isIdeas(d)) html += `<button class="sched-bar imp" data-act="imp-open">${icon("image")}<span><b>由圖片匯入</b><small>截圖中的店名、地址、電話、營業時間自動填入</small></span>${icon("arrow")}</button>`;
   if (isIdeas(d) && d.items.some((x) => !isInfo(x))) html += `<button class="sched-bar" data-act="sched-open">${icon("wand")}<span><b>自動排程</b><small>揀選地點，按距離和空檔放進行程</small></span>${icon("arrow")}</button>`;
-  html += shown.map(({ it, idx }) => itemHTML(it, d, null, { at: idx, route: "", shared: false })).join("");
+  if (isIdeas(d) && shown.length) html += `<button class="sched-bar wish" data-act="wish-move-open">${icon("heart")}<span><b>移到旅行願望清單</b><small>這次去不到的地點，留待下次旅程</small></span>${icon("arrow")}</button>`;
+  if (isIdeas(d) && shown.length > 1) {
+    // 按地區分組
+    const groups = new Map();
+    for (const x of shown) { const a = areaOf(x.it); if (!groups.has(a)) groups.set(a, []); groups.get(a).push(x); }
+    const keys = [...groups.keys()].sort((a, b) => (a === "其他") - (b === "其他") || groups.get(b).length - groups.get(a).length);
+    for (const k of keys) {
+      const g = groups.get(k), key = "area:" + k, closed = S.closed.has(key);
+      html += `<details class="period area" data-key="${esc(key)}" ${closed ? "" : "open"}><summary>${icon("nav")} ${esc(k)}<span class="count">${g.length}</span></summary>`;
+      html += g.map(({ it, idx }) => itemHTML(it, d, null, { at: idx, route: "", shared: false })).join("") + `</details>`;
+    }
+  } else html += shown.map(({ it, idx }) => itemHTML(it, d, null, { at: idx, route: "", shared: false })).join("");
   if (!shown.length) html += `<div class="empty">${q ? `找不到「${esc(S.q)}」` : d.items.length ? "這個類型還沒有項目" : isIdeas(d) ? "還沒有項目。<br>在行程「整理」中按「備選」就會放到這裡。" : "還沒有內容。"}</div>`;
   if (S.manage || !d.items.length) {
     const defType = f !== "all" && f !== "info" ? f : "place";
@@ -809,6 +827,36 @@ function listPageHTML(d, q) {
   }
   return html + `</div>`;
 }
+
+// ---------- 地區分類 ----------
+// 常見地區（按次序比對；寫在前面的優先）
+const AREAS = [
+  ["梅田", /梅田|大阪駅|大阪站|大阪車站|茶屋町|曽根崎|曾根崎|堂山|中崎町|KITTE大阪|グランフロント|ルクア|阪急百貨|阪神百貨/], ["心齋橋", /心齋橋|心斎橋|しんさいばし|アメリカ村|美國村|南船場|北堀江|南堀江|堀江/], ["道頓堀", /道頓堀|宗右衛門町|千日前|法善寺/],
+  ["難波", /難波|なんば|ナンバ|namba|元町|湊町/i], ["日本橋", /日本橋|オタロード|恵美須東/], ["新世界・新今宮", /新世界|通天閣|新今宮|恵美須|惠美須|動物園前|西成|あいりん/], ["天王寺", /天王寺|阿倍野|あべの|ハルカス/],
+  ["大阪城", /大阪城|森之宮|森ノ宮|大阪城公園/], ["中之島", /中之島|北浜|淀屋橋|肥後橋/], ["天滿", /天満|天滿|扇町|天神橋/], ["本町", /本町|船場|堺筋本町/], ["京橋", /京橋/],
+  ["環球影城", /USJ|ユニバーサル|環球影城|此花区|桜島/i], ["枚方", /枚方/], ["堺", /堺市|堺/], ["臨空城・關西機場", /りんくう|臨空|泉佐野|関西空港|關西機場|関西国際空港|泉州空港/],
+  ["新宿", /新宿/], ["澀谷", /渋谷|澀谷|渋谷/], ["池袋", /池袋/], ["銀座", /銀座/], ["淺草", /浅草|淺草/], ["上野", /上野/], ["秋葉原", /秋葉原|秋葉/], ["原宿・表參道", /原宿|表参道|表參道/], ["六本木", /六本木/], ["台場", /台場|お台場/], ["東京站", /丸の内|丸之內|東京駅|東京站|八重洲/],
+  ["祇園", /祇園|四条河原町|河原町/], ["嵐山", /嵐山/], ["京都站", /京都駅|京都站/],
+];
+function addrOf(it) {
+  const v = V(it), l = (v.links || []).find(isMapLink);
+  const m = /(?:地址|住所)[:：]\s*(.+)/.exec(v.details || "");
+  return (l && l.addr) || (m && m[1]) || (l && l.label) || "";
+}
+function detectArea(it) {
+  const v = V(it), addr = addrOf(it);
+  for (const text of [addr, v.title + " " + (v.summary || ""), v.details || ""]) {
+    if (!text) continue;
+    let best = null, at = 1e9;
+    for (const [name, re] of AREAS) { const m = re.exec(text); if (m && m.index < at) { at = m.index; best = name; } }
+    if (best) return best;
+  }
+  // 由地址取町名（例如「浪速区難波中3丁目」→ 難波）
+  const m = /[市区區]([^\d０-９\s市区區都府県]{2,5}?)(?:[一二三四五六七八九十0-9０-９]|丁目)/.exec(addr);
+  if (m) return m[1].length > 2 ? m[1].replace(/[中東西南北]$/, "") : m[1];
+  return "";
+}
+const areaOf = (it) => (it.area || "").trim() || detectArea(it) || "其他";
 
 // ---- 卡片 ----
 function timeLabelLocked(it) {
@@ -866,6 +914,108 @@ function linksHTML(v) {
     return `<a href="${esc(u)}" target="_blank" rel="noopener">${icon(isMapLink(l) ? "nav" : "ext")}<span>${esc(l.label || u)}</span></a>`;
   }).join("");
 }
+// ---------- 旅行願望清單（所有旅程共用，存在伺服器 /api/wishlist） ----------
+// 項目和行程項目同一格式，另加 country（國家）、city（城市）、area（地區）
+const COUNTRY_BY_CUR = { JPY: "日本", CNY: "中國", TWD: "台灣", KRW: "韓國", THB: "泰國", HKD: "香港", SGD: "新加坡", MYR: "馬來西亞", USD: "美國", EUR: "歐洲", GBP: "英國", AUD: "澳洲", CAD: "加拿大", VND: "越南" };
+const CITY_NAMES = { 大阪: /大阪|osaka/i, 東京: /東京|tokyo/i, 京都: /京都|kyoto/i, 奈良: /奈良/, 神戶: /神戸|神戶|kobe/i, 北海道: /北海道|札幌|小樽|函館/, 福岡: /福岡|博多/, 沖繩: /沖縄|沖繩|那覇/, 名古屋: /名古屋/, 橫濱: /横浜|橫濱/,
+  上海: /上海/, 深圳: /深圳/, 北京: /北京/, 廣州: /广州|廣州/, 成都: /成都/, 台北: /台北|臺北/, 首爾: /首爾|서울|seoul/i, 曼谷: /曼谷|bangkok/i };
+function guessPlace(it, doc) {
+  const text = [addrOf(it), V(it).title, V(it).details, doc && doc.meta && (doc.meta.title + " " + doc.meta.name)].join(" ");
+  let city = Object.keys(CITY_NAMES).find((k) => CITY_NAMES[k].test(addrOf(it))) || Object.keys(CITY_NAMES).find((k) => CITY_NAMES[k].test(text)) || "";
+  if (!city) { const m = /([^\s\d]{2,3})[都府県市]/.exec(addrOf(it)); if (m) city = m[1]; }
+  const country = (doc && doc.meta && COUNTRY_BY_CUR[doc.meta.currency]) || "";
+  return { country, city };
+}
+async function wishLoad(force) {
+  if (S.wish && !force) return S.wish;
+  try { const c = JSON.parse(ls.get("wish.cache") || "null"); if (c && !S.wish) S.wish = c; } catch {}
+  try {
+    const r = await fetch("/api/wishlist", { cache: "no-store" });
+    if (r.ok) { S.wish = await r.json(); ls.set("wish.cache", JSON.stringify(S.wish)); }
+  } catch {}
+  if (!S.wish) S.wish = { version: 0, doc: { items: [] } };
+  return S.wish;
+}
+// 修改願望清單：版本衝突時重新讀取最新版本，再做一次同樣的修改
+async function wishCommit(fn) {
+  await wishLoad();
+  for (let tries = 0; tries < 3; tries++) {
+    const doc = clone(S.wish.doc);
+    fn(doc);
+    try {
+      const r = await fetch("/api/wishlist", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: S.wish.version, doc }) });
+      const j = await r.json();
+      if (r.status === 409) { S.wish = { version: j.version, doc: j.doc || { items: [] } }; continue; }
+      if (!r.ok) throw new Error(j.error || r.status);
+      S.wish = { version: j.version, doc }; ls.set("wish.cache", JSON.stringify(S.wish));
+      if (S.dayId === WISH) render();
+      return true;
+    } catch (e) { alertInline("未能儲存願望清單：" + e.message + "（需要網絡）"); return false; }
+  }
+  return false;
+}
+function alertInline(t) { const m = $("#wishMsg"); if (m) { m.hidden = false; m.textContent = t; } }
+function wishHTML() {
+  if (!S.wish) { wishLoad().then(() => S.dayId === WISH && render()); return `<div class="wish"><p class="hint">載入中…</p></div>`; }
+  const W = S.wish.doc.items || [], f = S.wishFilter || "all";
+  const shown = W.filter((x) => f === "all" || (x.country || "未分類") === f);
+  let html = `<div class="wish"><p class="hint" id="wishMsg" hidden></p>`;
+  if (!W.length) return html + `<div class="empty">願望清單是空的。<br>在旅程的「備選地點」按「移到旅行願望清單」，<br>或按右上角「新增」加入想去的地點。</div></div>`;
+  const byC = new Map();
+  for (const x of shown) { const c = x.country || "未分類", ci = x.city || "其他城市"; if (!byC.has(c)) byC.set(c, new Map()); const m = byC.get(c); if (!m.has(ci)) m.set(ci, []); m.get(ci).push(x); }
+  for (const [c, cities] of byC) {
+    html += `<section class="wcountry"><h2>${icon("globe")} ${esc(c)}<small>${[...cities.values()].reduce((a, l) => a + l.length, 0)}</small></h2>`;
+    for (const [ci, list] of cities) {
+      const key = "wish:" + c + ":" + ci;
+      html += `<details class="period wcity" data-key="${esc(key)}" ${S.closed.has(key) ? "" : "open"}><summary>${esc(ci)}<span class="count">${list.length}</span></summary>`;
+      for (const x of list) {
+        const v = V(x), cat = catOf(v.type || "place"), l = (v.links || []).find(isMapLink);
+        html += `<div class="wcard" style="--c:${catVar(v.type || "place")}">
+          ${(v.photos || []).length ? `<img src="${esc(photoUrl(v.photos[0]))}" loading="lazy" alt="">` : `<span class="cnum">${icon(cat[1])}</span>`}
+          <button class="wbody" data-act="wish-edit" data-id="${esc(x.id)}"><b>${esc(v.title || "（未命名）")}</b><small>${esc(cat[0])}${x.area ? " · " + esc(x.area) : ""}${x.from ? " · 來自 " + esc(x.from) : ""}</small>${summaryOf(v) ? `<small>${esc(summaryOf(v))}</small>` : ""}</button>
+          <div class="wacts">${l && safeUrl(l.url) ? `<a class="btn small" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener" aria-label="地圖">${icon("nav")}</a>` : ""}<button class="btn small" data-act="wish-to-trip" data-id="${esc(x.id)}">${icon("plus")}加入旅程</button></div></div>`;
+      }
+      html += `</details>`;
+    }
+    html += `</section>`;
+  }
+  return html + `</div>`;
+}
+function openWishEditor(id) {
+  const x = id ? (S.wish.doc.items || []).find((e) => e.id === id) : null;
+  const v = x ? V(x) : { title: "", type: "place", details: "", links: [] };
+  const l = (v.links || []).find(isMapLink) || {};
+  const g = x ? { country: x.country, city: x.city } : { country: COUNTRY_BY_CUR[localCur()] || "", city: "" };
+  const all = (S.wish && S.wish.doc.items) || [];
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("heart")} ${id ? "編輯願望地點" : "新增願望地點"}</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="wishForm" onsubmit="return false">
+      <label class="field"><span>地點名稱</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：teamLab Planets"></label>
+      <div class="grid2"><label class="field"><span>國家／地區</span><input type="text" name="country" list="wcList" value="${esc(g.country || "")}" placeholder="日本"></label>
+      <label class="field"><span>城市</span><input type="text" name="city" list="wciList" value="${esc(g.city || "")}" placeholder="東京"></label></div>
+      <datalist id="wcList">${[...new Set(["日本", "中國", "台灣", "韓國", "泰國", ...all.map((e) => e.country).filter(Boolean)])].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
+      <datalist id="wciList">${[...new Set(all.map((e) => e.city).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
+      <div class="grid2"><label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).filter(([k]) => !["info", "transport", "flight"].includes(k)).map(([k, t]) => `<option value="${k}" ${k === (v.type || "place") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="field"><span>地區（可留空）</span><input type="text" name="area" value="${esc((x && x.area) || "")}" placeholder="例如：澀谷"></label></div>
+      <label class="field"><span>地址或地圖網址（可留空）</span><input type="text" name="addr" value="${esc(l.addr || l.url || "")}" placeholder="地址，或貼上 Google 地圖連結"></label>
+      <label class="field"><span>備註</span><textarea name="details" rows="3">${esc(v.details || "")}</textarea></label>
+    </form>
+    <div class="sheet-foot">${id ? `<button class="btn danger" data-act="wish-del" data-id="${esc(id)}">刪除</button><button class="btn" data-act="wish-to-trip" data-id="${esc(id)}">${icon("plus")}加入旅程</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="wish-save" data-id="${esc(id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+// 由備選地點揀選地點移到願望清單
+function openWishMove() {
+  const ideas = ideasDayOf(S.doc, false); if (!ideas) return;
+  const items = ideas.items.filter((x) => !isInfo(x));
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("heart")} 移到旅行願望清單</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint">揀選這次去不到的地點，會從「備選地點」移到所有旅程共用的願望清單，並按國家和城市分類（可以之後修改）。</p>
+    <form id="wishMoveForm" onsubmit="return false"><div class="pos-list">${items.map((it) => { const g = guessPlace(it, S.doc);
+      return `<label class="checkline"><input type="checkbox" name="pick" value="${esc(it.id)}" checked><span>${esc(V(it).title)}<small>${esc([g.country, g.city, areaOf(it) !== "其他" ? areaOf(it) : ""].filter(Boolean).join(" · ") || "未能判斷地區")}</small></span></label>`; }).join("")}</div></form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="wish-move-go">移到願望清單</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+
 // ---------- 購物清單 ----------
 // doc.shopping = [{ id, name, qty, where, forWho, note, plan, actual, cur, done }]
 function placeTitles() {
@@ -1776,6 +1926,7 @@ function openMenu() {
   const m = S.doc.meta || {};
   sheet.innerHTML = `<div class="sheet-body menu-body"><div class="sheet-head"><h2>旅行手帳</h2><button class="btn ghost" data-act="close" aria-label="關閉">${icon("x")}</button></div>
     <button class="menu-diary" data-act="diary-go">${icon("book")}<span><b>旅程日記</b><small>回顧每個旅程的相片和經歷</small></span>${icon("arrow")}</button>
+    <button class="menu-diary wishbtn" data-act="wish-go">${icon("heart")}<span><b>旅行願望清單</b><small>未去的地點，按國家和城市分類</small></span>${icon("arrow")}</button>
     <div class="menu-sec">我的旅程</div>
     <div class="menu-list">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="trip-open" data-id="${esc(t.id)}">${icon("suitcase")}<span>${esc(t.id === S.tripId ? m.title || t.title : t.title)}<span class="tsub">${esc(t.id === S.tripId ? m.dates || "" : t.dates || "")}${t.days ? ` · ${t.days} 天` : ""}</span></span></button>`).join("")}
       <button data-act="trip-new">${icon("plus")}新增旅程</button></div>
@@ -2180,6 +2331,7 @@ function readForm() {
   if (f.stayFrom) { v.stayFrom = f.stayFrom.value || undefined; v.stayTo = f.stayTo.value || undefined; if (v.stayFrom && v.stayTo && v.stayTo < v.stayFrom) v.stayTo = undefined; }
   v.links = readLinkRows();
   if (f.level) ED.level = f.level.value;
+  if (f.area) { const a = f.area.value.trim(); if (a) ED.draft.area = a; else delete ED.draft.area; }
   if (!ED.info && f.start) {
     const s = parseHHMM(f.start.value), e = f.end ? parseHHMM(f.end.value) : null;
     if (f.tdur) { const m = parseInt(f.tdur.value, 10); v.dur = m >= 0 ? m : 0; }
@@ -2239,6 +2391,8 @@ function renderEditor() {
         : `<label class="field"><span>標題</span><input type="text" name="title" value="${esc(v.title)}" placeholder="例如：大阪城公園"></label>`}
       <label class="field"><span>簡介（顯示在標題下面，可留空）</span><input type="text" name="summary" value="${esc(v.summary || "")}" placeholder="例如：梅田・神社參拜與御守"></label>
       ${levelField()}
+      ${(() => { const dd = S.doc.days.find((x) => x.id === ED.dayId); if (!dd || !isIdeas(dd)) return ""; const auto = detectArea(ED.draft); const known = [...new Set(dd.items.map(areaOf).filter((x) => x !== "其他"))];
+        return `<label class="field"><span>地區（用來分組${auto ? `，自動判斷為「${esc(auto)}」` : ""}）</span><input type="text" name="area" list="areaList" value="${esc(ED.draft.area || "")}" placeholder="${esc(auto || "例如：梅田、難波、心齋橋")}"><datalist id="areaList">${known.map((a) => `<option value="${esc(a)}">`).join("")}</datalist></label>`; })()}
       <label class="field"><span>類型</span><select name="type">${Object.entries(TYPES).map(([k, t]) => `<option value="${k}" ${k === v.type ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field"><span>這個行程的圖片顯示方式（個別圖片可再按下方標籤設定）</span><select name="photoMode">${[["auto", "跟隨整體設定"], ["full", "永遠顯示大圖"], ["thumb", "永遠顯示縮圖"]].map(([k, t]) => `<option value="${k}" ${k === (it.photoMode || "auto") ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       ${typeInfo ? `<p class="hint">資訊不佔時間，不會影響前後行程的時間。</p>` : ""}
@@ -3238,6 +3392,56 @@ document.addEventListener("click", async (e) => {
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
     case "sched-open": openScheduler(); break;
     case "imp-open": openImport(); break;
+    case "wish-go": closeSheet(); S.wishPrev = isSpecial(S.dayId) ? S.wishPrev : S.dayId; S.dayId = WISH; S.manage = false; render(); window.scrollTo(0, 0); wishLoad(true).then(() => S.dayId === WISH && render()); break;
+    case "wish-back": S.dayId = S.wishPrev && S.doc.days.some((x) => x.id === S.wishPrev) ? S.wishPrev : (S.doc.days.find((x) => x.kind === "day") || S.doc.days[0]).id; render(); window.scrollTo(0, 0); break;
+    case "wish-filter": S.wishFilter = id; render(); break;
+    case "wish-new": openWishEditor(""); break;
+    case "wish-edit": openWishEditor(id); break;
+    case "wish-save": {
+      const f = $("#wishForm"); const title = f.title.value.trim();
+      if (!title) { fieldErrorIn(f, "title", "請輸入地點名稱"); break; }
+      const raw = f.addr.value.trim(), isUrl = /^https?:\/\//i.test(raw);
+      const vals = { country: f.country.value.trim(), city: f.city.value.trim(), area: f.area.value.trim() || undefined };
+      const link = raw ? { kind: "map", label: title, url: isUrl ? raw : "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(title + " " + raw), ...(isUrl ? {} : { addr: raw }) } : null;
+      closeSheet();
+      await wishCommit((doc) => {
+        doc.items = doc.items || [];
+        let x = id && doc.items.find((e) => e.id === id);
+        if (!x) { x = { id: uid(), start: null, locked: false, done: false, active: 0, children: [], variants: [{ id: uid(), title, type: "place", dur: 60, details: "", links: [], photos: [] }] }; doc.items.push(x); }
+        Object.assign(x, vals);
+        const v = V(x); v.title = title; v.type = f.type.value; v.details = f.details.value;
+        const others = (v.links || []).filter((ll) => !isMapLink(ll));
+        v.links = link ? [link, ...others] : others;
+      });
+      break;
+    }
+    case "wish-del": {
+      if (!t.dataset.sure) { t.textContent = "再按一次確定刪除"; t.dataset.sure = "1"; break; }
+      closeSheet(); await wishCommit((doc) => { doc.items = (doc.items || []).filter((e) => e.id !== id); }); break;
+    }
+    case "wish-to-trip": {
+      // 加到目前旅程的備選地點，並從願望清單移除
+      const x = (S.wish.doc.items || []).find((e) => e.id === id); if (!x) break;
+      closeSheet();
+      const ok = await wishCommit((doc) => { doc.items = (doc.items || []).filter((e) => e.id !== id); });
+      if (!ok) break;
+      const it = clone(x); delete it.country; delete it.city; it.from = "願望清單"; it.children = it.children || [];
+      commit((doc) => { ideasDayOf(doc, true).items.push(it); });
+      const m = $("#wishMsg"); if (m) { m.hidden = false; m.textContent = `已把「${V(x).title}」加到「${(S.doc.meta || {}).title || "目前旅程"}」的備選地點。`; }
+      break;
+    }
+    case "wish-move-open": openWishMove(); break;
+    case "wish-move-go": {
+      const ids = $$("#wishMoveForm [name=pick]:checked").map((x) => x.value);
+      if (!ids.length) break;
+      const ideas = ideasDayOf(S.doc, false);
+      const moving = ideas.items.filter((x) => ids.includes(x.id)).map((it) => { const g = guessPlace(it, S.doc); const a = areaOf(it);
+        const c = clone(it); c.country = g.country; c.city = g.city; if (a !== "其他") c.area = a; c.from = (S.doc.meta || {}).title || ""; c.done = false; c.start = null; delete c.fromDay; delete c.fromStart; return c; });
+      closeSheet();
+      const ok = await wishCommit((doc) => { doc.items = (doc.items || []).concat(moving); });
+      if (ok) commit((doc) => { const d = ideasDayOf(doc, false); d.items = d.items.filter((x) => !ids.includes(x.id)); });
+      break;
+    }
     case "np-toggle": S.npOpen.has(id) ? S.npOpen.delete(id) : S.npOpen.add(id); keepAnchor(() => render()); break;
     case "snap": { const dayId = S.dayId; S.lastMoved = null; keepAnchor(() => commit((doc) => snapToPrev(doc, dayId, id))); break; }
     case "snap-dismiss": S.lastMoved = null; render(); break;
@@ -3698,6 +3902,7 @@ function addFromBottom() {
   if (S.dayId === MONEY) { openExpenseEditor(""); return; }
   if (S.dayId === DIARY) return;
   if (S.dayId === SHOP) { openShopEditor(""); return; }
+  if (S.dayId === WISH) { openWishEditor(""); return; }
   const d = day();
   if (d.kind === "day") {
     const last = d.items.length - 1;
