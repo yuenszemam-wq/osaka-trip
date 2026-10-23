@@ -882,3 +882,5 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .tprow .checkline { margin: 6px 0 2px; }
 .tprow a.hint { display: inline-flex; gap: 4px; align-items: center; text-decoration: none; color: var(--purple); font-size: 12px; }
 .route-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.tprow small.warn { color: #d9822b; display: block; }

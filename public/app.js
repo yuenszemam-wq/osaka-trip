@@ -1455,11 +1455,16 @@ async function geocodePhoton(q, near) {
 // 定位步驟（由精確到概括）：
 // 1. 地點名稱（OpenStreetMap）→ 2. 地址 → 3. 第二個定位服務（Photon）試名稱和地址
 // → 4. 放寬地址：去掉樓層、大廈名，逐步去掉門牌號碼（梅田3-2-2 → 梅田3-2 → 梅田3 → 梅田）→ 5. 行程標題
+// 整理地址：去掉郵政編號、全形數字轉半形、「3 丁目13−17」→「3丁目13-17」
+function cleanAddr(t) {
+  return String(t || "").replace(/〒?\s*\d{3}\s*[-‐ー−－]\s*\d{4}/g, " ").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248))
+    .replace(/[‐ー−－―]/g, "-").replace(/(\d)\s+丁目/g, "$1丁目").replace(/丁目\s+(\d)/g, "丁目$1").replace(/\s+/g, " ").trim();
+}
 function geoCandidates(s) {
-  const split = (b) => [b, ...b.split(/[・／/|｜（）()、,，]/).map((x) => x.trim()).filter((x) => x && x !== b)];
-  const clean = (l) => [...new Set(l.map((x) => (x || "").trim()).filter((x) => x.length > 1))];
+  const split = (b) => { b = cleanAddr(b); return [b, ...b.split(/[・／/|｜（）()、,，]/).map((x) => x.trim()).filter((x) => x && x !== b)]; };
+  const clean = (l) => [...new Set(l.map((x) => (x || "").trim()).filter((x) => x.length > 1 && !/^\d[\d\s-]*$/.test(x)))];
   const names = clean([s.q, s.link.label].filter(Boolean).flatMap(split));
-  const addrs = clean(s.link.addr ? split(s.link.addr) : []);
+  const addrs = clean(s.link.addr ? split(s.link.addr).flatMap((a) => [a, a.replace(/(\d+)丁目(\d+)/, "$1-$2")]) : []);
   const titles = clean(s.v.title ? split(s.v.title) : []);
   const widen = (b) => {
     const out = [];
@@ -1493,16 +1498,17 @@ const kmBetween = (a, b) => Math.hypot((a[0] - b[0]) * 111, (a[1] - b[1]) * 111 
 async function geocodeStop(s, all) {
   const known = all.map((x) => x !== s && x.link.geo && x.link.geo.lat != null ? [x.link.geo.lat, x.link.geo.lng] : coordsFromUrl(x.link.url)).filter(Boolean);
   const mid = known.length ? [known.map((p) => p[0]).sort((a, b) => a - b)[known.length >> 1], known.map((p) => p[1]).sort((a, b) => a - b)[known.length >> 1]] : null;
-  const ok = (p, approx) => p && (!mid || known.length < 2 || kmBetween(p, mid) < (approx ? 60 : 400));
+  const ok = (p, approx) => p && (!mid || known.length < 2 || kmBetween(p, mid) < (approx ? 12 : 400));
   let hit = null, by = null, approx = false;
   for (const c of geoCandidates(s)) {
     const p = c.photon ? await geocodePhoton(c.q, mid).catch(() => null) : await geocode(c.q).catch(() => null);
     await sleep(c.photon ? 300 : 1100);
     if (ok(p, !!c.approx)) { hit = p; by = c.q; approx = !!c.approx; break; }
   }
-  s.link.geo = hit ? { q: s.key, lat: hit[0], lng: hit[1], ...(approx ? { approx: true, by } : {}) } : { q: s.key, fail: true, v: 2 };
+  s.link.geo = hit ? { q: s.key, lat: hit[0], lng: hit[1], v: 3, ...(approx ? { approx: true, by } : {}) } : { q: s.key, fail: true, v: 3 };
 }
-const needsGeo = (s) => { const g0 = s.link.geo; return !(coordsFromUrl(s.link.url) || (g0 && g0.q === s.key && (g0.lat != null || (g0.fail && g0.v >= 2)))); };
+// 舊版（v3 之前）的大約位置和失敗結果，用改良後的方法重新定位
+const needsGeo = (s) => { const g0 = s.link.geo; return !(coordsFromUrl(s.link.url) || (g0 && g0.q === s.key && ((g0.lat != null && (!g0.approx || g0.v >= 3)) || (g0.fail && g0.v >= 3)))); };
 async function geocodeMissing(d) {
   if (geoBusy) return;
   geoBusy = true;
@@ -1652,8 +1658,12 @@ async function openTransportPlan() {
     if (legs[i]) { rows.push({ i, A, B, has: legs[i] }); continue; }
     const a = geoOf(A), b = geoOf(B);
     if (!a || !b) { rows.push({ i, A, B, nogeo: true }); continue; }
+    // 地址在同一「丁目」：就在附近，步行約 5 分鐘
+    const blk = (x) => { const m = /^(.*?\d+)丁目/.exec(cleanAddr(addrOf(x.it)).replace(/^.*?(大阪市|東京都|京都市|[^\s]{2,3}市)/, "$1")); return m ? m[1] : ""; };
+    if (blk(A) && blk(A) === blk(B)) { rows.push({ i, A, B, est: { mode: "walk", emoji: "🚶", label: "步行", km: 0.3, min: 5, exact: false, near: true } }); continue; }
+    const rough = geoKind(A) || geoKind(B);
     const el = $("#tpList"); if (el) el.innerHTML = `<p class="hint">計算中… ${i} / ${stops.length - 1}</p>`;
-    rows.push({ i, A, B, est: await estimateLeg(a, b) });
+    rows.push({ i, A, B, est: await estimateLeg(a, b), rough });
   }
   S.tpRows = rows;
   const el = $("#tpList"); if (!el) return;
@@ -1662,7 +1672,7 @@ async function openTransportPlan() {
     <div class="tptop"><span>${esc(r.A.v.title)} → ${esc(r.B.v.title)}</span></div>
     ${r.has ? `<div class="tpinfo done">${r.has.emoji} 已有交通：${esc(r.has.title)}${r.has.dur ? ` · ${durText(r.has.dur)}` : ""}</div>`
       : r.nogeo ? `<div class="tpinfo">⚠ 其中一站未能在地圖定位，未能估算</div>`
-      : `<label class="checkline"><input type="checkbox" data-tp="${k}" checked><span>${r.est.emoji} ${r.est.label} 約 ${durText(r.est.min)}<small>距離約 ${r.est.km < 1 ? Math.round(r.est.km * 1000) + " 米" : r.est.km.toFixed(1) + " 公里"}${r.est.exact ? "（按步行路線）" : "（估算）"}</small></span></label>`}
+      : `<label class="checkline"><input type="checkbox" data-tp="${k}" ${r.rough ? "" : "checked"}><span>${r.est.emoji} ${r.est.label} 約 ${durText(r.est.min)}<small>${r.est.near ? "地址在同一個街區（估算）" : `距離約 ${r.est.km < 1 ? Math.round(r.est.km * 1000) + " 米" : r.est.km.toFixed(1) + " 公里"}${r.est.exact ? "（按步行路線）" : "（估算）"}`}</small>${r.rough ? `<small class="warn">⚠ 其中一站在地圖上只是大約位置，結果可能不準，建議先修正地點</small>` : ""}</span></label>`}
     <a class="hint" href="${esc(gmapsLeg(r.A, r.B))}" target="_blank" rel="noopener">${icon("map")} Google 路線</a></div>`).join("") : `<p class="hint">這天未有兩個或以上已定位的地點。</p>`;
   const go = $("#tpGo"); if (go) { go.disabled = !n; go.textContent = n ? `加入交通（${n}）` : "加入交通"; }
 }
