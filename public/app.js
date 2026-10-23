@@ -731,6 +731,11 @@ function render() {
   finishRender(html);
 }
 function finishRender(html) {
+  // 拖放後：一按把時間接上前一個行程
+  if (S.lastMoved && S.manage && day() && day().kind === "day" && !isSpecial(S.dayId)) {
+    const f = locate(day(), S.lastMoved);
+    if (f && !f.parent && !f.item.locked && f.item.start != null) html += `<div class="snapbar"><span>已移動「${esc(V(f.item).title)}」（${fmt(f.item.start)}）</span><button class="btn small primary" data-act="snap" data-id="${esc(f.item.id)}">${icon("up")}時間接上前一個行程</button><button class="btn small ghost" data-act="snap-dismiss" aria-label="關閉">✕</button></div>`;
+  } else if (S.lastMoved && !S.manage) S.lastMoved = null;
   if (S.map) { try { S.map.remove(); } catch {} S.map = null; }
   const main = $("#main");
   const focused = document.activeElement && document.activeElement.dataset.act === "search";
@@ -1070,6 +1075,7 @@ function toolsHTML(it, d, pos) {
   return `<div class="edtools">
     <button data-act="add-child" data-id="${id}">${icon("plus")}子行程</button>
     <button data-act="quick-photo" data-id="${id}">${icon("camera")}圖片</button>
+    ${!listPage && !it.locked && it.start != null ? `<button data-act="snap" data-id="${id}">${icon("up")}接上一項</button>` : ""}
     ${!listPage && pos.shared ? `<button data-act="branch-new" data-id="${id}">${icon("branch")}分叉</button>` : ""}
     ${listPage ? `<button class="strong" data-act="move-in" data-id="${id}">${icon("back")}加回行程</button>` : `<button data-act="move-out" data-id="${id}">${icon("archive")}備選</button>`}
   </div>`;
@@ -1354,6 +1360,15 @@ function routeViewHTML(d) {
   const all = [], keyOf = new Map();
   for (const { item, branch } of seq(d)) { all.push([item, false]); keyOf.set(item, branch ? "r:" + activeRoute(branch).id : "top"); for (const c of item.children || []) all.push([c, true]); }
   let si = 0;
+  // 未有地點的行程：預設摺疊成一行，可以展開（整理模式全部展開，方便拖放）
+  let np = [];
+  const flushNP = () => {
+    if (!np.length) return;
+    const key = np[0].id, open = S.manage || S.npOpen.has(key);
+    if (!S.manage) html += `<li class="npgroup ${open ? "open" : ""}" data-act="np-toggle" data-id="${esc(key)}"><span class="num">${icon("down")}</span><span>${open ? "收起" : `${np.length} 項未有地點`}<small>${open ? "" : np.map((x) => esc(V(x.it).title)).join("、")}</small></span></li>`;
+    if (open) html += np.map((x) => x.html).join("");
+    np = [];
+  };
   for (const [it, sub] of all) {
     const v = V(it);
     // 整理模式：主行程可以拖放調整次序（和行程頁同一份資料）
@@ -1363,6 +1378,7 @@ function routeViewHTML(d) {
     const s = stops[si] && stops[si].it === it ? stops[si] : null;
     if (s) {
       const i = si++;
+      flushNP();
       if (i > 0) html += `<li class="leg"><a href="${esc(gmapsLeg(stops[i - 1], s))}" target="_blank" rel="noopener">${icon("train")} ${i} → ${i + 1} 交通路線</a></li>`;
       html += `<li class="${sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="place-edit" data-id="${esc(it.id)}" data-i="${i}" ${dnd}>${handle}<span class="num" data-act="map-sel" data-i="${i}">${i + 1}</span><div class="st-body">
         <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
@@ -1370,11 +1386,12 @@ function routeViewHTML(d) {
         <span class="st-geo" data-i="${i}"></span></div><span class="st-edit">${icon("pencil")}</span></li>`;
     } else {
       const ty = v.type || "place";
-      html += `<li class="${sub ? "sub" : ""} noplace ${S.mapFilter !== "all" && ty !== S.mapFilter ? "dim" : ""}" style="--c:${catVar(ty)}" data-act="place-edit" data-id="${esc(it.id)}" ${dnd}>${handle}<span class="num">·</span><div class="st-body">
+      np.push({ it, id: it.id, html: `<li class="${sub ? "sub" : ""} noplace ${S.mapFilter !== "all" && ty !== S.mapFilter ? "dim" : ""}" style="--c:${catVar(ty)}" data-act="place-edit" data-id="${esc(it.id)}" ${dnd}>${handle}<span class="num">·</span><div class="st-body">
         <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
-        <span class="st-place add">＋ 加入地點</span></div></li>`;
+        <span class="st-place add">＋ 加入地點</span></div></li>` });
     }
   }
+  flushNP();
   return html + `</ol></div>`;
 }
 // 選中的地點：資料卡
@@ -2855,6 +2872,21 @@ function keepAnchor(fn) {
   const b = $("#main " + key);
   if (b) window.scrollBy(0, b.getBoundingClientRect().top - off);
 }
+// 把行程的時間接在上一個行程之後（保持本身長度）；之後的行程重疊時順延
+function snapToPrev(doc, dayId, id) {
+  const d = doc.days.find((x) => x.id === dayId); if (!d) return null;
+  const list = seq(d), p = list.findIndex((e) => e.item.id === id); if (p < 0) return null;
+  const it = list[p].item;
+  if (it.locked || it.start == null) return { msg: "固定時間的行程不能移動" };
+  const prev = list.slice(0, p).reverse().map((e) => e.item).find((x) => x.start != null && !isInfo(x));
+  if (!prev) return null;
+  const delta = endOf(prev) - it.start;
+  if (!delta) return null;
+  shiftItem(it, delta);
+  const next = list.slice(p + 1).map((e) => e.item).find((x) => x.start != null && !isInfo(x));
+  if (next && endOf(it) > next.start) rippleFrom(d, p, endOf(it) - next.start);
+  return { delta };
+}
 // ---------- 拖放調整次序 ----------
 // 把 id 移到 key 那一組（"top" = 共用行程，"r:路線id" = 分叉路線）中 refId 之前／之後（refId 空 = 最後）
 function moveItem(doc, dayId, id, key, refId, after) {
@@ -2942,6 +2974,7 @@ const endDrag = (cancel) => {
   if (key === g.art.dataset.arr && ((!t.after && g.sibs[i + 1] === t.el) || (t.after && g.sibs[i - 1] === t.el))) return;
   const dayId = S.dayId;
   commit((doc) => moveItem(doc, dayId, id, key, refId, t.after));
+  if ((S.doc.days.find((x) => x.id === dayId) || {}).kind === "day") { S.lastMoved = id; render(); }
 };
 document.addEventListener("pointerup", () => endDrag(false));
 document.addEventListener("pointercancel", () => endDrag(true));
@@ -3083,6 +3116,9 @@ document.addEventListener("click", async (e) => {
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
     case "sched-open": openScheduler(); break;
     case "imp-open": openImport(); break;
+    case "np-toggle": S.npOpen.has(id) ? S.npOpen.delete(id) : S.npOpen.add(id); keepAnchor(() => render()); break;
+    case "snap": { const dayId = S.dayId; S.lastMoved = null; keepAnchor(() => commit((doc) => snapToPrev(doc, dayId, id))); break; }
+    case "snap-dismiss": S.lastMoved = null; render(); break;
     case "imp-pick": { const inp = $("#impFile"); inp.value = ""; inp.click(); break; }
     case "imp-text": $("#impPaste").hidden = false; $("#impPaste textarea").focus(); break;
     case "imp-parse-text": { const v = $("#impPaste textarea").value.trim(); if (!v) break; IMP.items.push({ text: v, data: parsePlaceText(v) }); $("#impPaste textarea").value = ""; impRender(); break; }
@@ -3573,6 +3609,7 @@ async function forceRefresh() {
 setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
 S.view = ls.get("trip.view") === "map" ? "map" : "list";
 S.cardOff = ls.get("trip.cardOff") === "1";
+S.npOpen = new Set();
 S.diaryAll = ls.get("trip.diaryAll") === "1";
 S.theme = ls.get("trip.theme") === "dark" ? "dark" : ls.get("trip.theme") === "light" ? "light" : "auto";
 setTheme(S.theme);
