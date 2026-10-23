@@ -1864,7 +1864,7 @@ function openPdfOptions() {
     <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="pdf-make">產生手冊</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
 }
-function handbookHTML(o) {
+function handbookHTML(o, mode) {
   const m = S.doc.meta || {};
   const cur = localCur();
   const fmtCost = (c) => {
@@ -1939,26 +1939,86 @@ function handbookHTML(o) {
   .al{font-size:9pt;color:#72598e;margin-top:3px}.ph{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.ph img{max-width:48%;max-height:240px;border-radius:6px}
   .br{margin:12px 0 4px;padding:6px 10px;background:#ece5f1;color:#72598e;border-radius:6px;font-size:9.5pt;font-weight:600}.br small{font-weight:400}.br.alt{background:#f6f4f0}.br.end{background:none;padding:2px 0;font-weight:400}
   table{width:100%;border-collapse:collapse;font-size:9.5pt}th,td{border-bottom:1px solid #eee8f0;padding:6px 4px;text-align:left}th{color:#877d8d;font-weight:500}td:nth-child(3),td:nth-child(4),th:nth-child(3),th:nth-child(4){text-align:right;white-space:nowrap}
-  @media print{.bar{display:none}.wrap{padding:0;max-width:none}.day{margin-top:0;padding-top:6mm;border-top:0}}`;
+  @media print{.bar{display:none}.wrap{padding:0;max-width:none}.day{margin-top:0;padding-top:6mm;border-top:0}}
+  ${mode === "pdf" ? `.wrap{max-width:none;width:718px;padding:0;margin:0}.day{margin-top:0;padding-top:0;border-top:0}.cover{border-bottom:2px solid #72598e}` : ""}`;
+  if (mode) return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style>${mode === "pdf" ? `<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"><\/script>` : ""}</head><body><div class="wrap">${html}</div></body></html>`;
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(m.title || "旅行手冊")}</title><style>${css}</style></head>
     <body><div class="bar"><button class="back" onclick="if(window.opener){window.close()}setTimeout(function(){location.href='${location.origin}/'},150)">← 返回行程</button><span class="bt">${esc(m.title || "旅行手冊")}</span><button onclick="window.print()">列印／儲存為 PDF</button></div><div class="wrap">${html}</div>
     <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})<\/script></body></html>`;
 }
+// 產生手冊：先在網站內預覽，再「儲存 PDF」（直接產生 PDF 檔，iPhone 主畫面 App 也可以用）
+let HB = null;
 function makeHandbook() {
   const f = $("#pdfForm");
   const o = { days: $$("#pdfForm [name=day]:checked").map((x) => x.value), details: f.details.checked, notes: f.notes.checked, alts: f.alts.checked, money: f.money.checked, photos: f.photos.checked, links: f.links.checked };
-  if (!o.days.length) { toast("請至少選擇一天"); return; }
-  const html = handbookHTML(o);
-  const w = window.open("", "_blank");
-  if (!w) {
-    // 被瀏覽器擋住彈出視窗：改為下載 HTML 檔
-    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-    a.download = ((S.doc.meta && S.doc.meta.title) || "旅行手冊") + ".html"; a.click();
-    toast("已下載手冊網頁，打開後按「列印／儲存為 PDF」");
-    return;
-  }
-  w.document.open(); w.document.write(html); w.document.close();
+  if (!o.days.length) { $$(".field-err").forEach((x) => x.remove()); f.querySelector(".field").insertAdjacentHTML("beforeend", `<small class="field-err">⚠ 請至少選擇一天</small>`); return; }
   closeSheet();
+  HB = o;
+  const m = S.doc.meta || {};
+  let v = $("#hbView");
+  if (!v) { v = document.createElement("div"); v.id = "hbView"; v.className = "hbview"; document.body.appendChild(v); }
+  v.innerHTML = `<div class="hbbar"><button class="btn" data-act="hb-close">← 返回</button><span>${esc(m.title || "旅行手冊")}</span><button class="btn primary" data-act="hb-pdf">${icon("download")}儲存 PDF</button></div>
+    <div class="hbmsg" id="hbMsg" hidden></div><iframe id="hbFrame" title="手冊預覽"></iframe>`;
+  v.hidden = false; document.body.style.overflow = "hidden";
+  $("#hbFrame").srcdoc = handbookHTML(o, "view");
+}
+async function handbookPDF() {
+  const msg = (t) => { const m = $("#hbMsg"); if (m) { m.hidden = !t; m.innerHTML = t; } };
+  const btn = $("[data-act=hb-pdf]"); if (btn) btn.disabled = true;
+  try {
+    msg("準備中…");
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+    // 用固定寬度的隱藏框排版（A4 內容寬約 718px）
+    const fr = document.createElement("iframe");
+    fr.style.cssText = "position:fixed;left:-10000px;top:0;width:718px;height:1200px;border:0";
+    document.body.appendChild(fr);
+    await new Promise((res) => { fr.onload = res; fr.srcdoc = handbookHTML(HB, "pdf"); });
+    const doc = fr.contentDocument;
+    if (!fr.contentWindow.html2canvas) throw new Error("未能載入 PDF 工具（需要網絡）");
+    await Promise.all([...doc.images].map((im) => im.complete ? 0 : new Promise((r) => { im.onload = im.onerror = r; })));
+    if (doc.fonts && doc.fonts.ready) await doc.fonts.ready;
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
+    const M = 13, PW = 210 - M * 2, PH = 297 - M * 2;
+    const W = 718, pageH = Math.floor(W * PH / PW);
+    const secs = [...doc.querySelectorAll(".wrap > section")];
+    let first = true;
+    for (let k = 0; k < secs.length; k++) {
+      msg(`產生 PDF… ${k + 1} / ${secs.length}`);
+      const sec = secs[k];
+      const top0 = sec.getBoundingClientRect().top;
+      const H = Math.ceil(sec.scrollHeight);
+      // 分頁位置：盡量在項目之間分頁
+      const cuts = [...sec.querySelectorAll(":scope > *, tr, .it")].map((e) => Math.round(e.getBoundingClientRect().bottom - top0)).filter((y) => y > 0 && y < H).sort((a, b) => a - b);
+      let scale = 2; while (W * scale * H * scale > 15e6 && scale > 0.8) scale -= 0.2;
+      const canvas = await fr.contentWindow.html2canvas(sec, { scale, backgroundColor: "#ffffff", useCORS: true, logging: false, windowWidth: W, width: W });
+      let y = 0;
+      while (y < H - 2) {
+        let end = Math.min(H, y + pageH);
+        if (end < H) { const c = cuts.filter((v) => v > y + pageH * 0.5 && v <= y + pageH); if (c.length) end = c[c.length - 1]; }
+        const part = document.createElement("canvas");
+        part.width = canvas.width; part.height = Math.max(1, Math.round((end - y) * scale));
+        part.getContext("2d").drawImage(canvas, 0, Math.round(y * scale), canvas.width, part.height, 0, 0, canvas.width, part.height);
+        if (!first) pdf.addPage(); first = false;
+        pdf.addImage(part.toDataURL("image/jpeg", 0.88), "JPEG", M, M, PW, (end - y) * PW / W);
+        y = end;
+      }
+    }
+    fr.remove();
+    const name = ((S.doc.meta && S.doc.meta.title) || "旅行手冊").replace(/[\\/:*?"<>|]/g, "") + ".pdf";
+    const blob = pdf.output("blob");
+    const file = new File([blob], name, { type: "application/pdf" });
+    msg("");
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); }
+      catch (e) { if (e.name !== "AbortError") throw e; }
+    } else {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      msg(`已下載「${esc(name)}」。`);
+    }
+  } catch (e) { msg(`⚠ 未能產生 PDF：${esc(e.message || String(e))}`); }
+  finally { if (btn) btn.disabled = false; }
 }
 function openTripSettings() {
   const m = S.doc.meta || {};
@@ -3101,6 +3161,8 @@ document.addEventListener("click", async (e) => {
     case "cash-rate-clear": closeSheet(); commit((doc) => { if (doc.wallet) { delete doc.wallet.cashRate; delete doc.wallet.cashRateManual; } }); break;
     case "budget-clear": closeSheet(); commit((doc) => { if (doc.meta) delete doc.meta.budget; }, "已清除預算"); break;
     case "pdf-make": makeHandbook(); break;
+    case "hb-close": { const v = $("#hbView"); if (v) { v.hidden = true; v.innerHTML = ""; } document.body.style.overflow = ""; break; }
+    case "hb-pdf": handbookPDF(); break;
     case "add": addFromBottom(); break;
     case "refresh": forceRefresh(); break;
     case "undo-btn": undo(); break;
