@@ -804,3 +804,31 @@ details.box > summary { cursor: pointer; font-weight: 600; }
 .lockbtn svg.i { width: 15px; height: 15px; }
 .lockbtn.on { background: color-mix(in srgb, var(--purple) 22%, var(--w)); color: var(--purple); border: 0; }
 .tbox.lk input { padding-right: 74px !important; }
+
+/* 拖放成為子行程 */
+.cdrop { margin-top: 8px; border: 1.5px dashed var(--line); border-radius: 12px; padding: 8px; text-align: center; font-size: 12.5px; color: var(--muted); }
+.cdrop.hot { border-color: var(--purple); color: var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); }
+.child.card .itemtop > .dnd, .child.card .folded > .dnd { margin: 0 -4px 0 -6px; }
+
+/* 是日路線：地圖加資料卡在一頁內 */
+.route-map { height: calc(100dvh - var(--toph, 300px) - 40px); min-height: 360px; max-height: 760px; }
+.route-box #stopCard { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 600; }
+.route-box #stopCard:empty { display: none; }
+.route-box .stopcard { margin: 0; padding: 12px 14px; box-shadow: 0 8px 26px #1a102a40; }
+.route-box .card-show { position: absolute; right: 0; bottom: 0; margin: 0; box-shadow: 0 4px 14px #1a102a33; }
+.stopcard h3 { font-size: 17px; margin: 6px 0 2px; }
+.stopcard .sub { font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sc-r { gap: 6px; }
+.sc-step { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; height: 30px; }
+.sc-step button { border: 0; background: none; color: var(--purple); width: 26px; height: 28px; font-size: 18px; line-height: 1; padding: 0; }
+.sc-step button:disabled { color: var(--line); }
+.sc-step b { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 30px; text-align: center; }
+.sc-leg { margin-top: 6px; font-size: 12.5px; color: var(--ink-2); display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.sc-leg b { color: var(--purple); font-weight: 600; }
+.route-box .sc-actions { flex-wrap: nowrap; gap: 6px; margin-top: 10px; }
+.route-box .sc-actions .btn { flex: 1 1 auto; min-width: 0; justify-content: center; padding: 8px 8px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; gap: 4px; align-items: center; }
+.route-box .sc-actions .btn svg.i { width: 14px; height: 14px; flex: none; }
+.legchip { display: inline-flex; align-items: center; gap: 2px; transform: translate(-50%, -50%); background: var(--w); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px 1px 5px; font-size: 11px; font-weight: 600; color: var(--ink-2); white-space: nowrap; box-shadow: 0 2px 6px #1a102a30; }
+.stops li.leg { display: flex; flex-direction: column; gap: 2px; }
+.legtxt { font-size: 12.5px; color: var(--ink-2); }
+.legtxt small { display: block; color: var(--muted); font-size: 11.5px; }

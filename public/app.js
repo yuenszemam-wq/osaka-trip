@@ -719,7 +719,7 @@ function render() {
 </div></div>`;
 
   if (d.kind === "day") {
-    if (S.view === "map") { html += routeViewHTML(d); finishRender(html); drawRouteMap(d); return; }
+    if (S.view === "map") { html += routeViewHTML(d); finishRender(html); document.documentElement.style.setProperty("--toph", ($("#tabs").offsetHeight || 300) + "px"); drawRouteMap(d); return; }
     const all = seq(d).flatMap(({ item: it }) => [it, ...(it.children || [])]).filter((x) => !isInfo(x));
     const done = all.filter((x) => x.done).length;
     html += `<div class="utilities"><label class="search">${icon("search")}<input type="search" placeholder="搜尋地點、交通…" value="${esc(S.q)}" data-act="search" aria-label="搜尋行程"></label>
@@ -1082,15 +1082,18 @@ function toolsHTML(it, d, pos) {
   </div>`;
 }
 // 子行程：和主行程一樣的卡片（分類、詳情摺疊、外框），只是顯示在主行程下面
-function childHTML(c, d) {
+function childHTML(c, d, parent) {
   const v = V(c), type = v.type || "place", cat = catOf(type), dayPage = d.kind === "day";
   const style = `style="--c:${catVar(type)}"`;
-  if (collapsed(c)) return `<div class="child card done" ${style}><div class="folded"><span class="cnum">${icon(cat[1])}</span>${c.start != null ? `<span class="time">${fmt(c.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${dayPage ? memoBtn(c) : ""}${foldBtn(c)}${checkBtn(c)}</div>${dayPage ? memoStrip(c) : ""}</div>`;
+  // 拖放：子行程可以在主行程內調整次序，或拖出成為主行程
+  const dnd = parent && dayPage ? `data-dnd="${esc(c.id)}" data-arr="c:${esc(parent.id)}"` : "";
+  const handle = parent && dayPage && S.manage && !c.locked ? `<button class="dnd" data-act="dnd" aria-label="按住拖放">${icon("grip")}</button>` : "";
+  if (collapsed(c)) return `<div class="child card done" ${dnd} ${style}><div class="folded">${handle}<span class="cnum">${icon(cat[1])}</span>${c.start != null ? `<span class="time">${fmt(c.start)}</span>` : ""}<span class="mini-title">${esc(v.title)}</span>${dayPage ? memoBtn(c) : ""}${foldBtn(c)}${checkBtn(c)}</div>${dayPage ? memoStrip(c) : ""}</div>`;
   const info = isInfo(c);
   const open = S.open.has(c.id);
-  return `<div class="child card ${c.done ? "done" : ""} ${open ? "is-open" : ""} ${info ? "info" : ""}" data-tid="${esc(c.id)}" ${style}>
+  return `<div class="child card ${c.done ? "done" : ""} ${open ? "is-open" : ""} ${info ? "info" : ""}" data-tid="${esc(c.id)}" ${dnd} ${style}>
     <div class="taphead" ${info ? "" : `data-act="toggle" data-id="${esc(c.id)}" role="button" aria-expanded="${open}"`}>
-      <div class="itemtop"><span class="cnum">${icon(info ? "info" : cat[1])}</span>
+      <div class="itemtop">${handle}<span class="cnum">${icon(info ? "info" : cat[1])}</span>
         <div class="itemmeta metaline">${c.start != null && dayPage ? `<span class="time">${timeLabelLocked(c)}</span>` : ""}<span class="category">${icon(info ? "info" : cat[1])}${info ? "資訊" : cat[0]}<small class="subtag">子行程</small></span></div>
         ${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || !dayPage ? "" : checkBtn(c)}</div>
       <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
@@ -1102,7 +1105,7 @@ function childHTML(c, d) {
 function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
   const v = V(it), type = v.type || "place", cat = catOf(type);
   const listPage = d.kind !== "day";
-  const kids = (it.children || []).map((c) => childHTML(c, d)).join("");
+  const kids = (it.children || []).map((c) => childHTML(c, d, it)).join("");
   const after = !listPage && S.manage ? insertRow(pos.at, "在這之後加入", pos.route) : "";
   const warnHTML = warn ? `<div class="warn">⚠ ${esc(warn)}</div>` : "";
   const origin = listPage && it.from ? `<span class="origin">· 原本 ${esc(it.from)}</span>` : "";
@@ -1350,14 +1353,15 @@ function routeViewHTML(d) {
   html += bar;
 
   html += `<div class="route-wrap"><div class="route-box"><div id="routeMap" class="route-map"><div class="map-msg">地圖載入中…</div></div>
-    <div class="map-label">${esc(d.label)} / 行程路線</div></div>
-    <div id="stopCard">${stopCardHTML(d, stops)}</div>
+    <div class="map-label">${esc(d.label)} / 行程路線</div>
+    <div id="stopCard">${stopCardHTML(d, stops)}</div></div>
     <p class="hint" id="geoStatus"></p>
     <div class="route-actions">${chunks.map((c, i) => `<a class="btn" href="${esc(gmapsRoute(c))}" target="_blank" rel="noopener">${icon("map")} Google 地圖${chunks.length > 1 ? `第 ${i + 1} 段` : "整條路線"}</a>`).join("")}</div>
     ${hasBranch ? `<p class="hint">地圖顯示目前選擇的分叉路線，可以在上面切換其他路線。</p>` : ""}
     <p class="hint">${S.manage ? "按住 ⠿ 拖放調整行程次序，行程頁會同步更新；時間會自動重新計算。" : "按圓圈數字在地圖上查看；按行程可以直接修改地點。按「整理」可以拖放調整次序。"}</p>
     <ol class="stops">`;
   // 列出這天所有行程（資訊卡除外），沒有地點的也列出
+  const legs = legsOf(d, stops);
   const all = [], keyOf = new Map();
   for (const { item, branch } of seq(d)) { all.push([item, false]); keyOf.set(item, branch ? "r:" + activeRoute(branch).id : "top"); for (const c of item.children || []) all.push([c, true]); }
   let si = 0;
@@ -1380,7 +1384,8 @@ function routeViewHTML(d) {
     if (s) {
       const i = si++;
       flushNP();
-      if (i > 0) html += `<li class="leg"><a href="${esc(gmapsLeg(stops[i - 1], s))}" target="_blank" rel="noopener">${icon("train")} ${i} → ${i + 1} 交通路線</a></li>`;
+      if (i > 0) { const lg = legs[i];
+        html += `<li class="leg">${lg ? `<span class="legtxt">${lg.emoji} ${esc(lg.title)}${lg.dur ? ` · ${durText(lg.dur)}` : ""}${lg.sum ? `<small>${esc(lg.sum)}</small>` : ""}</span>` : ""}<a href="${esc(gmapsLeg(stops[i - 1], s))}" target="_blank" rel="noopener">${icon("train")} ${i} → ${i + 1} ${lg ? "Google 路線" : "交通路線"}</a></li>`; }
       html += `<li class="${sub ? "sub" : ""} ${stopDim(s) ? "dim" : ""} ${i === S.mapSel ? "sel" : ""}" style="--c:${catVar(s.type)}" data-act="place-edit" data-id="${esc(it.id)}" data-i="${i}" ${dnd}>${handle}<span class="num" data-act="map-sel" data-i="${i}">${i + 1}</span><div class="st-body">
         <div>${it.start != null ? `<b class="time">${fmt(it.start)}</b> ` : ""}${esc(v.title)}${sub ? ` <small class="hint">子行程</small>` : ""}</div>
         <span class="st-place">${icon(catOf(s.type)[1])} ${esc(s.link.label || s.q)}</span>${s.link.addr ? `<span class="st-addr">${esc(s.link.addr)}</span>` : ""}
@@ -1395,21 +1400,42 @@ function routeViewHTML(d) {
   flushNP();
   return html + `</ol></div>`;
 }
-// 選中的地點：資料卡
+// 兩站之間寫了的交通方式（行程中的「交通」項目）
+function modeIcon(t) {
+  return /步行|走路|徒步|walk/i.test(t) ? "🚶" : /的士|計程|taxi|タクシー/i.test(t) ? "🚕" : /巴士|bus|バス/i.test(t) ? "🚌" : /船|ferry|フェリー/i.test(t) ? "⛴️" : /飛|航班|flight/i.test(t) ? "✈️" : /車|drive|自駕/i.test(t) && !/電車|列車|新幹線|鐵|線|JR|地鐵|メトロ/i.test(t) ? "🚗" : "🚃";
+}
+function legsOf(d, stops) {
+  const main = seq(d).map((e) => e.item);
+  const posOf = (it) => { const k = main.indexOf(it); if (k >= 0) return k; const pk = main.findIndex((m) => (m.children || []).includes(it)); return pk + 0.5; };
+  return stops.map((s, i) => {
+    if (!i) return null;
+    const a = posOf(stops[i - 1].it), b = posOf(s.it);
+    const tr = main.filter((m, k) => k > a && k < b && V(m).type === "transport");
+    if (!tr.length) return null;
+    const text = tr.map((m) => V(m).title + " " + (V(m).summary || "") + " " + (V(m).details || "")).join(" ");
+    const dur = tr.reduce((x, m) => x + (V(m).dur || 0), 0);
+    return { emoji: modeIcon(text), title: tr.map((m) => V(m).title).join("、"), sum: tr.map((m) => summaryOf(V(m))).filter(Boolean).join("；"), dur, id: tr[0].id };
+  });
+}
+// 選中的地點：資料卡（蓋在地圖下方）
 function stopCardHTML(d, stops) {
   const s = stops[S.mapSel]; if (!s) return "";
   if (S.cardOff) return `<button class="btn small card-show" data-act="card-show">${icon("map")} 顯示地點資料卡</button>`;
   const cat = catOf(s.type);
   const sum = summaryOf(s.v);
+  const leg = legsOf(d, stops)[S.mapSel];
   return `<div class="stopcard" style="--c:${catVar(s.type)}">
-    <div class="sc-top"><span class="sc-kicker">STOP ${String(S.mapSel + 1).padStart(2, "0")} / ${esc(d.label)}</span><span class="sc-r"><span class="sc-chip">${icon(cat[1])}${cat[0]}</span><button class="sc-x" data-act="card-close" aria-label="關閉">✕</button></span></div>
+    <div class="sc-top"><span class="sc-kicker">STOP ${String(S.mapSel + 1).padStart(2, "0")} / ${esc(d.label)}</span>
+      <span class="sc-r"><span class="sc-chip">${icon(cat[1])}${cat[0]}</span>
+      <span class="sc-step"><button data-act="map-step" data-dir="-1" ${S.mapSel === 0 ? "disabled" : ""} aria-label="上一站">‹</button><b>${S.mapSel + 1}/${stops.length}</b><button data-act="map-step" data-dir="1" ${S.mapSel >= stops.length - 1 ? "disabled" : ""} aria-label="下一站">›</button></span>
+      <button class="sc-x" data-act="card-close" aria-label="關閉">✕</button></span></div>
     <h3>${esc(s.v.title)}</h3>
     <div class="sub">${s.it.start != null ? `${timeLabel(s.it)} · ` : ""}${esc(sum || s.link.label || s.q)}</div>
+    ${leg ? `<div class="sc-leg">${leg.emoji} 由上一站：${esc(leg.title)}${leg.dur ? `<b>${durText(leg.dur)}</b>` : ""}</div>` : ""}
     ${geoKind(s) ? `<div class="sc-approx">≈ 地圖上是大約位置，「開啟導航」會用你填寫的 Google 地圖連結</div>` : ""}
-    <div class="sc-actions"><a class="btn primary" href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">${icon("nav")} 開啟導航</a>
-      ${S.mapSel > 0 ? `<a class="btn" href="${esc(gmapsLeg(stops[S.mapSel - 1], s))}" target="_blank" rel="noopener">${icon("train")} 由上一站前往</a>` : ""}
-      <button class="btn" data-act="map-goto" data-id="${esc(s.it.id)}">查看行程</button></div>
-    <div class="sc-nav"><button class="btn small" data-act="map-step" data-dir="-1" ${S.mapSel === 0 ? "disabled" : ""}>‹ 上一站</button><span class="hint">${S.mapSel + 1} / ${stops.length}</span><button class="btn small" data-act="map-step" data-dir="1" ${S.mapSel >= stops.length - 1 ? "disabled" : ""}>下一站 ›</button></div>
+    <div class="sc-actions"><a class="btn primary" href="${esc(gmapsPlace(s))}" target="_blank" rel="noopener">${icon("nav")}導航</a>
+      ${S.mapSel > 0 ? `<a class="btn" href="${esc(gmapsLeg(stops[S.mapSel - 1], s))}" target="_blank" rel="noopener">${icon("train")}由上一站前往</a>` : ""}
+      <button class="btn" data-act="map-goto" data-id="${esc(s.it.id)}">${icon("list")}查看行程</button></div>
   </div>`;
 }
 function pinIcon(s, i) {
@@ -1432,7 +1458,11 @@ function selectStop(d, i, pan) {
       if (k === i) m.bindTooltip(`<b>${esc(stops[k].v.title)}</b><span style="color:${catVar(stops[k].type)}">${catOf(stops[k].type)[0]}</span>`, { permanent: true, direction: "right", offset: [18, 0], className: "mtip" }).openTooltip();
     });
     const g = geoOf(stops[i]);
-    if (pan && g) S.map.panTo(g, { animate: true });
+    if (pan && g) { // 地點放在資料卡上方的可見範圍中間
+      const ch = ($("#stopCard") && $("#stopCard").offsetHeight) || 0;
+      const pt = S.map.project(g, S.map.getZoom()).add([0, ch / 2]);
+      S.map.panTo(S.map.unproject(pt, S.map.getZoom()), { animate: true });
+    }
   }
 }
 async function drawRouteMap(d, noGeocode) {
@@ -1444,7 +1474,7 @@ async function drawRouteMap(d, noGeocode) {
   if (!S.map) {
     el.innerHTML = "";
     S.map = L.map(el, { zoomControl: false, attributionControl: true });
-    L.control.zoom && L.control.zoom({ position: "bottomright" }).addTo(S.map);
+    L.control.zoom && L.control.zoom({ position: "topright" }).addTo(S.map);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(S.map);
@@ -1468,6 +1498,10 @@ async function drawRouteMap(d, noGeocode) {
     S.markers.push(mk);
   });
   const css = getComputedStyle(document.documentElement);
+  // 兩站之間寫了交通方式：在路線中間顯示
+  const legs = legsOf(d, stops);
+  stops.forEach((s, i) => { const lg = legs[i]; if (!lg || !i) return; const a = geoOf(stops[i - 1]), b = geoOf(s); if (!a || !b) return;
+    L.marker([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], { interactive: false, keyboard: false, icon: L.divIcon({ className: "", iconSize: null, html: `<div class="legchip">${lg.emoji}${lg.dur ? `<span>${lg.dur >= 60 ? Math.floor(lg.dur / 60) + "h" + (lg.dur % 60 ? lg.dur % 60 : "") : lg.dur + "分"}</span>` : ""}</div>` }) }).addTo(S.layer); });
   if (pts.length > 1) L.polyline(pts, { color: css.getPropertyValue("--purple").trim() || "#72598e", weight: 3, opacity: 0.6, dashArray: "6 9" }).addTo(S.layer);
   // 第一次、或新定位到更多地點時，調整地圖範圍
   if (first || !noGeocode || pts.length !== S.fitN) {
@@ -1477,7 +1511,8 @@ async function drawRouteMap(d, noGeocode) {
       const sorted = (k) => pts.map((x) => x[k]).sort((a, b) => a - b);
       const mid = [sorted(0)[pts.length >> 1], sorted(1)[pts.length >> 1]];
       const near = pts.filter((x) => km(x, mid) < 150);
-      S.map.fitBounds(L.latLngBounds(near.length ? near : pts).pad(0.18), { maxZoom: 15 });
+      const ch = ($("#stopCard") && $("#stopCard").offsetHeight) || 0;
+      S.map.fitBounds(L.latLngBounds(near.length ? near : pts).pad(0.12), { maxZoom: 15, paddingTopLeft: [20, 50], paddingBottomRight: [20, ch + 20] });
     } else S.map.setView([34.6937, 135.5023], 11);
   }
   selectStop(d, S.mapSel || 0, false);
@@ -2955,16 +2990,32 @@ function snapToPrev(doc, dayId, id) {
 // 把 id 移到 key 那一組（"top" = 共用行程，"r:路線id" = 分叉路線）中 refId 之前／之後（refId 空 = 最後）
 function moveItem(doc, dayId, id, key, refId, after) {
   const d = doc.days.find((x) => x.id === dayId); if (!d) return;
-  const f = locate(d, id); if (!f || f.parent) return;
-  const arr = key === "top" ? d.items : (findRoute(d, key.slice(2)) || {}).route?.items;
+  const f = locate(d, id); if (!f) return;
+  let arr, parent = null;
+  if (key === "top") arr = d.items;
+  else if (key.startsWith("r:")) arr = (findRoute(d, key.slice(2)) || {}).route?.items;
+  else if (key.startsWith("c:")) { const pf = locate(d, key.slice(2)); if (!pf || pf.parent || pf.item === f.item) return; parent = pf.item; arr = parent.children = parent.children || []; }
   if (!arr) return;
   const isDay = d.kind === "day";
   const listOld = isDay ? seq(d).map((e) => e.item) : null;
   const it = f.arr.splice(f.index, 1)[0];
+  // 變成子行程：它本身的子行程一起搬過去（子行程不可以再有子行程）
+  let extra = [];
+  if (parent) { extra = it.children || []; delete it.children; } else if (!it.children) it.children = [];
   let to = refId ? arr.findIndex((x) => x.id === refId) : -1;
   to = to < 0 ? arr.length : to + (after ? 1 : 0);
-  arr.splice(to, 0, it);
-  if (!isDay) return;
+  arr.splice(to, 0, it, ...extra);
+  if (!isDay || parent) return; // 子行程保持原本時間
+  // 子行程拖出成為主行程：時間接在前一個行程之後
+  if (f.parent) {
+    const list = seq(d).map((e) => e.item), p = list.indexOf(it);
+    const prev = list.slice(0, p).reverse().find((x) => x.start != null && !isInfo(x));
+    if (!it.locked || it.start == null) it.start = prev ? endOf(prev) : (it.start ?? 9 * 60);
+    if (!V(it).dur) V(it).dur = 30;
+    const next = list.slice(p + 1).find((x) => x.start != null && !isInfo(x));
+    if (next && endOf(it) > next.start) rippleFrom(d, p, endOf(it) - next.start);
+    return;
+  }
   // 重新計算時間（按顯示次序）：保留原本每個位置之間的空檔，固定時間的行程不動
   const listNew = seq(d).map((e) => e.item);
   const from = listOld.indexOf(it), dest = listNew.indexOf(it);
@@ -2991,7 +3042,9 @@ document.addEventListener("pointerdown", (e) => {
   const art = h.closest("[data-dnd]"); if (!art) return;
   e.preventDefault();
   // 可以放到任何一組：共用行程、目前顯示的分叉路線
-  const sibs = $$("#main [data-arr]");
+  // 沒有子行程的主行程：拖放時暫時加入「放進來成為子行程」的位置
+  if (day() && day().kind === "day") $$("#main article[data-dnd]").forEach((a) => { if (a !== art && !a.querySelector(".children") && !art.contains(a)) a.insertAdjacentHTML("beforeend", `<div class="cdrop" data-arr="c:${a.dataset.dnd}" data-dnd-empty="1">放到這裡成為子行程</div>`); });
+  const sibs = $$("#main [data-arr]").filter((x) => x === art || !art.contains(x));
   const line = document.createElement("div"); line.className = "dnd-line"; document.body.appendChild(line);
   DRAG = { art, sibs, y0: e.clientY, s0: window.scrollY, y: e.clientY, target: null, line, raf: 0 };
   art.classList.add("dragging");
@@ -3007,7 +3060,8 @@ function dragMove(y) {
   g.art.style.transform = `translateY(${y - g.y0 + window.scrollY - g.s0}px)`;
   const others = g.sibs.filter((x) => x !== g.art && x.offsetParent);
   if (!others.length) return;
-  const rects = others.map((x) => x.getBoundingClientRect());
+  // 有子行程的主行程：只用卡片上半部（子行程之前）計算位置
+  const rects = others.map((x) => { const r = x.getBoundingClientRect(); const ch = x.querySelector(":scope > .children, :scope > .cdrop"); if (!ch) return r; const b = ch.getBoundingClientRect().top; return { top: r.top, bottom: b, height: b - r.top, left: r.left, width: r.width }; });
   let k = rects.findIndex((r) => y < r.top + r.height / 2);
   // A = 上面一項，B = 下面一項；兩項屬於不同組（例如分叉路線最後一項和匯合後第一項）時，按距離決定放進哪一組
   const A = k === -1 ? others.length - 1 : k - 1, B = k;
@@ -3017,7 +3071,8 @@ function dragMove(y) {
   else if (others[A].dataset.arr !== others[B].dataset.arr) t = Math.abs(y - rects[A].bottom) < Math.abs(rects[B].top - y) ? { el: others[A], after: true } : { el: others[B], after: false };
   else t = { el: others[B], after: false };
   g.target = t;
-  const r = t.el.getBoundingClientRect();
+  const r = rects[others.indexOf(t.el)];
+  $$(".cdrop.hot").forEach((x) => x.classList.remove("hot")); if (t.el.classList.contains("cdrop")) t.el.classList.add("hot");
   const lineY = t.el.dataset.dndEmpty ? r.top + r.height / 2 : t.after ? r.bottom + 5 : r.top - 5;
   Object.assign(g.line.style, { top: lineY + "px", left: r.left + 4 + "px", width: r.width - 8 + "px" });
   $$(".dnd-into").forEach((x) => x.classList.remove("dnd-into"));
@@ -3029,6 +3084,7 @@ const endDrag = (cancel) => {
   const g = DRAG; DRAG = null;
   cancelAnimationFrame(g.raf); g.line.remove();
   $$(".dnd-into").forEach((x) => x.classList.remove("dnd-into"));
+  $$(".cdrop").forEach((x) => x.remove());
   g.art.classList.remove("dragging"); g.art.style.transform = "";
   if (cancel || !g.target) return;
   const id = g.art.dataset.dnd, t = g.target, key = t.el.dataset.arr;
