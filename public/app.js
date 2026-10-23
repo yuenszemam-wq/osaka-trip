@@ -206,7 +206,7 @@ function newItem(start, type = "place") {
 // ---------- 時間自動調整 ----------
 function shiftItem(it, delta) {
   if (it.start != null) it.start += delta;
-  for (const c of it.children || []) if (c.start != null) c.start += delta;
+  for (const c of it.children || []) if (c.start != null && !c.locked) c.start += delta;
 }
 // 把顯示次序第 pos 項之後的主行程全部移動 delta 分鐘，遇到「固定時間」的行程就停
 function rippleFrom(d, pos, delta) {
@@ -812,7 +812,7 @@ function listPageHTML(d, q) {
 // ---- 卡片 ----
 function timeLabelLocked(it) {
   const t = timeLabel(it);
-  return t ? `${t}${it.locked ? " <small>· 固定</small>" : ""}` : "";
+  return t ? `${t}${it.locked ? ` <small class="lk">🔒</small>` : ""}` : "";
 }
 // 簡介：沒有填寫時用詳情第一行（去掉「地址：」等標籤）
 // ---------- 住宿 ----------
@@ -1090,7 +1090,7 @@ function childHTML(c, d) {
   return `<div class="child card ${c.done ? "done" : ""} ${open ? "is-open" : ""} ${info ? "info" : ""}" data-tid="${esc(c.id)}" ${style}>
     <div class="taphead" ${info ? "" : `data-act="toggle" data-id="${esc(c.id)}" role="button" aria-expanded="${open}"`}>
       <div class="itemtop"><span class="cnum">${icon(info ? "info" : cat[1])}</span>
-        <div class="itemmeta metaline">${c.start != null && dayPage ? `<span class="time">${timeLabel(c)}</span>` : ""}<span class="category">${icon(info ? "info" : cat[1])}${info ? "資訊" : cat[0]}<small class="subtag">子行程</small></span></div>
+        <div class="itemmeta metaline">${c.start != null && dayPage ? `<span class="time">${timeLabelLocked(c)}</span>` : ""}<span class="category">${icon(info ? "info" : cat[1])}${info ? "資訊" : cat[0]}<small class="subtag">子行程</small></span></div>
         ${S.manage || info ? editTop(c) : ""}${foldBtn(c)}${info || !dayPage ? "" : checkBtn(c)}</div>
       <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${info ? "" : `<span class="chev">${icon("down")}</span>`}</div>
       ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}${type === "stay" ? stayPeriodHTML(v) : ""}</div>
@@ -1129,7 +1129,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
   if (type === "transport" && !listPage) {
     return `<article class="transport ${it.done ? "done" : ""} ${openCls} ${S.flash && S.flash.has(it.id) ? "flash-new" : ""}" data-tid="${esc(it.id)}" ${dnd} ${style}>
       <div class="transportline">${handle}<button data-act="toggle" data-id="${esc(it.id)}" aria-expanded="${S.open.has(it.id)}">${icon("train")}<span class="tbody">
-        ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " · 固定" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
+        ${it.start != null ? `<div class="time">${timeLabel(it)}${it.locked ? " 🔒" : ""}</div>` : ""}${esc(v.title || "（未命名）")}${summaryOf(v) ? `<span class="tsum">${esc(summaryOf(v))}</span>` : ""}</span>${chev}</button>
         ${S.manage ? editTop(it) : ""}${foldBtn(it)}${checkBtn(it)}</div>
       ${warnHTML}${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${memoSection(it)}
       ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it, d)}
@@ -2177,6 +2177,9 @@ function arrText(start, dur) {
   if (start == null || !(dur > 0)) return "填出發時間和交通時間，會自動計算到達時間；之後改出發時間，到達時間也會跟著變。";
   return `到達時間：<b>${fmt(start + dur)}</b>（${durText(dur)}）`;
 }
+// 時間旁邊的鎖：鎖定後時間不會被自動改變
+const lockBtn = (it) => `<button type="button" class="lockbtn ${it.locked ? "on" : ""}" data-act="ed-lock" aria-pressed="${!!it.locked}" aria-label="${it.locked ? "解除鎖定時間" : "鎖定時間"}">${icon("lock")}${it.locked ? "已鎖定" : "鎖定"}</button>`;
+const lockHint = (it) => `<input type="checkbox" name="locked" hidden ${it.locked ? "checked" : ""}><p class="hint lockhint" id="lockHint">${it.locked ? "🔒 時間已鎖定：前面的行程延後、拖放次序或「接上一項」時，這個時間都不會自動改變。" : "航班、訂位等不能改動的時間，可以按時間旁的「鎖定」。"}</p>`;
 function renderEditor() {
   const it = ED.draft, v = it.variants[ED.k];
   const typeInfo = v.type === "info";
@@ -2210,13 +2213,13 @@ function renderEditor() {
         <label class="field"><span>退房日期</span><input type="date" name="stayTo" value="${esc(t0)}"></label></div>`; })()}
         ${stays.length ? `<div class="field"><span>套用這個旅程的住宿資料</span><div class="vtabs">${stays.map((x) => `<button type="button" class="chip ${v.stayRef === x.id ? "on" : ""}" data-act="ed-stay" data-id="${esc(x.id)}">${icon("bed")} ${esc(V(x).title)}</button>`).join("")}</div><small class="hint">會帶入名稱、地址、地圖連結和住宿期間。</small></div>` : ""}</div>`; })() : ""}
       ${ED.info || typeInfo ? "" : isTr ? `<div class="grid2">
-        <label class="field"><span>出發時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
+        <label class="field"><span class="tlabel">出發時間${ED.isChild ? "（可留空）" : ""}${lockBtn(it)}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
         <label class="field"><span>交通時間（分鐘）</span><input type="number" name="tdur" inputmode="numeric" min="0" step="1" value="${v.dur || ""}" placeholder="例如：25"></label>
-      </div><p class="hint" id="arrHint">${arrText(it.start, v.dur)}</p>` : `<div class="grid2">
-        <label class="field"><span>開始時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
+      </div><p class="hint" id="arrHint">${arrText(it.start, v.dur)}</p>${lockHint(it)}` : `<div class="grid2">
+        <label class="field"><span class="tlabel">開始時間${ED.isChild ? "（可留空）" : ""}${lockBtn(it)}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
         <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"><button type="button" class="tclear" data-act="time-clear" data-name="end" aria-label="清除時間">✕</button></span></label>
       </div>
-      ${ED.isChild ? "" : `<label class="checkline"><input type="checkbox" name="locked" ${it.locked ? "checked" : ""}><span>固定時間 🔒<small>航班、訂位等不能移動的行程。前面行程延後時，會停在這裡，不會把它推後。</small></span></label>`}
+      ${lockHint(it)}
       ${showRipple ? `<label class="checkline"><input type="checkbox" name="ripple" checked><span>${rippleLabel}</span></label>` : ""}`}
       ${costFields(v.cost, [...new Set([localCur(), "HKD", v.cost && v.cost.cur].filter(Boolean))])}
       <label class="field"><span>詳情（按標題展開時顯示）</span><textarea name="details" placeholder="地址、交通、營業時間、備註…">${esc(v.details)}</textarea></label>
@@ -3504,6 +3507,13 @@ document.addEventListener("click", async (e) => {
     case "ed-stay": { readForm(); const src = findItem(id); if (src) applyStay(ED.draft.variants[ED.k], src.item, true); const y = $(".sheet-body").scrollTop; renderEditor(); $(".sheet-body").scrollTop = y; break; }
     case "time-clear": { const inp = t.parentElement.querySelector("input"); if (inp) { inp.value = ""; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); } break; }
     case "ed-save": saveEditor(); break;
+    case "ed-lock": {
+      const f = $("#edForm"); if (!f || !f.locked) break;
+      const on = !f.locked.checked; f.locked.checked = on;
+      $$("#edForm .lockbtn").forEach((b) => { b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); b.innerHTML = `${icon("lock")}${on ? "已鎖定" : "鎖定"}`; });
+      const h = $("#lockHint"); if (h) h.textContent = on ? "🔒 時間已鎖定：前面的行程延後、拖放次序或「接上一項」時，這個時間都不會自動改變。" : "航班、訂位等不能改動的時間，可以按時間旁的「鎖定」。";
+      break;
+    }
     case "ed-to-child": {
       const prev = prevMainOf(); if (!prev) break;
       readForm(); ED.level = prev.id;
