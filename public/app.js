@@ -44,6 +44,7 @@ const ICONS = {
   cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h8.2a2 2 0 0 0 2-1.6L21 7H6"/>',
   phone: '<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/>',
   monitor: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  unlock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m12 7 5 5"/><path d="M19 2v3M20.5 3.5h-3M5 3v3M6.5 4.5h-3"/>',
   book: '<path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19"/><path d="M8 7h7M8 11h5"/>',
@@ -2178,8 +2179,8 @@ function arrText(start, dur) {
   return `到達時間：<b>${fmt(start + dur)}</b>（${durText(dur)}）`;
 }
 // 時間旁邊的鎖：鎖定後時間不會被自動改變
-const lockBtn = (it) => `<button type="button" class="lockbtn ${it.locked ? "on" : ""}" data-act="ed-lock" aria-pressed="${!!it.locked}" aria-label="${it.locked ? "解除鎖定時間" : "鎖定時間"}">${icon("lock")}${it.locked ? "已鎖定" : "鎖定"}</button>`;
-const lockHint = (it) => `<input type="checkbox" name="locked" hidden ${it.locked ? "checked" : ""}><p class="hint lockhint" id="lockHint">${it.locked ? "🔒 時間已鎖定：前面的行程延後、拖放次序或「接上一項」時，這個時間都不會自動改變。" : "航班、訂位等不能改動的時間，可以按時間旁的「鎖定」。"}</p>`;
+const lockBtn = (it) => `<button type="button" class="lockbtn ${it.locked ? "on" : ""}" data-act="ed-lock" aria-pressed="${!!it.locked}" aria-label="${it.locked ? "解除鎖定時間" : "鎖定時間"}">${icon(it.locked ? "lock" : "unlock")}</button>`;
+const lockHint = (it) => `<input type="checkbox" name="locked" hidden ${it.locked ? "checked" : ""}><p class="hint lockhint" id="lockHint">${it.locked ? "🔒 時間已鎖定：前面的行程延後、拖放次序或「接上一項」時，這個時間都不會自動改變。" : "航班、訂位等不能改動的時間，可以按時間欄內的 🔓 鎖定。"}</p>`;
 function renderEditor() {
   const it = ED.draft, v = it.variants[ED.k];
   const typeInfo = v.type === "info";
@@ -2213,11 +2214,11 @@ function renderEditor() {
         <label class="field"><span>退房日期</span><input type="date" name="stayTo" value="${esc(t0)}"></label></div>`; })()}
         ${stays.length ? `<div class="field"><span>套用這個旅程的住宿資料</span><div class="vtabs">${stays.map((x) => `<button type="button" class="chip ${v.stayRef === x.id ? "on" : ""}" data-act="ed-stay" data-id="${esc(x.id)}">${icon("bed")} ${esc(V(x).title)}</button>`).join("")}</div><small class="hint">會帶入名稱、地址、地圖連結和住宿期間。</small></div>` : ""}</div>`; })() : ""}
       ${ED.info || typeInfo ? "" : isTr ? `<div class="grid2">
-        <label class="field"><span class="tlabel">出發時間${ED.isChild ? "（可留空）" : ""}${lockBtn(it)}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
+        <label class="field"><span class="tlabel">出發時間${ED.isChild ? "<small>可留空</small>" : ""}</span><span class="tbox lk"><input type="time" name="start" value="${hhmm(it.start)}">${lockBtn(it)}<button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
         <label class="field"><span>交通時間（分鐘）</span><input type="number" name="tdur" inputmode="numeric" min="0" step="1" value="${v.dur || ""}" placeholder="例如：25"></label>
       </div><p class="hint" id="arrHint">${arrText(it.start, v.dur)}</p>${lockHint(it)}` : `<div class="grid2">
-        <label class="field"><span class="tlabel">開始時間${ED.isChild ? "（可留空）" : ""}${lockBtn(it)}</span><span class="tbox"><input type="time" name="start" value="${hhmm(it.start)}"><button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
-        <label class="field"><span>結束時間${ED.isChild ? "（可留空）" : ""}</span><span class="tbox"><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"><button type="button" class="tclear" data-act="time-clear" data-name="end" aria-label="清除時間">✕</button></span></label>
+        <label class="field"><span class="tlabel">開始時間${ED.isChild ? "<small>可留空</small>" : ""}</span><span class="tbox lk"><input type="time" name="start" value="${hhmm(it.start)}">${lockBtn(it)}<button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
+        <label class="field"><span class="tlabel">結束時間${ED.isChild ? "<small>可留空</small>" : ""}</span><span class="tbox"><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"><button type="button" class="tclear" data-act="time-clear" data-name="end" aria-label="清除時間">✕</button></span></label>
       </div>
       ${lockHint(it)}
       ${showRipple ? `<label class="checkline"><input type="checkbox" name="ripple" checked><span>${rippleLabel}</span></label>` : ""}`}
@@ -3510,8 +3511,8 @@ document.addEventListener("click", async (e) => {
     case "ed-lock": {
       const f = $("#edForm"); if (!f || !f.locked) break;
       const on = !f.locked.checked; f.locked.checked = on;
-      $$("#edForm .lockbtn").forEach((b) => { b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); b.innerHTML = `${icon("lock")}${on ? "已鎖定" : "鎖定"}`; });
-      const h = $("#lockHint"); if (h) h.textContent = on ? "🔒 時間已鎖定：前面的行程延後、拖放次序或「接上一項」時，這個時間都不會自動改變。" : "航班、訂位等不能改動的時間，可以按時間旁的「鎖定」。";
+      $$("#edForm .lockbtn").forEach((b) => { b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); b.setAttribute("aria-label", on ? "解除鎖定時間" : "鎖定時間"); b.innerHTML = icon(on ? "lock" : "unlock"); });
+      const h = $("#lockHint"); if (h) h.textContent = on ? "🔒 時間已鎖定：前面的行程延後、拖放次序或「接上一項」時，這個時間都不會自動改變。" : "航班、訂位等不能改動的時間，可以按時間欄內的 🔓 鎖定。";
       break;
     }
     case "ed-to-child": {
