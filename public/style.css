@@ -867,3 +867,6 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .areachips button svg.i { width: 13px; height: 13px; color: var(--purple); }
 .areachips button small { color: var(--muted); font-size: 11px; }
 .areachips button[aria-pressed=true] { border-color: var(--purple); color: var(--purple); }
+
+.de-cost { margin: 2px 0 8px; font-size: 12.5px; color: var(--ink-2); }
+.de-cost > span { display: block; margin-bottom: 5px; }

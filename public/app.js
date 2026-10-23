@@ -1126,7 +1126,7 @@ function openShopEditor(id) {
       <div class="grid2"><label class="field"><span>數量</span><input type="number" name="qty" min="1" step="1" inputmode="numeric" value="${x.qty || 1}"></label>
       <label class="field"><span>買給誰（可留空）</span><input type="text" name="forWho" value="${esc(x.forWho || "")}" placeholder="例如：媽媽"></label></div>
       <label class="field"><span>在哪裡買（可留空）</span><input type="text" name="where" list="shopWhere" value="${esc(x.where || "")}" placeholder="可揀行程中的地點，或自己輸入"><datalist id="shopWhere">${titles.map((t) => `<option value="${esc(t)}">`).join("")}</datalist></label>
-      ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur, pay: x.pay, share: x.share }, curs)}
+      ${costFields({ plan: x.plan, actual: x.actual, cur: x.cur, pay: x.pay, share: x.share }, curs, { noPhotos: true })}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(x.note || "")}" placeholder="顏色、尺寸、款式…"></label>
       <div class="field"><span>照片（例如貨品樣子、包裝、價錢牌）</span><div class="edit-photos" id="shopPhotos">${shopPhotosHTML()}</div></div>
       <input type="file" id="shopFile" accept="image/*" multiple hidden>
@@ -1161,6 +1161,13 @@ function memoSection(it) {
     <button class="btn small" data-act="diary-open" data-id="${esc(it.id)}">${icon("pencil")}寫日記</button></div>
     ${m.note ? `<p class="memo-note">${esc(m.note)}</p>` : ""}${(m.photos || []).length ? `<div class="memo-photos">${memoPhotosHTML(it)}</div>` : ""}</div>`;
 }
+// 日記中的消費照片（收據、餐點）
+function costDiaryHTML(c, id, isExp) {
+  if (!c || !(c.photos || []).length) return "";
+  const amt = c.actual != null ? c.actual : c.plan, cur = c.cur || localCur();
+  return `<div class="de-cost"><span>🧾 ${amt != null ? money(amt, cur) : "消費"}${c.pay && PAY[c.pay] ? " · " + payLabel(c.pay) : ""}</span>
+    <div class="de-photos">${c.photos.map((p) => `<img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="cost-view" data-photo="${esc(p)}">`).join("")}</div></div>`;
+}
 function diaryHTML() {
   const m = S.doc.meta || {};
   const days = S.doc.days.filter((x) => x.kind === "day");
@@ -1173,9 +1180,15 @@ function diaryHTML() {
       if (x.done) nDone++;
       nPhotos += (mm.photos || []).length;
       nWords += (mm.note || "").length;
-      if (S.diaryAll || x.done || (mm.photos || []).length || mm.note) items.push([x, x !== item]);
+      const cph = (V(x).cost && V(x).cost.photos) || [];
+      nPhotos += cph.length;
+      if (S.diaryAll || x.done || (mm.photos || []).length || mm.note || cph.length) items.push([x, x !== item]);
     }
     nWords += (d.journal || "").length;
+    // 這天的其他支出（有照片的）
+    const exps = (S.doc.expenses || []).filter((e) => e.dayId === d.id && (e.photos || []).length);
+    nPhotos += exps.reduce((a, e) => a + e.photos.length, 0);
+    const expHTML = exps.map((e) => `<li class="dentry exp" style="--c:var(--c-shop)"><div class="de-dot">${icon("wallet")}</div><div class="de-body"><div class="de-top"><span class="de-cat">支出</span></div><div class="de-title">${esc(e.title || "支出")}</div>${costDiaryHTML(e, e.id, true)}</div></li>`).join("");
     const list = items.map(([x, sub]) => {
       const v = V(x), mm = memoOf(x), cat = catOf(v.type || "place");
       return `<li class="dentry ${sub ? "sub" : ""} ${x.done ? "done" : "todo"}" id="de-${esc(x.id)}" style="--c:${catVar(v.type || "place")}">
@@ -1184,6 +1197,7 @@ function diaryHTML() {
           <div class="de-top">${x.start != null ? `<b class="time">${fmt(x.start)}</b>` : ""}<span class="de-cat">${cat[0]}</span>${x.done ? `<span class="de-ok">✓ 已完成</span>` : ""}</div>
           <div class="de-title">${esc(v.title || "（未命名）")}</div>
           ${(mm.photos || []).length ? `<div class="de-photos">${memoPhotosHTML(x)}</div>` : ""}
+          ${costDiaryHTML(v.cost, x.id)}
           <textarea class="de-note" data-memo="${esc(x.id)}" rows="1" placeholder="這一站的感受、吃了甚麼、發生了甚麼…">${esc(mm.note || "")}</textarea>
           <button class="btn small" data-act="memo-photo" data-id="${esc(x.id)}">${icon("camera")}加相片</button>
         </div></li>`;
@@ -1191,7 +1205,7 @@ function diaryHTML() {
     return `<section class="dday" id="dd-${esc(d.id)}">
       <div class="dday-head"><div><div class="kicker">${esc(d.label)}${d.sub ? " · " + esc(d.sub) : ""}</div><h3>${esc(d.title || d.label)}</h3></div></div>
       <textarea class="journal" data-journal="${esc(d.id)}" rows="3" placeholder="寫下今天的旅程經歷…">${esc(d.journal || "")}</textarea>
-      ${list ? `<ol class="dlist">${list}</ol>` : `<p class="hint dempty">${S.diaryAll ? "這天未有行程。" : "完成打卡後，這天的行程和旅行相片會出現在這裡。"}</p>`}
+      ${list || expHTML ? `<ol class="dlist">${list}${expHTML}</ol>` : `<p class="hint dempty">${S.diaryAll ? "這天未有行程。" : "完成打卡後，這天的行程和旅行相片會出現在這裡。"}</p>`}
     </section>`;
   }).join("");
   return `<div class="diary">
@@ -1225,7 +1239,7 @@ function photosHTML(it, v) {
   return photos;
 }
 function costHTML(v, it) {
-  const c = v.cost; if (!c || (c.plan == null && c.actual == null)) return "";
+  const c = v.cost; if (!c || (c.plan == null && c.actual == null && !(c.photos || []).length)) return "";
   const cur = c.cur || localCur();
   const part = (label, n) => {
     if (n == null) return "";
@@ -1233,7 +1247,7 @@ function costHTML(v, it) {
     return `<span class="tag">${label} <b>${money(n, cur)}</b>${hk != null ? `<span class="hk">≈${money(hk, "HKD")}</span>` : ""}</span>`;
   };
   const over = c.plan != null && c.actual != null && c.actual > c.plan;
-  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預計</span>` : ""}${c.share === "shared" ? `<span class="paytag">👥 共同</span>` : ""}${c.pay && PAY[c.pay] ? `<span class="paytag">${payLabel(c.pay)}</span>` : ""}</button>`;
+  return `<button class="cost" data-act="cost-edit" data-id="${esc(it.id)}" aria-label="修改消費">${icon("wallet")}${part("預計", c.plan)}${part("實際", c.actual)}${over ? `<span class="over">超出預計</span>` : ""}${c.share === "shared" ? `<span class="paytag">👥 共同</span>` : ""}${(c.photos || []).length ? `<span class="paytag">📷 ${c.photos.length}</span>` : ""}${c.pay && PAY[c.pay] ? `<span class="paytag">${payLabel(c.pay)}</span>` : ""}</button>`;
 }
 // 詳情一直放在頁面上，用 CSS 動畫展開／摺疊（不用重畫整頁）
 function detailHTML(it, v, forceOpen) {
@@ -1929,7 +1943,7 @@ function openExpenseEditor(id) {
       <label class="field"><span>項目</span><input type="text" name="title" value="${esc(e.title)}" placeholder="例如：ICOCA 交通卡、手信"></label>
       <div class="grid2"><label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label>
       <label class="field"><span>日期</span><select name="dayId"><option value="">全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === e.dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label></div>
-      ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur, pay: e.pay, share: e.share }, curs)}
+      ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur, pay: e.pay, share: e.share, photos: e.photos }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(e.note || "")}"></label>
     </form>
     <div class="sheet-foot">${id ? `<button class="btn danger" data-act="expense-delete" data-id="${esc(id)}">刪除</button>` : ""}<span class="grow"></span>
@@ -1937,8 +1951,15 @@ function openExpenseEditor(id) {
   sheet.hidden = false; document.body.style.overflow = "hidden";
   updateCostPreview();
 }
-function costFields(c, curs) {
+let COSTPH = { photos: [] }; // 編輯中的消費照片（收據、餐點等）
+function costPhotosHTML() {
+  return COSTPH.photos.map((p, i) => `<div class="ep"><img src="${esc(photoUrl(p))}" alt=""><button type="button" class="x" data-act="cost-del-photo" data-i="${i}">✕</button></div>`).join("")
+    + (COSTPH.uploading ? `<div class="ep"><div class="ph">上傳中 ${COSTPH.uploading}</div></div>` : "")
+    + `<button type="button" class="addphoto" data-act="cost-add-photo">＋ 照片</button>`;
+}
+function costFields(c, curs, opt = {}) {
   c = c || {};
+  if (!opt.noPhotos) COSTPH = { photos: [...(c.photos || [])], uploading: null, on: true }; else COSTPH = { photos: [], on: false };
   return `<div class="box costbox"><div class="box-title"><span>${icon("wallet")} 消費</span><span class="preview" id="costPreview"></span></div>
     <div class="grid3">
       <label class="field"><span>預計</span><input type="text" inputmode="decimal" name="costPlan" value="${c.plan ?? ""}" placeholder="0"></label>
@@ -1947,14 +1968,16 @@ function costFields(c, curs) {
     </div>
     <div class="field"><span>個人／共同</span><div class="payseg">${[["me", "👤 個人"], ["shared", "👥 共同"]].map(([k, t]) => `<label><input type="radio" name="costShare" value="${k}" ${k === (c.share || "me") ? "checked" : ""}><span>${t}</span></label>`).join("")}</div></div>
     <div class="field"><span>付款方式</span><div class="payseg">${Object.entries(PAY).map(([k, [t, e]]) => `<label><input type="radio" name="costPay" value="${k}" ${k === (c.pay || "cash") ? "checked" : ""}><span>${e} ${t}</span></label>`).join("")}</div></div>
+    ${opt.noPhotos ? "" : `<div class="field"><span>照片（收據、餐點等，會在日記顯示）</span><div class="edit-photos" id="costPhotos">${costPhotosHTML()}</div><input type="file" id="costFile" accept="image/*" multiple hidden></div>`}
     <small class="hint">直接輸入當地貨幣金額，會自動換算成港幣。現金和 IC 卡會用支出頁設定的現金匯率。</small></div>`;
 }
 function readCost(f) {
   const plan = numOrNull(f.costPlan.value), actual = numOrNull(f.costActual.value);
-  if (plan == null && actual == null) return null;
+  const photos = COSTPH.on && f.querySelector("#costPhotos") ? COSTPH.photos.slice() : null;
+  if (plan == null && actual == null && !(photos && photos.length)) return null;
   const pay = f.costPay ? (f.querySelector("[name=costPay]:checked") || {}).value : undefined;
   const share = (f.querySelector("[name=costShare]:checked") || {}).value;
-  return { plan, actual, cur: f.costCur.value, ...(pay ? { pay } : {}), ...(share === "shared" ? { share } : {}) };
+  return { plan, actual, cur: f.costCur.value, ...(pay ? { pay } : {}), ...(share === "shared" ? { share } : {}), ...(photos && photos.length ? { photos } : {}) };
 }
 function updateCostPreview() {
   const el = $("#costPreview"); if (!el) return;
@@ -3661,7 +3684,7 @@ document.addEventListener("click", async (e) => {
       if (!f.title.value.trim()) { fieldErrorIn(f, "title", "請輸入項目名稱"); break; }
       const c = readCost(f);
       if (!c) { fieldErrorIn(f, "costPlan", "請輸入預計或實際金額"); break; }
-      const vals = { title: f.title.value.trim(), type: f.type.value, dayId: f.dayId.value, note: f.note.value.trim(), share: undefined, ...c };
+      const vals = { title: f.title.value.trim(), type: f.type.value, dayId: f.dayId.value, note: f.note.value.trim(), share: undefined, photos: undefined, ...c };
       closeSheet();
       commit((doc) => {
         doc.expenses = doc.expenses || [];
@@ -3823,6 +3846,9 @@ document.addEventListener("click", async (e) => {
       commit(() => { const f = findItem(id); const v = V(f.item); v.photoModes = v.photoModes || {}; v.photoModes[t.dataset.photo] = t.dataset.mode; });
       break;
     case "close": closeSheet(); break;
+    case "cost-view": { const lb = $("#lightbox"); lb.innerHTML = `<img src="${esc(photoUrl(t.dataset.photo))}" alt=""><button data-act="lb-close">✕</button>`; lb.hidden = false; break; }
+    case "cost-add-photo": { const inp = $("#costFile"); inp.value = ""; inp.click(); break; }
+    case "cost-del-photo": COSTPH.photos.splice(+t.dataset.i, 1); $("#costPhotos").innerHTML = costPhotosHTML(); break;
     case "ed-stay": { readForm(); const src = findItem(id); if (src) applyStay(ED.draft.variants[ED.k], src.item, true); const y = $(".sheet-body").scrollTop; renderEditor(); $(".sheet-body").scrollTop = y; break; }
     case "time-clear": { const inp = t.parentElement.querySelector("input"); if (inp) { inp.value = ""; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); } break; }
     case "ed-save": saveEditor(); break;
@@ -4042,6 +4068,12 @@ document.addEventListener("change", async (e) => {
       ED.uploading = null; ED.draft.variants[ED.k].photos.push(...ids);
       $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]);
     } catch (err) { if (ED) { ED.uploading = null; $("#edPhotos").innerHTML = editPhotos(ED.draft.variants[ED.k]); } toast("圖片上傳失敗：" + err.message); }
+  }
+  if (e.target.id === "costFile") {
+    const files = [...e.target.files]; if (!files.length) return;
+    try { const ids = await uploadFiles(files, (i, n) => { COSTPH.uploading = `${i + 1}/${n}`; const el = $("#costPhotos"); if (el) el.innerHTML = costPhotosHTML(); }); COSTPH.photos.push(...ids); } catch {}
+    COSTPH.uploading = null; const el = $("#costPhotos"); if (el) el.innerHTML = costPhotosHTML();
+    return;
   }
   if (e.target.id === "impFile") { const files = [...e.target.files]; if (files.length) impFiles(files); return; }
   if (e.target.dataset && e.target.dataset.impUse != null && IMP) { IMP.items[+e.target.dataset.impUse].use = e.target.checked; impRender(); return; }
