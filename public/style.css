@@ -891,3 +891,11 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .quick.maps > a span { min-width: 0; }
 .quick.maps > a.maplogo { flex: none; width: 34px; height: 32px; padding: 0; justify-content: center; border-radius: 10px; background: color-mix(in srgb, #3b9b5a 18%, var(--w)); color: #3b9b5a; }
 .quick.maps > a.maplogo svg.i { width: 17px; height: 17px; stroke-width: 2; }
+
+/* 到達／離開 */
+.arrive { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.arrive button { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid color-mix(in srgb, var(--purple) 35%, var(--line)); background: color-mix(in srgb, var(--purple) 12%, var(--w)); color: var(--purple); border-radius: 10px; padding: 8px; font-size: 13px; font-weight: 600; }
+.arrive button svg.i { width: 15px; height: 15px; }
+.arrive button[data-act=leave] { background: var(--purple); color: var(--on-purple); border-color: var(--purple); }
+.arr-at { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: 13px; color: var(--purple); font-weight: 600; }
+.arr-at svg.i { width: 14px; height: 14px; }

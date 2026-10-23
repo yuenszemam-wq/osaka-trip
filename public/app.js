@@ -870,6 +870,38 @@ function detectArea(it) {
 }
 const areaOf = (it) => (it.area || "").trim() || detectArea(it) || "其他";
 
+// ---------- 到達／離開（用目前時間調整行程） ----------
+const todayISO = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; };
+function nowFor(it) { const t = new Date(); let m = t.getHours() * 60 + t.getMinutes(); if (it.start != null && it.start >= 1200 && m < 360) m += 1440; return m; }
+function arriveHTML(it, d) {
+  // 只在今天的行程顯示（未完成、有時間的行程）
+  if (S.manage || it.done || it.start == null || isInfo(it) || dayDate(d) !== todayISO()) return "";
+  return `<div class="arrive">${it.arrivedAt != null ? `<span class="arr-at">${icon("pin")} ${fmt(it.arrivedAt)} 到達</span>` : `<button data-act="arrive" data-id="${esc(it.id)}">${icon("pin")}到達</button>`}
+    <button data-act="leave" data-id="${esc(it.id)}">${icon("check")}離開</button></div>`;
+}
+function doArrive(id) {
+  commit(() => {
+    const f = findItem(id); if (!f) return;
+    const it = f.item, now = nowFor(it), delta = now - it.start;
+    it.arrivedAt = now;
+    if (!delta) return;
+    if (f.parent) { it.start = now; return; } // 子行程：只改自己
+    const d = f.day, p = posOf(d, it);
+    shiftItem(it, delta); // 保持長度，開始和結束一起移動
+    rippleFrom(d, p, delta); // 之後的行程跟著提前或延後（遇到鎖定的停止）
+  });
+}
+function doLeave(id) {
+  commit(() => {
+    const f = findItem(id); if (!f) return;
+    const it = f.item, v = V(it), now = nowFor(it);
+    const oldEnd = endOf(it);
+    if (it.start != null && now >= it.start) v.dur = now - it.start; else { it.start = now; v.dur = 0; }
+    it.done = true; it.leftAt = now;
+    if (!f.parent && oldEnd != null) { const delta = endOf(it) - oldEnd; if (delta) rippleFrom(f.day, posOf(f.day, it), delta); }
+  });
+}
+
 // ---- 卡片 ----
 function timeLabelLocked(it) {
   const t = timeLabel(it);
@@ -1366,7 +1398,7 @@ function itemHTML(it, d, warn, pos = { at: 0, route: "", shared: false }) {
     ${warnHTML}
     <div class="itemtitle"><span class="ttl">${esc(v.title || "（未命名）")}</span>${chev}</div>
     ${summaryOf(v) ? `<div class="summarytext">${esc(summaryOf(v))}</div>` : ""}${type === "stay" ? stayPeriodHTML(v) : ""}</div>
-    ${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${listPage ? "" : memoSection(it)}
+    ${listPage ? "" : arriveHTML(it, d)}${mapLinksHTML(v)}${costHTML(v, it)}${detailHTML(it, v)}${photosHTML(it, v)}${listPage ? "" : memoSection(it)}
     ${kids ? `<div class="children">${kids}</div>` : ""}${altsHTML(it, d)}
     ${S.manage ? toolsHTML(it, d, pos) : ""}
   </article>${after}`;
@@ -3812,6 +3844,8 @@ document.addEventListener("click", async (e) => {
     case "tab": S.dayId = id; S.q = ""; render(); window.scrollTo(0, 0); break;
     case "add-day": openDayEditor(true, t.dataset.kind); break;
     case "edit-day": openDayEditor(false); break;
+    case "arrive": doArrive(id); break;
+    case "leave": S.expanded.delete(id); doLeave(id); break;
     case "done": S.expanded.delete(id); commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
     case "toggle": toggleOpen(id); break;
     case "route": {
