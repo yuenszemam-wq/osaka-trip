@@ -48,6 +48,7 @@ const ICONS = {
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>',
+  pin: '<path d="M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6"/>',
   wand: '<path d="m14.5 4.5 5 5L8 21l-5-5z"/><path d="m12 7 5 5"/><path d="M19 2v3M20.5 3.5h-3M5 3v3M6.5 4.5h-3"/>',
   book: '<path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24H19"/><path d="M8 7h7M8 11h5"/>',
   wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3M21 12v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M17 12h4v4h-4a2 2 0 0 1 0-4z"/>',
@@ -916,7 +917,8 @@ function mapLinksHTML(v) {
   const maps = (v.links || []).filter((l) => isMapLink(l) && safeUrl(l.url));
   if (!maps.length && !linksHTML(v)) return "";
   const web = linksHTML(v);
-  return `<div class="quick maps">${maps.map((l) => `<a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener">${icon("nav")}<span>${esc(l.label || "地圖")}</span></a>`).join("")}${web}</div>`;
+  // 地圖連結：固定的地圖圖示；其他網站排成一行，太長會自動縮短
+  return `<div class="quick maps">${maps.map((l) => `<a class="maplogo" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener" aria-label="地圖：${esc(l.label || "")}" title="${esc(l.label || "地圖")}">${icon("pin")}</a>`).join("")}${web}</div>`;
 }
 function linksHTML(v) {
   const all = (v.links || []).filter((l) => !isMapLink(l));

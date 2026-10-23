@@ -884,3 +884,10 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .route-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .tprow small.warn { color: #d9822b; display: block; }
+
+/* 連結：一行顯示；地圖為固定圖示 */
+.quick.maps { flex-wrap: nowrap; overflow: hidden; }
+.quick.maps > a { flex: 0 1 auto; min-width: 0; }
+.quick.maps > a span { min-width: 0; }
+.quick.maps > a.maplogo { flex: none; width: 34px; height: 32px; padding: 0; justify-content: center; border-radius: 10px; background: color-mix(in srgb, #3b9b5a 18%, var(--w)); color: #3b9b5a; }
+.quick.maps > a.maplogo svg.i { width: 17px; height: 17px; stroke-width: 2; }
