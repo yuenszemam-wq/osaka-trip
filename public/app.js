@@ -916,7 +916,7 @@ function nowFor(it) { const t = new Date(); let m = t.getHours() * 60 + t.getMin
 function arriveHTML(it, d) {
   // 只在今天的行程顯示（未完成、有時間的行程）
   if (S.manage || it.done || it.start == null || isInfo(it) || dayDate(d) !== todayISO()) return "";
-  return `<div class="arrive">${it.arrivedAt != null ? `<span class="arr-at">${icon("pin")} ${fmt(it.arrivedAt)} 到達<button class="arr-undo" data-act="arrive-undo" data-id="${esc(it.id)}">取消到達</button></span>` : `<button data-act="arrive" data-id="${esc(it.id)}">${icon("pin")}到達</button>`}
+  return `<div class="arrive">${it.arrivedAt != null ? `<button class="arr-at" data-act="arrive-ask" data-id="${esc(it.id)}">${icon("pin")} ${fmt(it.arrivedAt)} 到達</button>` : `<button data-act="arrive" data-id="${esc(it.id)}">${icon("pin")}到達</button>`}
     <button data-act="leave" data-id="${esc(it.id)}">${icon("check")}離開</button></div>`;
 }
 // 是不是「現在要做」的行程：之前所有有時間的主行程都已完成
@@ -930,6 +930,14 @@ function dayItemsDeep(d) {
   const out = [];
   const add = (arr) => { for (const x of arr || []) { if (x.branch) { for (const r of x.routes || []) add(r.items); } else { out.push(x); add(x.children); } } };
   add(d.items); return out;
+}
+function openArriveUndo(id) {
+  const f = findItem(id); if (!f) return;
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("pin")} 取消到達</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p>要取消「${esc(V(f.item).title || "（未命名）")}」在 ${fmt(f.item.arrivedAt)} 的到達紀錄嗎？這一天的行程時間會還原成按「到達」之前的樣子。</p>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">不用</button><button class="btn danger" data-act="arrive-undo" data-id="${esc(id)}">取消到達</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 function doArriveUndo(id) {
   commit(() => {
@@ -3912,7 +3920,8 @@ document.addEventListener("click", async (e) => {
     case "add-day": openDayEditor(true, t.dataset.kind); break;
     case "edit-day": openDayEditor(false); break;
     case "arrive": doArrive(id); break;
-    case "arrive-undo": doArriveUndo(id); toast("已取消到達，時間已還原"); break;
+    case "arrive-ask": openArriveUndo(id); break;
+    case "arrive-undo": closeSheet(); doArriveUndo(id); toast("已取消到達，時間已還原"); break;
     case "leave": S.expanded.delete(id); doLeave(id); break;
     case "done": S.expanded.delete(id); commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
     case "toggle": toggleOpen(id); break;
