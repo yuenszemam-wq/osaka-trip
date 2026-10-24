@@ -284,11 +284,47 @@ function commit(mut, msg) {
   const before = twinKeys(S.doc);
   const res = mut(S.doc);
   syncTwins(S.doc, before);
+  for (const d of S.doc.days) if (d.kind === "day") sortDayByTime(d);
   queueWishSync();
   persistLocal(true);
   render();
   scheduleSave();
   if (msg || (res && res.msg)) toast(msg || res.msg, true);
+}
+// 行程次序跟時間：鎖定的行程不會移動，其他行程推後後可能排在它後面，所以按開始時間重新排列
+// （沒有時間的項目和資訊卡跟著前一項）
+function sortList(arr) {
+  if (!arr || arr.length < 2) return false;
+  let changed = false;
+  const out = [];
+  let seg = [];
+  const flush = () => {
+    const groups = [];
+    for (const it of seg) {
+      if (it.start != null && !isInfo(it)) groups.push([it]);
+      else if (groups.length) groups[groups.length - 1].push(it);
+      else groups.push([it]);
+    }
+    const sorted = groups.slice().sort((a, b) => (a[0].start ?? -1) - (b[0].start ?? -1));
+    if (sorted.some((g, k) => g !== groups[k])) changed = true;
+    for (const g of sorted) out.push(...g);
+    seg = [];
+  };
+  for (const it of arr) { if (isBranch(it)) { flush(); out.push(it); } else seg.push(it); }
+  flush();
+  if (changed) arr.splice(0, arr.length, ...out);
+  return changed;
+}
+function sortDayByTime(d) {
+  sortList(d.items);
+  for (const n of d.items) {
+    if (isBranch(n)) for (const r of n.routes) sortList(r.items);
+    for (const it of isBranch(n) ? n.routes.flatMap((r) => r.items) : [n]) {
+      const kids = it.children || [];
+      if (kids.length > 1 && kids.some((c, k) => k && c.start != null && kids[k - 1].start != null && c.start < kids[k - 1].start))
+        kids.sort((a, b) => (a.start ?? 1e9) - (b.start ?? 1e9));
+    }
+  }
 }
 // ---------- 分叉路線：同名的行程共用內容（只有時間不同） ----------
 const twinTitle = (it) => (V(it).title || "").trim();
@@ -439,6 +475,10 @@ async function load() {
     } else {
       S.doc = data.doc; S.version = data.version; S.savedAt = data.updatedAt;
       persistLocal(false);
+      // 舊資料：次序和時間不一致的，按時間重新排列
+      const was = JSON.stringify(S.doc.days);
+      for (const d of S.doc.days) if (d.kind === "day") sortDayByTime(d);
+      if (JSON.stringify(S.doc.days) !== was) { persistLocal(true); scheduleSave(); }
     }
     S.offline = false;
   } catch (e) {
