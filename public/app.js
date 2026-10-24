@@ -919,6 +919,12 @@ function arriveHTML(it, d) {
   return `<div class="arrive">${it.arrivedAt != null ? `<span class="arr-at">${icon("pin")} ${fmt(it.arrivedAt)} 到達</span>` : `<button data-act="arrive" data-id="${esc(it.id)}">${icon("pin")}到達</button>`}
     <button data-act="leave" data-id="${esc(it.id)}">${icon("check")}離開</button></div>`;
 }
+// 是不是「現在要做」的行程：之前所有有時間的主行程都已完成
+function isCurrent(d, it) {
+  const list = seq(d).map((e) => e.item).filter((x) => x.start != null && !isInfo(x));
+  const p = list.indexOf(it);
+  return p >= 0 && list.slice(0, p).every((x) => x.done);
+}
 function doArrive(id) {
   commit(() => {
     const f = findItem(id); if (!f) return;
@@ -926,9 +932,11 @@ function doArrive(id) {
     it.arrivedAt = now;
     if (!delta) return;
     if (f.parent) { it.start = now; return; } // 子行程：只改自己
-    const d = f.day, p = posOf(d, it);
+    const d = f.day, p = posOf(d, it), cur = isCurrent(d, it);
     shiftItem(it, delta); // 保持長度，開始和結束一起移動
-    rippleFrom(d, p, delta); // 之後的行程跟著提前或延後（遇到鎖定的停止）
+    // 按次序進行時，之後的行程跟著提前或延後；不按次序（跳去做後面的行程）時只改這一項，避免打亂其他時間
+    if (cur) rippleFrom(d, p, delta);
+    else { const next = seq(d).map((e) => e.item).slice(p + 1).find((x) => x.start != null && !isInfo(x) && !x.done); if (next && endOf(it) > next.start && delta > 0) rippleFrom(d, p, endOf(it) - next.start); }
   });
 }
 function doLeave(id) {
@@ -938,7 +946,7 @@ function doLeave(id) {
     const oldEnd = endOf(it);
     if (it.start != null && now >= it.start) v.dur = now - it.start; else { it.start = now; v.dur = 0; }
     it.done = true; it.leftAt = now;
-    if (!f.parent && oldEnd != null) { const delta = endOf(it) - oldEnd; if (delta) rippleFrom(f.day, posOf(f.day, it), delta); }
+    if (!f.parent && oldEnd != null && isCurrent(f.day, it)) { const delta = endOf(it) - oldEnd; if (delta) rippleFrom(f.day, posOf(f.day, it), delta); }
   });
 }
 
@@ -2574,6 +2582,7 @@ function readForm() {
       ED.draft.start = s + base;
     }
     if (f.tdur) { /* 交通：用「交通時間」 */ }
+    else if (f.dur && f.dur.value !== "") { const m = parseInt(f.dur.value, 10); v.dur = m >= 0 ? m : 0; }
     else if (s != null && e != null) { let dur = e - s; if (dur < 0) dur += 1440; v.dur = dur; }
     else if (e == null) v.dur = 0;
     if (f.locked) ED.draft.locked = f.locked.checked;
@@ -2642,6 +2651,9 @@ function renderEditor() {
         <label class="field"><span class="tlabel">開始時間${ED.isChild ? "<small>可留空</small>" : ""}</span><span class="tbox lk"><input type="time" name="start" value="${hhmm(it.start)}">${lockBtn(it)}<button type="button" class="tclear" data-act="time-clear" data-name="start" aria-label="清除時間">✕</button></span></label>
         <label class="field"><span class="tlabel">結束時間${ED.isChild ? "<small>可留空</small>" : ""}</span><span class="tbox"><input type="time" name="end" value="${it.start != null && v.dur ? hhmm(it.start + v.dur) : ""}"><button type="button" class="tclear" data-act="time-clear" data-name="end" aria-label="清除時間">✕</button></span></label>
       </div>
+      <div class="field durfield"><span>持續時間<small>改開始時間或調換次序時，結束時間按持續時間自動計算；也可以直接改結束時間</small></span>
+        <div class="durrow"><input type="number" name="dur" inputmode="numeric" min="0" step="5" value="${v.dur || ""}" placeholder="分鐘"><span class="durunit">分鐘</span>
+        ${[15, 30, 45, 60, 90, 120].map((m) => `<button type="button" class="chip durchip" data-act="dur-set" data-id="${m}">${m < 60 ? m + "分" : m / 60 + "小時"}</button>`).join("")}</div></div>
       ${lockHint(it)}
       ${showRipple ? `<label class="checkline"><input type="checkbox" name="ripple" checked><span>${rippleLabel}</span></label>` : ""}`}
       ${costFields(v.cost, [...new Set([localCur(), "HKD", v.cost && v.cost.cur].filter(Boolean))])}
@@ -4029,6 +4041,7 @@ document.addEventListener("click", async (e) => {
       commit(() => { const f = findItem(id); const v = V(f.item); v.photoModes = v.photoModes || {}; v.photoModes[t.dataset.photo] = t.dataset.mode; });
       break;
     case "close": closeSheet(); break;
+    case "dur-set": { const f = $("#edForm"); if (!f || !f.dur) break; f.dur.value = id; f.dur.dispatchEvent(new Event("input", { bubbles: true })); break; }
     case "cost-view": { const lb = $("#lightbox"); lb.innerHTML = `<img src="${esc(photoUrl(t.dataset.photo))}" alt=""><button data-act="lb-close">✕</button>`; lb.hidden = false; break; }
     case "cost-add-photo": { const inp = $("#costFile"); inp.value = ""; inp.click(); break; }
     case "cost-del-photo": COSTPH.photos.splice(+t.dataset.i, 1); $("#costPhotos").innerHTML = costPhotosHTML(); break;
@@ -4226,6 +4239,12 @@ document.addEventListener("input", (e) => {
   if (e.target.dataset && e.target.dataset.imp != null && e.target.dataset.k && IMP) { const x = IMP.items[+e.target.dataset.imp]; x.data[e.target.dataset.k] = e.target.value; if (e.target.dataset.k === "title") { const n = IMP.items.filter((y) => y.use !== false && y.data.title).length; const go = $("#impGo"); if (go) { go.disabled = !n; go.textContent = n ? `加入備選地點（${n}）` : "加入備選地點"; } } }
   if (e.target.dataset && e.target.dataset.journal) { const id = e.target.dataset.journal, val = e.target.value; autosize(e.target); diaryWrite((doc) => { const d = doc.days.find((x) => x.id === id); if (d) { if (val.trim()) d.journal = val; else delete d.journal; } }); }
   if (e.target.dataset && e.target.dataset.memo && e.target.classList.contains("de-note")) { const id = e.target.dataset.memo, val = e.target.value; autosize(e.target); diaryWrite(() => { const f = findItem(id); if (!f) return; f.item.memo = f.item.memo || { photos: [] }; f.item.memo.note = val; }); }
+  // 開始／持續時間／結束 互相連動
+  if (e.target.form && e.target.form.id === "edForm" && e.target.form.dur && ["start", "end", "dur"].includes(e.target.name)) {
+    const f = e.target.form, st = parseHHMM(f.start.value), en = parseHHMM(f.end.value), du = parseInt(f.dur.value, 10);
+    if (e.target.name === "end") { if (st != null && en != null) { let d = en - st; if (d < 0) d += 1440; f.dur.value = d; } else if (en == null) f.dur.value = ""; }
+    else if (st != null && du >= 0) f.end.value = hhmm(st + du);
+  }
   if ((e.target.name === "start" || e.target.name === "tdur") && e.target.form && e.target.form.id === "edForm" && $("#arrHint")) {
     const f = e.target.form, st = parseHHMM(f.start.value), m = parseInt(f.tdur.value, 10);
     $("#arrHint").innerHTML = arrText(st, m);

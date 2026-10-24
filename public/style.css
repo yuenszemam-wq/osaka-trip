@@ -899,3 +899,10 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .arrive button[data-act=leave] { background: var(--purple); color: var(--on-purple); border-color: var(--purple); }
 .arr-at { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: 13px; color: var(--purple); font-weight: 600; }
 .arr-at svg.i { width: 14px; height: 14px; }
+
+/* 持續時間 */
+.durfield > span small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 1px; }
+.durrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.durrow input { width: 84px !important; flex: none; }
+.durunit { font-size: 13px; color: var(--muted); margin-right: 4px; }
+.durchip { padding: 5px 10px !important; font-size: 12px !important; }
