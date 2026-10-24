@@ -315,6 +315,11 @@ function sortList(arr) {
   if (changed) arr.splice(0, arr.length, ...out);
   return changed;
 }
+// 「翌日」只用於凌晨 0:00–5:59；翌日 06:00 或之後的時間一定是被錯誤推移的，改回當日
+const NEXTDAY_END = 360;
+function fixNextDay(d) {
+  for (const x of dayItemsDeep(d)) if (x.start != null && x.start >= 1440 + NEXTDAY_END) x.start -= 1440;
+}
 function sortDayByTime(d) {
   sortList(d.items);
   for (const n of d.items) {
@@ -477,7 +482,7 @@ async function load() {
       persistLocal(false);
       // 舊資料：次序和時間不一致的，按時間重新排列
       const was = JSON.stringify(S.doc.days);
-      for (const d of S.doc.days) if (d.kind === "day") sortDayByTime(d);
+      for (const d of S.doc.days) if (d.kind === "day") { fixNextDay(d); sortDayByTime(d); }
       if (JSON.stringify(S.doc.days) !== was) { persistLocal(true); scheduleSave(); }
     }
     S.offline = false;
@@ -2601,7 +2606,8 @@ function readForm() {
     if (f.tdur) { const m = parseInt(f.tdur.value, 10); v.dur = m >= 0 ? m : 0; }
     if (s == null) ED.draft.start = null;
     else {
-      const base = ED.orig && ED.orig.start != null && ED.orig.start >= 1440 ? 1440 : 0;
+      // 凌晨 0:00–5:59 而且原本已是翌日（或前面有晚上的行程）才算翌日，其他時間都是當日
+      const base = s < NEXTDAY_END && ED.orig && ED.orig.start != null && (ED.orig.start >= 1440 || ED.orig.start >= 1080) ? 1440 : 0;
       ED.draft.start = s + base;
     }
     if (f.tdur) { /* 交通：用「交通時間」 */ }
