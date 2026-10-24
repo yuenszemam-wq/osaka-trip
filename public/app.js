@@ -916,7 +916,7 @@ function nowFor(it) { const t = new Date(); let m = t.getHours() * 60 + t.getMin
 function arriveHTML(it, d) {
   // 只在今天的行程顯示（未完成、有時間的行程）
   if (S.manage || it.done || it.start == null || isInfo(it) || dayDate(d) !== todayISO()) return "";
-  return `<div class="arrive">${it.arrivedAt != null ? `<span class="arr-at">${icon("pin")} ${fmt(it.arrivedAt)} 到達</span>` : `<button data-act="arrive" data-id="${esc(it.id)}">${icon("pin")}到達</button>`}
+  return `<div class="arrive">${it.arrivedAt != null ? `<span class="arr-at">${icon("pin")} ${fmt(it.arrivedAt)} 到達<button class="arr-undo" data-act="arrive-undo" data-id="${esc(it.id)}">取消到達</button></span>` : `<button data-act="arrive" data-id="${esc(it.id)}">${icon("pin")}到達</button>`}
     <button data-act="leave" data-id="${esc(it.id)}">${icon("check")}離開</button></div>`;
 }
 // 是不是「現在要做」的行程：之前所有有時間的主行程都已完成
@@ -925,10 +925,25 @@ function isCurrent(d, it) {
   const p = list.indexOf(it);
   return p >= 0 && list.slice(0, p).every((x) => x.done);
 }
+// 記下這一天所有行程的開始時間，取消「到達」時用來還原
+function dayItemsDeep(d) {
+  const out = [];
+  const add = (arr) => { for (const x of arr || []) { if (x.branch) { for (const r of x.routes || []) add(r.items); } else { out.push(x); add(x.children); } } };
+  add(d.items); return out;
+}
+function doArriveUndo(id) {
+  commit(() => {
+    const f = findItem(id); if (!f) return;
+    const it = f.item, snap = it.arriveSnap || {};
+    for (const x of dayItemsDeep(f.day)) if (x.id in snap) x.start = snap[x.id];
+    delete it.arrivedAt; delete it.arriveSnap;
+  });
+}
 function doArrive(id) {
   commit(() => {
     const f = findItem(id); if (!f) return;
     const it = f.item, now = nowFor(it), delta = now - it.start;
+    it.arriveSnap = Object.fromEntries(dayItemsDeep(f.day).filter((x) => x.start != null).map((x) => [x.id, x.start]));
     it.arrivedAt = now;
     if (!delta) return;
     if (f.parent) { it.start = now; return; } // 子行程：只改自己
@@ -945,7 +960,7 @@ function doLeave(id) {
     const it = f.item, v = V(it), now = nowFor(it);
     const oldEnd = endOf(it);
     if (it.start != null && now >= it.start) v.dur = now - it.start; else { it.start = now; v.dur = 0; }
-    it.done = true; it.leftAt = now;
+    it.done = true; it.leftAt = now; delete it.arriveSnap;
     if (!f.parent && oldEnd != null && isCurrent(f.day, it)) { const delta = endOf(it) - oldEnd; if (delta) rippleFrom(f.day, posOf(f.day, it), delta); }
   });
 }
@@ -3897,6 +3912,7 @@ document.addEventListener("click", async (e) => {
     case "add-day": openDayEditor(true, t.dataset.kind); break;
     case "edit-day": openDayEditor(false); break;
     case "arrive": doArrive(id); break;
+    case "arrive-undo": doArriveUndo(id); toast("已取消到達，時間已還原"); break;
     case "leave": S.expanded.delete(id); doLeave(id); break;
     case "done": S.expanded.delete(id); commit(() => { const f = findItem(id); f.item.done = !f.item.done; }); break;
     case "toggle": toggleOpen(id); break;
