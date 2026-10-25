@@ -429,16 +429,19 @@ function undo() {
   toast("已復原");
 }
 function persistLocal(pending) {
+  if (S.share) return;
   ls.set(K("doc"), JSON.stringify(S.doc));
   ls.set(K("version"), String(S.version));
   if (pending) { S.pending = true; ls.set(K("pending"), "1"); }
 }
 function scheduleSave() {
+  if (S.share) return;
   clearTimeout(S.timer);
   S.timer = setTimeout(save, 900);
   syncUI();
 }
 async function save(force = false) {
+  if (S.share) return;
   if (S.saving || (!S.pending && !force) || !S.tripId) return;
   S.saving = true; syncUI();
   const tripAtStart = S.tripId;
@@ -612,6 +615,7 @@ function wxLine(d) {
 }
 // 這部裝置未認證（或已被移除）：重新載入就會顯示認證頁
 function needAuth() {
+  if (S.share) return;
   try { if (sessionStorage.getItem("authReload")) return; sessionStorage.setItem("authReload", "1"); } catch {}
   location.reload();
 }
@@ -629,6 +633,7 @@ async function switchTrip(id) {
   await load();
 }
 async function refresh() {
+  if (S.share) return;
   if (S.pending || S.saving || document.hidden || !S.tripId) return;
   try {
     const r = await fetch(API(), { cache: "no-store" });
@@ -725,7 +730,7 @@ async function uploadFiles(files, onProgress) {
   }
   return ids;
 }
-const photoUrl = (id) => "/api/photos/" + encodeURIComponent(id);
+const photoUrl = (id) => (S.share ? `/api/share/${S.share}/photos/` : "/api/photos/") + encodeURIComponent(id);
 
 // ---------- 畫面 ----------
 const isIdeas = (d) => d && (d.id === "ideas" || (d.kind === "info" && /備選/.test((d.label || "") + (d.title || ""))));
@@ -755,7 +760,20 @@ function areaChipsHTML(d) {
   const keys = [...cnt.keys()].sort((a, b) => (a === "其他") - (b === "其他") || cnt.get(b) - cnt.get(a));
   return `<div class="areachips">${keys.map((k) => `<button data-act="area-jump" data-id="${esc(k)}">${icon("nav")}${esc(k)}<small>${cnt.get(k)}</small></button>`).join("")}</div>`;
 }
+function diaryChrome() {
+  const m = S.doc.meta || {}, ro = !!S.share;
+  document.body.classList.add("diarymode");
+  $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${ro ? "Shared journal" : "Travel memories"}</div><h1 class="dbrand">旅行回憶錄</h1></div>
+    <div class="status"><div class="status-btns">${ro ? "" : `<button class="iconbtn sm" data-act="share-open" aria-label="分享日記">${icon("upload")}</button><button class="iconbtn sm" data-act="diary-back" aria-label="返回行程">${icon("back")}</button>`}</div></div>`;
+  const trips = S.trips.length ? S.trips : [{ id: S.tripId, title: m.title }];
+  $("#tabs").innerHTML = `${trips.length > 1 ? `<div class="dtrips">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${icon("suitcase")}${esc(t.title || "旅程")}</button>`).join("")}</div>` : ""}
+    <div class="toprow3 dtool"><div class="switch"><button data-act="diary-mode" data-id="book" aria-pressed="${S.diaryMode !== "album"}">${icon("book")} 手帳</button><button data-act="diary-mode" data-id="album" aria-pressed="${S.diaryMode === "album"}">${icon("image")} 相簿</button></div>
+    ${ro ? "" : `<button class="manage" data-act="journal-edit" aria-label="寫下今天">${icon("pencil")}寫下</button>`}</div>`;
+  document.title = `${m.title || "旅程"} · 旅行回憶錄`;
+}
 function renderChrome() {
+  if (S.dayId === DIARY) { diaryChrome(); return; }
+  document.body.classList.remove("diarymode");
   const m = S.doc.meta || {};
   $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${esc(m.dates || "")}</div>
     <h1>${esc(m.name || m.title || "Trip.")}<small>${esc(m.subtitle || m.title || "")}</small></h1></div>
@@ -800,7 +818,7 @@ function renderChrome() {
 function render() {
   if (!S.doc) return;
   if (!isSpecial(S.dayId) && !S.doc.days.some((d) => d.id === S.dayId)) S.dayId = (S.doc.days.find((d) => d.kind === "day") || S.doc.days[0]).id;
-  ls.set(K("day"), S.dayId);
+  if (!S.share) ls.set(K("day"), S.dayId);
   renderChrome();
   let html = "";
   if (S.conflict) html += `<div class="banner"><b>行程已在其他裝置更新。</b><br>這部手機也有未上傳的修改，請選擇保留哪一個版本。
@@ -1358,10 +1376,11 @@ function costDiaryHTML(c, id, isExp) {
   return `<div class="de-cost"><span>🧾 ${amt != null ? money(amt, cur) : "消費"}${c.pay && PAY[c.pay] ? " · " + payLabel(c.pay) : ""}</span>
     <div class="de-photos">${c.photos.map((p) => `<img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="cost-view" data-photo="${esc(p)}">`).join("")}</div></div>`;
 }
-// ---- 旅程日記（文青手帳風）：一天一頁或全部瀏覽；有相片和文字的回憶放上面，旅途足跡放下面 ----
+// ---- 旅程日記（獨立頁面）：可選旅程；「手帳」（標題 → 相片 → 文字）和「相簿」；可分享唯讀連結 ----
 function diaryDays() { return S.doc.days.filter((x) => x.kind === "day"); }
 function diaryCurDay() {
   const days = diaryDays();
+  if (S.diaryDay === "all") return null;
   let d = days.find((x) => x.id === S.diaryDay);
   if (!d) d = days.find((x) => dayDate(x) === todayISO()) || days.find((x) => dayMemories(x).length || x.journal) || days[0];
   if (d) S.diaryDay = d.id;
@@ -1379,63 +1398,107 @@ function dayMemories(d) {
   for (const e of S.doc.expenses || []) if (e.dayId === d.id && (e.photos || []).length) out.push({ kind: "exp", e, photos: e.photos, t: e.time });
   return out.sort((a, b) => (a.t ?? 1e9) - (b.t ?? 1e9));
 }
-function polaroidHTML(photos, caption, right, act, id) {
+function polaroidHTML(photos, caption, right, id) {
   const n = photos.length, show = photos.slice(0, n > 4 ? 4 : n);
-  const img = (p, k) => `<div class="pp"><img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="${act}" data-id="${esc(id)}" data-photo="${esc(p)}">${k === 3 && n > 4 ? `<b>+${n - 4}</b>` : ""}</div>`;
+  const img = (p, k) => `<div class="pp"><img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="album-view" data-id="${esc(id)}" data-photo="${esc(p)}">${k === 3 && n > 4 ? `<b>+${n - 4}</b>` : ""}</div>`;
   return `<div class="polaroid"><i class="tape"></i><div class="pgrid n${Math.min(n, 4)}">${show.map(img).join("")}</div>
-    <div class="pcap"><em>${esc(caption || "")}</em><span>${esc(right || "")}</span></div></div>`;
+    ${caption || right ? `<div class="pcap"><em>${esc(caption || "")}</em><span>${esc(right || "")}</span></div>` : ""}</div>`;
 }
+// 一則回憶：標題 → 相片 → 詳細文字
 function memoryHTML(m, k) {
+  const ro = !!S.share;
   if (m.kind === "exp") {
-    const e = m.e, amt = e.actual ?? e.plan;
-    return `<article class="mem tilt${k % 2}">${polaroidHTML(m.photos, e.title, e.time != null ? fmt(e.time) : "", "cost-view", e.id)}
-      <div class="mmeta"><i></i>${[e.time != null ? fmt(e.time) : "", "支出", amt != null ? money(amt, e.cur || localCur()) : ""].filter(Boolean).join(" · ")}</div>
-      <h4>${esc(e.title || "支出")}</h4>${e.note ? `<p class="mnote">${esc(e.note)}</p>` : ""}
-      <div class="mact"><button data-act="expense-edit" data-id="${esc(e.id)}">✎ 編輯支出</button></div></article>`;
+    const e = m.e;
+    return `<article class="mem tilt${k % 2}">
+      <div class="mmeta"><i></i>${[e.time != null ? fmt(e.time) : "", catOf(e.type || "shop")[0]].filter(Boolean).join(" · ")}</div>
+      <h4>${esc(e.title || "支出")}</h4>
+      ${polaroidHTML(m.photos, "", e.time != null ? fmt(e.time) : "", e.id)}
+      ${!ro ? `<div class="mact"><button data-act="expense-edit" data-id="${esc(e.id)}">✎ 編輯</button></div>` : ""}</article>`;
   }
   const x = m.x, v = V(x), mm = memoOf(x), area = areaOf(x), cat = catOf(v.type || "place")[0];
   const right = [area !== "其他" ? area : "", x.start != null ? fmt(x.start) : ""].filter(Boolean).join(" · ");
   return `<article class="mem tilt${k % 2}" id="de-${esc(x.id)}">
-    ${m.photos.length ? polaroidHTML(m.photos, mm.caption, right, "memo-view", x.id) : mm.caption ? `<blockquote class="mquote">${esc(mm.caption)}</blockquote>` : ""}
-    <div class="mmeta"><i></i>${[x.start != null ? fmt(x.start) : "", cat, area !== "其他" ? area : ""].filter(Boolean).map(esc).join(" · ")}</div>
+    <div class="mmeta"><i></i>${[x.start != null ? fmt(x.start) : "", cat, area !== "其他" ? area : ""].filter(Boolean).map(esc).join(" · ")}${mm.fav ? `<span class="favmark">♥</span>` : ""}</div>
     <h4>${esc(v.title || "（未命名）")}</h4>
+    ${m.photos.length ? polaroidHTML(m.photos, mm.caption, right, x.id) : mm.caption ? `<blockquote class="mquote">${esc(mm.caption)}</blockquote>` : ""}
     ${(mm.note || "").trim() ? `<p class="mnote">${esc(mm.note)}</p>` : ""}
-    <div class="mact"><button data-act="memo-fav" data-id="${esc(x.id)}" class="${mm.fav ? "on" : ""}">${mm.fav ? "♥ 已收藏" : "♡ 收藏這一刻"}</button><button data-act="memo-edit" data-id="${esc(x.id)}">✎ 編輯回憶</button></div></article>`;
+    ${!ro ? `<div class="mact"><button data-act="memo-fav" data-id="${esc(x.id)}" class="${mm.fav ? "on" : ""}">${mm.fav ? "♥ 已收藏" : "♡ 收藏這一刻"}</button><button data-act="memo-edit" data-id="${esc(x.id)}">✎ 編輯回憶</button></div>` : ""}</article>`;
 }
 function footprintHTML(d) {
   const rows = seq(d).map((e) => e.item).filter((x) => !isInfo(x));
   if (!rows.length) return "";
-  const key = "foot:" + d.id, closed = S.closed.has(key);
+  const key = "foot:" + d.id, closed = S.closed.has(key), ro = !!S.share;
   return `<details class="period foot" data-key="${esc(key)}" ${closed ? "" : "open"}><summary>旅途足跡 · 交通與行程</summary><ol>
-    ${rows.map((x) => { const mm = memoOf(x), has = (mm.photos || []).length || (mm.note || "").trim(); return `<li class="${x.done ? "done" : ""}"><button data-act="memo-edit" data-id="${esc(x.id)}"><time>${x.start != null ? fmt(x.start) : "　"}</time><span>${esc(V(x).title || "（未命名）")}</span>${has ? `<i>${icon("camera")}</i>` : ""}</button></li>`; }).join("")}
+    ${rows.map((x) => { const mm = memoOf(x), has = (mm.photos || []).length || (mm.note || "").trim(); const inner = `<time>${x.start != null ? fmt(x.start) : "　"}</time><span>${esc(V(x).title || "（未命名）")}</span>${has ? `<i>${icon("camera")}</i>` : ""}`;
+      return `<li class="${x.done || ro ? "done" : ""}">${ro ? `<div class="frow">${inner}</div>` : `<button class="frow" data-act="memo-edit" data-id="${esc(x.id)}">${inner}</button>`}</li>`; }).join("")}
   </ol></details>`;
 }
 function diaryDayHTML(d, i, n) {
-  const mems = dayMemories(d), wd = wdOf(d).replace(/[^A-Za-z]/g, "");
+  const mems = dayMemories(d), wd = wdOf(d).replace(/[^A-Za-z]/g, ""), ro = !!S.share, days = diaryDays();
   return `<section class="dpage" id="dd-${esc(d.id)}">
     <header class="dhead"><div class="kicker">${String(i + 1).padStart(2, "0")} · ${esc(d.label)}${d.sub ? " · " + esc(d.sub) : ""}${wd ? " " + esc(wd) : ""}</div>
       <h3>${esc(d.title || d.label)}</h3>
-      ${(d.journal || "").trim() ? `<p class="djournal" data-act="journal-edit" data-id="${esc(d.id)}">${esc(d.journal)}</p>` : `<button class="dwrite" data-act="journal-edit" data-id="${esc(d.id)}">✎ 寫下這一天…</button>`}</header>
-    ${mems.length ? mems.map(memoryHTML).join("") : `<p class="dempty">這一天還沒有相片和文字。<br>在下面的足跡按一個地點，就可以加入相片、寫下感受。</p>`}
+      ${(d.journal || "").trim() ? `<p class="djournal" ${ro ? "" : `data-act="journal-edit" data-id="${esc(d.id)}"`}>${esc(d.journal)}</p>` : ro ? "" : `<button class="dwrite" data-act="journal-edit" data-id="${esc(d.id)}">✎ 寫下這一天…</button>`}</header>
+    ${mems.length ? mems.map(memoryHTML).join("") : `<p class="dempty">${ro ? "這一天沒有留下相片和文字。" : "這一天還沒有相片和文字。<br>在下面的足跡按一個地點，就可以加入相片、寫下感受。"}</p>`}
     ${footprintHTML(d)}
-    ${n ? `<nav class="dpager"><span>${String(i + 1).padStart(2, "0")} / ${String(n).padStart(2, "0")} · 旅行回憶錄</span><span>${i > 0 ? `<button data-act="diary-day" data-id="${esc(diaryDays()[i - 1].id)}">← 上一天</button>` : ""}${i < n - 1 ? `<button data-act="diary-day" data-id="${esc(diaryDays()[i + 1].id)}">翻到下一天 →</button>` : ""}</span></nav>` : ""}
+    ${n ? `<nav class="dpager"><span>${String(i + 1).padStart(2, "0")} / ${String(n).padStart(2, "0")} · 旅行回憶錄</span><span>${i > 0 ? `<button data-act="diary-day" data-id="${esc(days[i - 1].id)}">← 上一天</button>` : ""}${i < n - 1 ? `<button data-act="diary-day" data-id="${esc(days[i + 1].id)}">翻到下一天 →</button>` : ""}</span></nav>` : ""}
   </section>`;
+}
+// 相簿：所有相片按日子排列
+function albumHTML(days) {
+  let html = "", total = 0;
+  for (const d of days) {
+    const ph = [];
+    for (const m of dayMemories(d)) for (const p of m.photos) ph.push({ p, id: m.x ? m.x.id : m.e.id, title: m.x ? V(m.x).title : m.e.title, t: m.t });
+    total += ph.length;
+    if (!ph.length) continue;
+    html += `<section class="alday"><div class="kicker">${esc(d.label)}${d.sub ? " · " + esc(d.sub) : ""}</div><h3>${esc(d.title || d.label)}</h3>
+      <div class="algrid">${ph.map((x) => `<figure><img src="${esc(photoUrl(x.p))}" loading="lazy" alt="" data-act="album-view" data-id="${esc(x.id)}" data-photo="${esc(x.p)}"><figcaption>${x.t != null ? `<time>${fmt(x.t)}</time>` : ""}${esc(x.title || "")}</figcaption></figure>`).join("")}</div></section>`;
+  }
+  return total ? html : `<p class="dempty">還沒有相片。</p>`;
 }
 function diaryHTML() {
   const m = S.doc.meta || {}, days = diaryDays();
-  if (!days.length) return `<div class="diary lit"><p class="dempty">還沒有旅遊日。</p></div>`;
-  const all = S.diaryMode === "all";
-  let nPhotos = 0, nWords = 0, nFav = 0;
-  for (const d of days) { for (const mm of dayMemories(d)) { nPhotos += mm.photos.length; if (mm.x) { nWords += (memoOf(mm.x).note || "").length; if (memoOf(mm.x).fav) nFav++; } } nWords += (d.journal || "").length; }
-  const cur = diaryCurDay(), ci = days.indexOf(cur);
-  return `<div class="diary lit">
-    ${S.trips.length > 1 ? `<div class="dtrips">${S.trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${esc(t.title)}</button>`).join("")}</div>` : ""}
-    ${all ? `<div class="dcover"><div class="kicker">${esc(m.dates || "")}</div><h2>${esc(m.title || "旅程日記")}</h2><p class="dsub">Travel journal</p>
-      <div class="dstats"><span><b>${days.length}</b> 天</span><span><b>${nPhotos}</b> 張相片</span><span><b>${nWords}</b> 字</span>${nFav ? `<span><b>${nFav}</b> 個收藏</span>` : ""}</div></div>
-      ${days.map((d, i) => diaryDayHTML(d, i, 0)).join(`<div class="dsep">❦</div>`)}`
-    : `<div class="ddays">${days.map((d, i) => `<button class="${d === cur ? "on" : ""}" data-act="diary-day" data-id="${esc(d.id)}">${String(i + 1).padStart(2, "0")}<small>${esc(d.sub || d.label)}</small></button>`).join("")}</div>
-      ${diaryDayHTML(cur, ci, days.length)}`}
-  </div>`;
+  if (!days.length) return `<div class="diary lit"><p class="dempty">這個旅程還沒有旅遊日。</p></div>`;
+  const album = S.diaryMode === "album", cur = diaryCurDay(), all = !cur, ci = cur ? days.indexOf(cur) : -1;
+  let nPhotos = 0, nWords = 0;
+  for (const d of days) { for (const mm of dayMemories(d)) { nPhotos += mm.photos.length; if (mm.x) nWords += (memoOf(mm.x).note || "").length; } nWords += (d.journal || "").length; }
+  const chips = `<div class="ddays"><button class="${all ? "on" : ""}" data-act="diary-day" data-id="all">全部<small>ALL</small></button>${days.map((d, i) => `<button class="${d === cur ? "on" : ""}" data-act="diary-day" data-id="${esc(d.id)}">${String(i + 1).padStart(2, "0")}<small>${esc(d.sub || d.label)}</small></button>`).join("")}</div>`;
+  const cover = `<div class="dcover"><div class="kicker">${esc(m.dates || "")}</div><h2>${esc(m.title || "旅程日記")}</h2><p class="dsub">${album ? "Photo album" : "Travel journal"}</p>
+    <div class="dstats"><span><b>${days.length}</b> 天</span><span><b>${nPhotos}</b> 張相片</span><span><b>${nWords}</b> 字</span></div></div>`;
+  let body;
+  if (album) body = albumHTML(all ? days : [cur]);
+  else body = all ? days.map((d, i) => diaryDayHTML(d, i, 0)).join(`<div class="dsep">❦</div>`) : diaryDayHTML(cur, ci, days.length);
+  return `<div class="diary lit">${all ? cover : ""}${chips}${body}</div>`;
+}
+async function openShare(highlight) {
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("upload")} 分享日記</h2><button class="btn ghost" data-act="close">✕</button></div><p class="hint">載入中…</p></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  if (S.trips.length < 2) await loadTrips();
+  let shares = [];
+  try { const r = await fetch("/api/shares"); shares = (await r.json()).shares || []; } catch {}
+  const tname = (id) => (S.trips.find((x) => x.id === id) || {}).title || id;
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("upload")} 分享日記</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">建立一條連結，沒有裝置權限的人也可以瀏覽日記和相片，但不能修改。不會顯示消費金額。</p>
+    ${shares.length ? `<div class="field"><span>已建立的連結</span>${shares.map((x) => `<div class="sharerow ${x.token === highlight ? "new" : ""}"><div><b>${esc(x.trips.map(tname).join("、"))}</b><small>${esc(location.origin)}/s/${esc(x.token)}</small></div>
+      <button class="btn small primary" data-act="share-copy" data-id="${esc(x.token)}">${icon("upload")}分享</button><button class="btn small danger" data-act="share-del" data-id="${esc(x.token)}">停止</button></div>`).join("")}</div>` : ""}
+    <form id="shareForm" onsubmit="return false"><div class="field"><span>新的連結包括這些旅程</span>
+      ${(S.trips.length ? S.trips : [{ id: S.tripId, title: (S.doc.meta || {}).title }]).map((t) => `<label class="checkline"><input type="checkbox" name="st" value="${esc(t.id)}" ${t.id === S.tripId ? "checked" : ""}><span>${esc(t.title || t.id)}</span></label>`).join("")}</div></form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">關閉</button><button class="btn primary" data-act="share-make">${icon("plus")}建立分享連結</button></div></div>`;
+}
+// 分享模式：只讀載入日記
+async function loadShare(tripId) {
+  try {
+    const r = await fetch(`/api/share/${S.share}${tripId ? "?trip=" + encodeURIComponent(tripId) : ""}`, { cache: "no-store" });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "載入失敗");
+    S.trips = j.trips; S.tripId = j.tripId; S.doc = j.doc; S.dayId = DIARY; S.diaryDay = S.diaryDay || null;
+    render();
+  } catch (e) {
+    document.body.classList.add("diarymode");
+    $("#main").innerHTML = `<div class="diary lit"><p class="dempty">${esc(e.message)}</p></div>`;
+  }
 }
 function openMemoEditor(id) {
   const f = findItem(id); if (!f) return;
@@ -4546,11 +4609,36 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "diary-jump": { const el = document.getElementById("dd-" + id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - ($("#tabs").offsetHeight || 0) - 8, behavior: "smooth" }); break; }
-    case "diary-go": closeSheet(); S.dayId = DIARY; S.manage = false; render(); window.scrollTo(0, 0); if (S.trips.length < 2) loadTrips().then(() => { if (S.dayId === DIARY && S.trips.length > 1) render(); }); break;
-    case "diary-trip": if (id !== S.tripId) { await switchTrip(id); S.dayId = DIARY; render(); window.scrollTo(0, 0); } break;
+    case "diary-go": closeSheet(); if (S.dayId !== DIARY) S.prevDay = S.dayId; S.dayId = DIARY; S.manage = false; render(); window.scrollTo(0, 0); if (S.trips.length < 2) loadTrips().then(() => { if (S.dayId === DIARY && S.trips.length > 1) render(); }); break;
+    case "diary-back": { const days = S.doc.days; S.dayId = S.prevDay && (isSpecial(S.prevDay) || days.some((d) => d.id === S.prevDay)) && S.prevDay !== DIARY ? S.prevDay : ((days.find((d) => d.kind === "day" && dayDate(d) === todayISO()) || days.find((d) => d.kind === "day") || days[0]).id); render(); window.scrollTo(0, 0); break; }
+    case "diary-trip": if (id !== S.tripId) { S.diaryDay = null; if (S.share) await loadShare(id); else { await switchTrip(id); S.dayId = DIARY; render(); } window.scrollTo(0, 0); } break;
     case "diary-mode": S.diaryMode = id; ls.set("trip.diaryMode", id); render(); window.scrollTo(0, 0); break;
-    case "diary-day": S.diaryDay = id; S.diaryMode = "day"; render(); window.scrollTo(0, 0); break;
-    case "journal-edit": openJournalEditor(id || (S.diaryMode === "all" ? (diaryDays().find((x) => dayDate(x) === todayISO()) || diaryCurDay()).id : diaryCurDay().id)); break;
+    case "diary-day": S.diaryDay = id; render(); window.scrollTo(0, 0); break;
+    case "album-view": {
+      const f = findItem(id), e = !f && (S.doc.expenses || []).find((x) => x.id === id);
+      const title = f ? V(f.item).title : e ? e.title : "", mm = f ? memoOf(f.item) : {};
+      const all = f ? [...(mm.photos || []), ...((V(f.item).cost || {}).photos || [])] : e ? e.photos : [t.dataset.photo];
+      const k = Math.max(0, all.indexOf(t.dataset.photo));
+      const lb = $("#lightbox");
+      lb.innerHTML = `<img src="${esc(photoUrl(all[k]))}" alt=""><button data-act="lb-close">✕</button>
+        <div class="lb-cap"><b>${esc(title || "")}</b>${mm.caption ? `<em>${esc(mm.caption)}</em>` : ""}</div>
+        <div class="lb-tools">${all.length > 1 ? all.map((p, i) => `<button data-act="album-view" data-id="${esc(id)}" data-photo="${esc(p)}" ${i === k ? 'style="background:#72598e"' : ""}>${i + 1}</button>`).join("") : ""}${!S.share && f && (mm.photos || []).includes(all[k]) ? `<button data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(all[k])}">移除這張</button>` : ""}</div>`;
+      lb.hidden = false; break;
+    }
+    case "share-open": openShare(); break;
+    case "share-make": {
+      const ids = $$("#shareForm [name=st]:checked").map((x) => x.value);
+      if (!ids.length) { toast("請選擇最少一個旅程"); break; }
+      try { const r = await fetch("/api/shares", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trips: ids, token: t.dataset.token || undefined }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); openShare(j.token); } catch (err) { toast("建立分享連結失敗：" + err.message); }
+      break;
+    }
+    case "share-copy": { const u = location.origin + "/s/" + id; try { if (navigator.share) await navigator.share({ title: "旅行回憶錄", url: u }); else { await navigator.clipboard.writeText(u); toast("已複製連結"); } } catch { try { await navigator.clipboard.writeText(u); toast("已複製連結"); } catch {} } break; }
+    case "share-del": {
+      if (!t.dataset.sure) { t.textContent = "再按一次停止分享"; t.dataset.sure = "1"; break; }
+      try { await fetch("/api/shares/" + encodeURIComponent(id), { method: "DELETE" }); toast("已停止分享"); openShare(); } catch (err) { toast("失敗：" + err.message); }
+      break;
+    }
+    case "journal-edit": openJournalEditor(id || (diaryCurDay() || diaryDays().find((x) => dayDate(x) === todayISO()) || diaryDays()[0]).id); break;
     case "journal-save": { const v = $("#journalForm").j.value; closeSheet(); commit(() => { const d = S.doc.days.find((x) => x.id === id); if (d) d.journal = v; }); break; }
     case "memo-edit": openMemoEditor(id); break;
     case "memo-save": {
@@ -4766,7 +4854,7 @@ setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
 S.view = ls.get("trip.view") === "map" ? "map" : "list";
 S.cardOff = ls.get("trip.cardOff") === "1";
 S.npOpen = new Set();
-S.diaryMode = ls.get("trip.diaryMode") === "all" ? "all" : "day";
+S.diaryMode = ls.get("trip.diaryMode") === "album" ? "album" : "book";
 S.theme = ls.get("trip.theme") === "dark" ? "dark" : ls.get("trip.theme") === "light" ? "light" : "auto";
 setTheme(S.theme);
 
@@ -4869,10 +4957,17 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeSheet(); $("#lightbox").hidden = true; } });
 
 window.addEventListener("hashchange", () => { const h = (location.hash.match(/t=([\w-]+)/) || [])[1]; if (h && h !== S.tripId) switchTrip(h); });
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-(async () => {
-  S.tripId = await pickTrip();
-  load();
-  loadTrips();
-})();
+const shareTok = (location.pathname.match(/^\/s\/([\w-]+)/) || [])[1];
+if (shareTok) {
+  // 分享的日記：唯讀，不用認證，不儲存任何東西
+  S.share = shareTok; S.diaryDay = "all";
+  loadShare(null);
+} else {
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  (async () => {
+    S.tripId = await pickTrip();
+    load();
+    loadTrips();
+  })();
+}
 })();
