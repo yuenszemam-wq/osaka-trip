@@ -2016,7 +2016,7 @@ function costRows() {
   const add = (it, d, sub) => {
     const v = V(it); const c = v.cost;
     if (!c || (c.plan == null && c.actual == null)) return;
-    rows.push({ id: it.id, title: v.title, type: v.type || "place", day: d, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, time: it.start });
+    rows.push({ id: it.id, title: v.title, type: v.type || "place", day: d, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, note: c.note, time: it.start });
   };
   for (const d of S.doc.days) {
     if (isIdeas(d)) continue;
@@ -2178,17 +2178,23 @@ function openCostEditor(id) {
   const f = findItem(id); if (!f) return;
   const v = V(f.item);
   const curs = [...new Set([localCur(), "HKD", v.cost && v.cost.cur].filter(Boolean))];
+  const type = v.type || "place";
   const sheet = $("#sheet");
   sheet.className = "sheet";
-  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>記錄消費</h2><button class="btn ghost" data-act="close">✕</button></div>
-    <p class="hint" style="margin:-6px 0 12px">${esc(f.day.label)}${f.item.start != null ? " · " + fmt(f.item.start) : ""} · <b style="color:var(--ink)">${esc(v.title)}</b>${f.item.variants.length > 1 ? `（方案 ${planLetter(f.item.active || 0)}）` : ""}</p>
-    <form id="costForm" onsubmit="return false">${costFields(v.cost, curs)}</form>
-    <div class="sheet-foot">${v.cost ? `<button class="btn danger" data-act="cost-clear" data-id="${esc(id)}">清除</button>` : ""}
-      <button class="btn" data-act="edit" data-id="${esc(id)}">完整編輯</button><span class="grow"></span>
+  // 和「其他支出」相同的介面：項目、分類、日期、消費、備註
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${v.cost ? "編輯支出" : "記錄消費"}</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="costForm" onsubmit="return false">
+      <label class="field"><span>項目${f.item.variants.length > 1 ? `<small class="hint" style="margin:0 0 0 6px">方案 ${planLetter(f.item.active || 0)}</small>` : ""}</span><input type="text" name="title" value="${esc(v.title || "")}"></label>
+      <div class="grid2"><label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label>
+      <label class="field"><span>日期</span><select name="dayId" disabled><option>${esc(f.day.label)} ${esc(f.day.sub || "")}${f.item.start != null ? " · " + fmt(f.item.start) : ""}</option></select></label></div>
+      ${costFields(v.cost, curs)}
+      <label class="field"><span>備註</span><input type="text" name="note" value="${esc((v.cost && v.cost.note) || "")}"></label>
+    </form>
+    <div class="sheet-foot">${v.cost ? `<button class="btn danger" data-act="cost-clear" data-id="${esc(id)}">刪除</button>` : ""}<span class="grow"></span>
+      <button class="btn" data-act="edit" data-id="${esc(id)}">完整編輯</button>
       <button class="btn" data-act="close">取消</button><button class="btn primary" data-act="cost-save" data-id="${esc(id)}">儲存</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
   updateCostPreview();
-  setTimeout(() => { const i = $("#costForm [name=" + (v.cost && v.cost.plan != null ? "costActual" : "costPlan") + "]"); if (i) i.focus(); }, 80);
 }
 
 // ---------- 整個行程預算 ----------
@@ -2680,7 +2686,8 @@ function readForm() {
   const v = ED.draft.variants[ED.k];
   v.title = f.tfrom ? joinRoute(f.tfrom.value, f.tto.value) : f.title.value.trim();
   v.summary = f.summary.value.trim();
-  const cost = readCost(f); if (cost) v.cost = cost; else delete v.cost;
+  const oldNote = v.cost && v.cost.note;
+  const cost = readCost(f); if (cost && oldNote) cost.note = oldNote; if (cost) v.cost = cost; else delete v.cost;
   v.type = f.type.value;
   v.details = f.details.value.replace(/\s+$/, "");
   if (f.stayFrom) { v.stayFrom = f.stayFrom.value || undefined; v.stayTo = f.stayTo.value || undefined; if (v.stayFrom && v.stayTo && v.stayTo < v.stayFrom) v.stayTo = undefined; }
@@ -3777,9 +3784,12 @@ document.addEventListener("click", async (e) => {
     case "photo-mode": setPhotoMode(id); render(); openMenu(); break;
     case "cost-edit": closeSheet(); openCostEditor(id); break;
     case "cost-save": {
-      const c = readCost($("#costForm"));
+      const fm = $("#costForm"), c = readCost(fm);
+      const title = fm.title ? fm.title.value.trim() : null, type = fm.type ? fm.type.value : null, note = fm.note ? fm.note.value.trim() : "";
+      if (fm.title && !title) { fieldErrorIn(fm, "title", "請輸入項目名稱"); break; }
+      if (c && note) c.note = note;
       closeSheet();
-      commit(() => { const f = findItem(id); if (!f) return; const v = V(f.item); if (c) v.cost = c; else delete v.cost; }, c ? "已儲存消費" : "已清除消費");
+      commit(() => { const f = findItem(id); if (!f) return; const v = V(f.item); if (title) v.title = title; if (type && type !== (v.type || "place")) v.type = type; if (c) v.cost = c; else delete v.cost; }, c ? "已儲存消費" : "已清除消費");
       break;
     }
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
