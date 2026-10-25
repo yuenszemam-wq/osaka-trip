@@ -785,14 +785,14 @@ function renderChrome() {
       : `<div class="toprow3">${ptitle(day().title || day().label, day().subtitle, S.manage ? "edit-day" : "")}
       <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
       <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>${typeTabsHTML(day())}${areaChipsHTML(day())}`)
-    : S.dayId === MONEY ? `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="trip-settings" aria-label="設定">${icon("gear")}設定</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`
+    : S.dayId === MONEY ? `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="rc-open" aria-label="掃描收據">${icon("camera")}收據</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`
     : S.dayId === SHOP ? (() => { const L = S.doc.shopping || [], nd = L.filter((x) => x.done).length;
       return `<div class="toprow3">${ptitle("購物清單", `${L.length - nd} 件未買`)}<button class="manage add" data-act="add">${icon("plus")}新增</button></div>
       <div class="toprow4"><div class="switch">${[["todo", "未買", L.length - nd], ["done", "已買", nd], ["all", "全部", L.length]].map(([k, t, n]) => `<button data-act="shop-filter" data-id="${k}" aria-pressed="${(S.shopFilter || "todo") === k}">${t}<small class="cnt">${n}</small></button>`).join("")}</div></div>`; })()
     : S.dayId === WISH ? (() => { const W = (S.wish && S.wish.doc.items) || []; const cs = [...new Set(W.map((x) => x.country || "未分類"))];
       return `<div class="toprow3">${ptitle("旅行願望清單", `${W.length} 個地點`)}<button class="manage" data-act="wish-back">${icon("back")}返回</button><button class="manage add" data-act="wish-new">${icon("plus")}新增</button></div>
       ${cs.length > 1 ? `<div class="type-tabs intop">${[["all", "全部"], ...cs.map((c) => [c, c])].map(([k, t]) => `<button class="ttab" data-act="wish-filter" data-id="${esc(k)}" aria-pressed="${(S.wishFilter || "all") === k}">${k === "all" ? icon("globe") : ""}${esc(t)}<small>${k === "all" ? W.length : W.filter((x) => (x.country || "未分類") === k).length}</small></button>`).join("")}</div>` : ""}`; })()
-    : S.dayId === DIARY ? `<div class="toprow3">${ptitle("旅程日記", m.title || "")}<div class="switch compact"><button data-act="diary-filter" data-id="done" aria-pressed="${S.diaryAll !== true}">${icon("check")} 已完成</button><button data-act="diary-filter" data-id="all" aria-pressed="${S.diaryAll === true}">${icon("list")} 全部</button></div></div>` : ""}`;
+    : S.dayId === DIARY ? `<div class="toprow3">${ptitle("旅程日記", m.title || "")}<div class="switch compact"><button data-act="diary-mode" data-id="day" aria-pressed="${S.diaryMode !== "all"}">${icon("book")} 手帳</button><button data-act="diary-mode" data-id="all" aria-pressed="${S.diaryMode === "all"}">${icon("list")} 全部</button></div><button class="manage" data-act="journal-edit" aria-label="寫下今天">${icon("pencil")}寫下</button></div>` : ""}`;
   const on = $("#tabs [aria-pressed=true]"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
   document.title = `${m.title || "旅行手帳"}${S.dayId === MONEY ? " · 支出" : S.dayId === WISH ? " · 願望清單" : S.dayId === DIARY ? " · 日記" : S.dayId === SHOP ? " · 購物清單" : day() ? " · " + day().label : ""}`;
 }
@@ -879,7 +879,17 @@ function timelineHTML(d, q) {
   // 時間線上的支出（其他支出中有日期和時間的）
   const xs = (S.doc.expenses || []).filter((e) => e.dayId === d.id && e.time != null).sort((a, b) => a.time - b.time);
   let xi = 0;
-  const flush = (upto) => { let h = ""; while (xi < xs.length && (upto == null || xs[xi].time < upto)) h += expenseRowHTML(xs[xi++]); return h; };
+  const flush = (upto) => {
+    let h = "";
+    while (xi < xs.length && (upto == null || xs[xi].time < upto)) {
+      const e = xs[xi++];
+      if (!e.receipt) { h += expenseRowHTML(e); continue; }
+      // 同一張收據分開記的商品：時間線上合成一行
+      const g = [e]; while (xi < xs.length && xs[xi].receipt === e.receipt) g.push(xs[xi++]);
+      h += g.length > 1 ? receiptRowHTML(g) : expenseRowHTML(e);
+    }
+    return h;
+  };
   let html = `<div class="timeline">${S.manage ? insertRow(-1, "在最前面加入", "") : ""}`;
   groups.forEach((g, gi) => {
     if (!g.length) return;
@@ -897,6 +907,24 @@ function timelineHTML(d, q) {
     html += `</details>`;
   });
   return html + flush(null) + `</div>`;
+}
+function receiptRowHTML(g) {
+  const e = g[0], cur = e.cur || localCur(), sum = g.reduce((a, x) => a + (x.actual ?? x.plan ?? 0), 0);
+  const store = (e.note || "").split(" · ")[0];
+  return `<button class="xrow" data-act="rc-group" data-id="${esc(e.receipt)}"><span class="xt">${fmt(e.time)}</span><span class="xi">${icon("wallet")}</span>
+    <span class="xb"><b>${esc(store || "收據購物")} · ${g.length} 件</b><small>${esc(g.map((x) => x.title).join("、"))}</small></span>
+    <span class="xa">${money(sum, cur)}${cur !== "HKD" && toHKD(sum, cur, e.pay) != null ? `<small>≈${money(toHKD(sum, cur, e.pay), "HKD")}</small>` : ""}</span></button>`;
+}
+function openReceiptGroup(rid) {
+  const g = (S.doc.expenses || []).filter((x) => x.receipt === rid); if (!g.length) return;
+  const cur = g[0].cur || localCur(), ph = g.flatMap((x) => x.photos || []);
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("wallet")} 收據（${g.length} 件）</h2><button class="btn ghost" data-act="close">✕</button></div>
+    ${ph.length ? `<img class="rcimg" src="${esc(photoUrl(ph[0]))}" alt="收據" data-act="rc-zoom">` : ""}
+    <div class="rclist">${g.map((x) => `<button class="sline rcl" data-act="expense-edit" data-id="${esc(x.id)}"><span>${esc(x.title)}${whoTag(x) ? `<small>${esc(whoTag(x))}</small>` : ""}</span><b>${money(x.actual ?? x.plan, cur)}</b></button>`).join("")}</div>
+    <p class="hint">按商品可以修改。</p>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">關閉</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 function expenseRowHTML(e) {
   const amt = e.actual != null ? e.actual : e.plan, cur = e.cur || localCur(), tag = whoTag(e);
@@ -1330,53 +1358,107 @@ function costDiaryHTML(c, id, isExp) {
   return `<div class="de-cost"><span>🧾 ${amt != null ? money(amt, cur) : "消費"}${c.pay && PAY[c.pay] ? " · " + payLabel(c.pay) : ""}</span>
     <div class="de-photos">${c.photos.map((p) => `<img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="cost-view" data-photo="${esc(p)}">`).join("")}</div></div>`;
 }
+// ---- 旅程日記（文青手帳風）：一天一頁或全部瀏覽；有相片和文字的回憶放上面，旅途足跡放下面 ----
+function diaryDays() { return S.doc.days.filter((x) => x.kind === "day"); }
+function diaryCurDay() {
+  const days = diaryDays();
+  let d = days.find((x) => x.id === S.diaryDay);
+  if (!d) d = days.find((x) => dayDate(x) === todayISO()) || days.find((x) => dayMemories(x).length || x.journal) || days[0];
+  if (d) S.diaryDay = d.id;
+  return d;
+}
+// 這一天有相片或文字的回憶（行程、子行程、有相片的支出）
+function dayMemories(d) {
+  const out = [];
+  for (const { item } of seq(d)) for (const x of [item, ...(item.children || [])]) {
+    if (isInfo(x)) continue;
+    const mm = memoOf(x), cph = (V(x).cost && V(x).cost.photos) || [];
+    const photos = [...(mm.photos || []), ...cph];
+    if (photos.length || (mm.note || "").trim() || mm.caption) out.push({ kind: "item", x, photos, t: x.start });
+  }
+  for (const e of S.doc.expenses || []) if (e.dayId === d.id && (e.photos || []).length) out.push({ kind: "exp", e, photos: e.photos, t: e.time });
+  return out.sort((a, b) => (a.t ?? 1e9) - (b.t ?? 1e9));
+}
+function polaroidHTML(photos, caption, right, act, id) {
+  const n = photos.length, show = photos.slice(0, n > 4 ? 4 : n);
+  const img = (p, k) => `<div class="pp"><img src="${esc(photoUrl(p))}" loading="lazy" alt="" data-act="${act}" data-id="${esc(id)}" data-photo="${esc(p)}">${k === 3 && n > 4 ? `<b>+${n - 4}</b>` : ""}</div>`;
+  return `<div class="polaroid"><i class="tape"></i><div class="pgrid n${Math.min(n, 4)}">${show.map(img).join("")}</div>
+    <div class="pcap"><em>${esc(caption || "")}</em><span>${esc(right || "")}</span></div></div>`;
+}
+function memoryHTML(m, k) {
+  if (m.kind === "exp") {
+    const e = m.e, amt = e.actual ?? e.plan;
+    return `<article class="mem tilt${k % 2}">${polaroidHTML(m.photos, e.title, e.time != null ? fmt(e.time) : "", "cost-view", e.id)}
+      <div class="mmeta"><i></i>${[e.time != null ? fmt(e.time) : "", "支出", amt != null ? money(amt, e.cur || localCur()) : ""].filter(Boolean).join(" · ")}</div>
+      <h4>${esc(e.title || "支出")}</h4>${e.note ? `<p class="mnote">${esc(e.note)}</p>` : ""}
+      <div class="mact"><button data-act="expense-edit" data-id="${esc(e.id)}">✎ 編輯支出</button></div></article>`;
+  }
+  const x = m.x, v = V(x), mm = memoOf(x), area = areaOf(x), cat = catOf(v.type || "place")[0];
+  const right = [area !== "其他" ? area : "", x.start != null ? fmt(x.start) : ""].filter(Boolean).join(" · ");
+  return `<article class="mem tilt${k % 2}" id="de-${esc(x.id)}">
+    ${m.photos.length ? polaroidHTML(m.photos, mm.caption, right, "memo-view", x.id) : mm.caption ? `<blockquote class="mquote">${esc(mm.caption)}</blockquote>` : ""}
+    <div class="mmeta"><i></i>${[x.start != null ? fmt(x.start) : "", cat, area !== "其他" ? area : ""].filter(Boolean).map(esc).join(" · ")}</div>
+    <h4>${esc(v.title || "（未命名）")}</h4>
+    ${(mm.note || "").trim() ? `<p class="mnote">${esc(mm.note)}</p>` : ""}
+    <div class="mact"><button data-act="memo-fav" data-id="${esc(x.id)}" class="${mm.fav ? "on" : ""}">${mm.fav ? "♥ 已收藏" : "♡ 收藏這一刻"}</button><button data-act="memo-edit" data-id="${esc(x.id)}">✎ 編輯回憶</button></div></article>`;
+}
+function footprintHTML(d) {
+  const rows = seq(d).map((e) => e.item).filter((x) => !isInfo(x));
+  if (!rows.length) return "";
+  const key = "foot:" + d.id, closed = S.closed.has(key);
+  return `<details class="period foot" data-key="${esc(key)}" ${closed ? "" : "open"}><summary>旅途足跡 · 交通與行程</summary><ol>
+    ${rows.map((x) => { const mm = memoOf(x), has = (mm.photos || []).length || (mm.note || "").trim(); return `<li class="${x.done ? "done" : ""}"><button data-act="memo-edit" data-id="${esc(x.id)}"><time>${x.start != null ? fmt(x.start) : "　"}</time><span>${esc(V(x).title || "（未命名）")}</span>${has ? `<i>${icon("camera")}</i>` : ""}</button></li>`; }).join("")}
+  </ol></details>`;
+}
+function diaryDayHTML(d, i, n) {
+  const mems = dayMemories(d), wd = wdOf(d).replace(/[^A-Za-z]/g, "");
+  return `<section class="dpage" id="dd-${esc(d.id)}">
+    <header class="dhead"><div class="kicker">${String(i + 1).padStart(2, "0")} · ${esc(d.label)}${d.sub ? " · " + esc(d.sub) : ""}${wd ? " " + esc(wd) : ""}</div>
+      <h3>${esc(d.title || d.label)}</h3>
+      ${(d.journal || "").trim() ? `<p class="djournal" data-act="journal-edit" data-id="${esc(d.id)}">${esc(d.journal)}</p>` : `<button class="dwrite" data-act="journal-edit" data-id="${esc(d.id)}">✎ 寫下這一天…</button>`}</header>
+    ${mems.length ? mems.map(memoryHTML).join("") : `<p class="dempty">這一天還沒有相片和文字。<br>在下面的足跡按一個地點，就可以加入相片、寫下感受。</p>`}
+    ${footprintHTML(d)}
+    ${n ? `<nav class="dpager"><span>${String(i + 1).padStart(2, "0")} / ${String(n).padStart(2, "0")} · 旅行回憶錄</span><span>${i > 0 ? `<button data-act="diary-day" data-id="${esc(diaryDays()[i - 1].id)}">← 上一天</button>` : ""}${i < n - 1 ? `<button data-act="diary-day" data-id="${esc(diaryDays()[i + 1].id)}">翻到下一天 →</button>` : ""}</span></nav>` : ""}
+  </section>`;
+}
 function diaryHTML() {
-  const m = S.doc.meta || {};
-  const days = S.doc.days.filter((x) => x.kind === "day");
-  let nDone = 0, nPhotos = 0, nWords = 0;
-  const sections = days.map((d) => {
-    const items = [];
-    for (const { item } of seq(d)) for (const x of [item, ...(item.children || [])]) {
-      if (isInfo(x)) continue;
-      const mm = memoOf(x);
-      if (x.done) nDone++;
-      nPhotos += (mm.photos || []).length;
-      nWords += (mm.note || "").length;
-      const cph = (V(x).cost && V(x).cost.photos) || [];
-      nPhotos += cph.length;
-      if (S.diaryAll || x.done || (mm.photos || []).length || mm.note || cph.length) items.push([x, x !== item]);
-    }
-    nWords += (d.journal || "").length;
-    // 這天的其他支出（有照片的）
-    const exps = (S.doc.expenses || []).filter((e) => e.dayId === d.id && (e.photos || []).length);
-    nPhotos += exps.reduce((a, e) => a + e.photos.length, 0);
-    const expHTML = exps.map((e) => `<li class="dentry exp" style="--c:var(--c-shop)"><div class="de-dot">${icon("wallet")}</div><div class="de-body"><div class="de-top"><span class="de-cat">支出</span></div><div class="de-title">${esc(e.title || "支出")}</div>${costDiaryHTML(e, e.id, true)}</div></li>`).join("");
-    const list = items.map(([x, sub]) => {
-      const v = V(x), mm = memoOf(x), cat = catOf(v.type || "place");
-      return `<li class="dentry ${sub ? "sub" : ""} ${x.done ? "done" : "todo"}" id="de-${esc(x.id)}" style="--c:${catVar(v.type || "place")}">
-        <div class="de-dot">${icon(cat[1])}</div>
-        <div class="de-body">
-          <div class="de-top">${x.start != null ? `<b class="time">${fmt(x.start)}</b>` : ""}<span class="de-cat">${cat[0]}</span>${x.done ? `<span class="de-ok">✓ 已完成</span>` : ""}</div>
-          <div class="de-title">${esc(v.title || "（未命名）")}</div>
-          ${(mm.photos || []).length ? `<div class="de-photos">${memoPhotosHTML(x)}</div>` : ""}
-          ${costDiaryHTML(v.cost, x.id)}
-          <textarea class="de-note" data-memo="${esc(x.id)}" rows="1" placeholder="這一站的感受、吃了甚麼、發生了甚麼…">${esc(mm.note || "")}</textarea>
-          <button class="btn small" data-act="memo-photo" data-id="${esc(x.id)}">${icon("camera")}加相片</button>
-        </div></li>`;
-    }).join("");
-    return `<section class="dday" id="dd-${esc(d.id)}">
-      <div class="dday-head"><div><div class="kicker">${esc(d.label)}${d.sub ? " · " + esc(d.sub) : ""}</div><h3>${esc(d.title || d.label)}</h3></div></div>
-      <textarea class="journal" data-journal="${esc(d.id)}" rows="3" placeholder="寫下今天的旅程經歷…">${esc(d.journal || "")}</textarea>
-      ${list || expHTML ? `<ol class="dlist">${list}${expHTML}</ol>` : `<p class="hint dempty">${S.diaryAll ? "這天未有行程。" : "完成打卡後，這天的行程和旅行相片會出現在這裡。"}</p>`}
-    </section>`;
-  }).join("");
-  return `<div class="diary">
-    ${S.trips.length > 1 ? `<div class="dtrips">${S.trips.map((t) => `<button class="chip ${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${icon("suitcase")}${esc(t.title)}</button>`).join("")}</div>` : ""}
-    <div class="dcover"><div class="kicker">${esc(m.dates || "")}</div><h2>${esc(m.title || "旅程日記")}</h2>
-      <div class="dstats"><span><b>${nDone}</b> 站已完成</span><span><b>${nPhotos}</b> 張相片</span><span><b>${nWords}</b> 字</span></div>
-      <div class="djump">${days.map((d) => `<button class="chip" data-act="diary-jump" data-id="${esc(d.id)}">${esc(d.label)}</button>`).join("")}</div>
-      <p class="hint">日記會自動儲存。行程打卡完成後，可以在行程頁按 ${icon("camera")} 加入旅行相片。</p></div>
-    ${sections}</div>`;
+  const m = S.doc.meta || {}, days = diaryDays();
+  if (!days.length) return `<div class="diary lit"><p class="dempty">還沒有旅遊日。</p></div>`;
+  const all = S.diaryMode === "all";
+  let nPhotos = 0, nWords = 0, nFav = 0;
+  for (const d of days) { for (const mm of dayMemories(d)) { nPhotos += mm.photos.length; if (mm.x) { nWords += (memoOf(mm.x).note || "").length; if (memoOf(mm.x).fav) nFav++; } } nWords += (d.journal || "").length; }
+  const cur = diaryCurDay(), ci = days.indexOf(cur);
+  return `<div class="diary lit">
+    ${S.trips.length > 1 ? `<div class="dtrips">${S.trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${esc(t.title)}</button>`).join("")}</div>` : ""}
+    ${all ? `<div class="dcover"><div class="kicker">${esc(m.dates || "")}</div><h2>${esc(m.title || "旅程日記")}</h2><p class="dsub">Travel journal</p>
+      <div class="dstats"><span><b>${days.length}</b> 天</span><span><b>${nPhotos}</b> 張相片</span><span><b>${nWords}</b> 字</span>${nFav ? `<span><b>${nFav}</b> 個收藏</span>` : ""}</div></div>
+      ${days.map((d, i) => diaryDayHTML(d, i, 0)).join(`<div class="dsep">❦</div>`)}`
+    : `<div class="ddays">${days.map((d, i) => `<button class="${d === cur ? "on" : ""}" data-act="diary-day" data-id="${esc(d.id)}">${String(i + 1).padStart(2, "0")}<small>${esc(d.sub || d.label)}</small></button>`).join("")}</div>
+      ${diaryDayHTML(cur, ci, days.length)}`}
+  </div>`;
+}
+function openMemoEditor(id) {
+  const f = findItem(id); if (!f) return;
+  const mm = memoOf(f.item), v = V(f.item);
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("book")} 編輯回憶</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">${esc(f.day.label)}${f.item.start != null ? " · " + fmt(f.item.start) : ""} · <b style="color:var(--ink)">${esc(v.title)}</b></p>
+    <form id="memoForm" data-id="${esc(id)}" onsubmit="return false">
+      <div class="field"><span>相片</span><div class="edit-photos">${(mm.photos || []).map((p) => `<div class="ep"><img src="${esc(photoUrl(p))}" alt=""><button type="button" class="x" data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(p)}">✕</button></div>`).join("")}<button type="button" class="addphoto" data-act="memo-photo" data-id="${esc(id)}">＋ 相片</button></div></div>
+      <label class="field"><span>一句話（會寫在相片下面，可留空）</span><input type="text" name="caption" value="${esc(mm.caption || "")}" placeholder="例如：A little sweetness in Osaka."></label>
+      <label class="field"><span>這一站的感受</span><textarea name="note" rows="6" placeholder="吃了甚麼、看到甚麼、當時的心情…">${esc(mm.note || "")}</textarea></label>
+    </form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="memo-save" data-id="${esc(id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function openJournalEditor(dayId) {
+  const d = S.doc.days.find((x) => x.id === dayId); if (!d) return;
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>✎ 寫下${esc(d.label)}</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="journalForm" onsubmit="return false"><textarea name="j" rows="10" class="jtext" placeholder="今天去了哪裡、遇到甚麼人、有甚麼想記住的…">${esc(d.journal || "")}</textarea></form>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="journal-save" data-id="${esc(dayId)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  setTimeout(() => { const t = $("#journalForm textarea"); if (t) t.focus(); }, 80);
 }
 function autosize(t) { t.style.height = "auto"; t.style.height = Math.max(t.scrollHeight + 2, 0) + "px"; }
 function autosizeAll() { $$("#main textarea.journal, #main textarea.de-note").forEach(autosize); }
@@ -2322,6 +2404,146 @@ function openCostEditor(id) {
   updateCostPreview();
 }
 
+
+// ---------- 掃描收據 ----------
+// 兩個方法：1. 網站內置 AI（Cloudflare Workers AI，免費額度）；2. 複製提示到其他 AI App，再貼上結果
+const RECEIPT_PROMPT = `你是日本購物收據的讀取助手。請仔細閱讀這張收據相片，只回覆一個 JSON（不要其他文字、不要 markdown），格式如下：
+{"store":"店名（看不到就留空）","date":"YYYY-MM-DD","time":"HH:MM","currency":"JPY","pay":"cash|ic|card|other","taxFree":true,"total":0,"discount":0,"items":[{"name":"繁體中文商品名稱（翻譯，盡量寫出品牌和規格）","orig":"收據上的原文","qty":1,"price":0,"amount":0}]}
+規則：
+- 每件商品一行；qty 是數量，price 是折扣後的單價，amount 是該行折扣後的小計（= price × qty）。
+- 收據上的「値引」是折扣，要用折扣後的金額；「本体」是原價。
+- total 是最後實際支付的總額；discount 是總折扣（沒有就 0）。
+- pay：現金／お預り＝cash；交通系IC（ICOCA、Suica 等）＝ic；VISA、MASTER、JCB、クレジット＝card；其他＝other。
+- 日期的「26/10/25」代表 2026-10-25。
+- 數字只寫阿拉伯數字，不要逗號和貨幣符號。`;
+let RC = null; // 確認中的收據
+function pickJSON(text) {
+  const t = String(text || "").replace(/```(?:json)?/g, "");
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; }
+}
+const numIn = (v) => { if (v == null || v === "") return null; const n = +String(v).replace(/[^\d.\-]/g, ""); return isNaN(n) ? null : n; };
+function openReceipt() {
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("camera")} 掃描收據</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">自動讀出每件商品（翻譯成中文）、金額、日期和付款方式，確認後記入支出。</p>
+    <button class="rcopt" data-act="rc-photo"><b>${icon("camera")} 影相／選收據相片</b><span>由網站內置的 AI 自動讀取（免費額度）</span></button>
+    <button class="rcopt" data-act="rc-paste-open"><b>${icon("swap")} 用其他 AI App</b><span>複製提示，連同相片傳給 Claude／ChatGPT／Gemini，再把回覆貼回來（通常更準確）</span></button>
+    <input type="file" id="rcFile" accept="image/*" hidden>
+    <div id="rcStatus" class="hint" style="margin-top:10px"></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function openReceiptPaste() {
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("swap")} 用其他 AI App 讀收據</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <ol class="rcsteps"><li>按「複製提示」。</li><li>打開 Claude、ChatGPT 或 Gemini，貼上提示並附上收據相片，傳送。</li><li>複製 AI 的回覆，貼到下面，按「讀取」。</li></ol>
+    <button class="btn" style="width:100%" data-act="rc-copy">${icon("note")} 複製提示</button>
+    <label class="field" style="margin-top:12px"><span>AI 的回覆</span><textarea id="rcText" rows="7" placeholder='{"store":"…","items":[…]}'></textarea></label>
+    <div class="sheet-foot"><button class="btn" data-act="rc-back">返回</button><span class="grow"></span><button class="btn primary" data-act="rc-parse">讀取</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+async function receiptFromPhoto(file) {
+  const st = $("#rcStatus"), say = (m) => { if (st) st.innerHTML = m; };
+  try {
+    say("正在壓縮相片…");
+    const blob = await compress(file);
+    const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+    say("正在上傳收據相片…");
+    let photo = null;
+    try { const r = await fetch("/api/photos", { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob }); const j = await r.json(); if (r.ok) photo = j.id; } catch {}
+    say(`${icon("wand")} AI 正在讀取收據，大約需要 10–30 秒…`);
+    const r = await fetch("/api/receipt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image: dataUrl }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "讀取失敗");
+    openReceiptConfirm(j.data, photo);
+  } catch (e) {
+    say(`⚠ ${esc(e.message)}<br>可以再試一次，或改用「用其他 AI App」。`);
+  }
+}
+function openReceiptConfirm(data, photo) {
+  const items = (data.items || []).map((x) => {
+    const qty = Math.max(1, Math.round(numIn(x.qty) || 1)), price = numIn(x.price), amount = numIn(x.amount) ?? (price != null ? price * qty : null);
+    return { name: String(x.name || x.orig || "").trim(), orig: String(x.orig || "").trim(), qty, amount, for: "" };
+  }).filter((x) => x.name || x.amount != null);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(data.date || "") ? data.date : "";
+  const d = date ? S.doc.days.find((x) => x.kind === "day" && dayDate(x) === date) : null;
+  RC = { store: String(data.store || "").trim(), date, dayId: d ? d.id : "", time: /^\d{1,2}:\d{2}$/.test(data.time || "") ? data.time.padStart(5, "0") : "",
+    pay: PAY[data.pay] ? data.pay : "card", cur: /^[A-Z]{3}$/.test(data.currency || "") ? data.currency : localCur(), total: numIn(data.total), discount: numIn(data.discount) || 0,
+    taxFree: !!data.taxFree, items, photo, type: "shop", mode: "each", by: meId() };
+  renderReceiptConfirm();
+}
+function rcRead() {
+  const f = $("#rcForm"); if (!f) return;
+  RC.store = f.store.value.trim(); RC.dayId = f.dayId.value; RC.time = f.time.value; RC.type = f.type.value; RC.cur = f.cur.value;
+  RC.pay = (f.querySelector("[name=costPay]:checked") || {}).value || RC.pay;
+  RC.by = (f.querySelector("[name=costBy]:checked") || {}).value || meId();
+  RC.mode = (f.querySelector("[name=rcMode]:checked") || {}).value || "each";
+  RC.total = numIn(f.total.value);
+  f.querySelectorAll(".rcitem").forEach((row) => {
+    const it = RC.items[+row.dataset.i]; if (!it) return;
+    it.name = row.querySelector("[name=n]").value.trim(); it.qty = Math.max(1, parseInt(row.querySelector("[name=q]").value, 10) || 1);
+    it.amount = numIn(row.querySelector("[name=a]").value); const w = row.querySelector("[name=w]"); it.for = w ? w.value : "";
+  });
+}
+function rcSumHTML() {
+  const sum = RC.items.reduce((a, x) => a + (x.amount || 0), 0), cur = RC.cur;
+  const diff = RC.total != null ? Math.round((RC.total - sum) * 100) / 100 : null;
+  return `商品合計 <b>${money(sum, cur)}</b>${diff == null ? "" : Math.abs(diff) < 0.01 ? ` <span class="ok">✓ 和收據總額相符</span>` : ` <span class="bad">⚠ 和收據總額相差 ${money(Math.abs(diff), cur)}，請檢查</span>`}`;
+}
+function renderReceiptConfirm() {
+  const L = companions(), cur = RC.cur, curs = [...new Set([localCur(), "HKD", cur])];
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  const y = $(".sheet-body") ? $(".sheet-body").scrollTop : 0;
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("check")} 確認收據</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="rcForm" onsubmit="return false">
+      ${RC.photo ? `<img class="rcimg" src="${esc(photoUrl(RC.photo))}" alt="收據" data-act="rc-zoom">` : ""}
+      <div class="grid2"><label class="field"><span>店名</span><input type="text" name="store" value="${esc(RC.store)}" placeholder="例如：松本清"></label>
+      <label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === RC.type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label></div>
+      <div class="grid2"><label class="field"><span>日期${RC.date ? `<small class="hint" style="margin:0 0 0 6px">收據：${esc(RC.date)}</small>` : ""}</span><select name="dayId"><option value="">全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === RC.dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label>
+      <label class="field"><span>時間</span><input type="time" name="time" value="${esc(RC.time)}"></label></div>
+      <div class="field"><span>付款方式${RC.taxFree ? `<small class="hint" style="margin:0 0 0 6px">免稅</small>` : ""}</span><div class="payseg">${Object.entries(PAY).map(([k, [t, e]]) => `<label><input type="radio" name="costPay" value="${k}" ${k === RC.pay ? "checked" : ""}><span>${e} ${t}</span></label>`).join("")}</div></div>
+      ${L.length > 1 ? `<div class="field"><span>誰付款</span><div class="payseg">${L.map((p) => `<label><input type="radio" name="costBy" value="${esc(p.id)}" ${p.id === RC.by ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div></div>` : ""}
+      <div class="field"><span>商品（${RC.items.length}）${L.length > 1 ? `<small class="hint" style="margin:0 0 0 6px">每件可選買給誰</small>` : ""}</span>
+        <div class="rcitems">${RC.items.map((x, i) => `<div class="rcitem" data-i="${i}">
+          <div class="r1"><input type="text" name="n" value="${esc(x.name)}" placeholder="商品名稱"><button type="button" class="btn small" data-act="rc-del" data-i="${i}" aria-label="刪除">${icon("trash")}</button></div>
+          ${x.orig ? `<small class="orig">${esc(x.orig)}</small>` : ""}
+          <div class="r2"><label>×<input type="number" name="q" min="1" step="1" inputmode="numeric" value="${x.qty}"></label><label>${esc(CUR[cur] || cur)}<input type="text" inputmode="decimal" name="a" value="${x.amount ?? ""}" placeholder="小計"></label>
+          ${L.length > 1 ? `<select name="w"><option value="">${esc(compName(meId()))}（我）</option>${L.filter((p) => !p.me).map((p) => `<option value="${esc(p.id)}" ${x.for === p.id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}<option value="*" ${x.for === "*" ? "selected" : ""}>全部人分</option></select>` : ""}</div></div>`).join("")}</div>
+        <button type="button" class="btn small" style="margin-top:6px" data-act="rc-add">${icon("plus")}加一件</button></div>
+      <div class="grid2"><label class="field"><span>收據總額</span><input type="text" inputmode="decimal" name="total" value="${RC.total ?? ""}"></label>
+      <label class="field"><span>貨幣</span><select name="cur">${curs.map((k) => `<option value="${k}" ${k === cur ? "selected" : ""}>${k === "HKD" ? "港幣 HK$" : (CUR_NAME[k] || k) + " " + (CUR[k] || "")}</option>`).join("")}</select></label></div>
+      <div class="rcsum" id="rcSum">${rcSumHTML()}</div>
+      <div class="field"><span>記錄方式</span><div class="payseg"><label><input type="radio" name="rcMode" value="each" ${RC.mode === "each" ? "checked" : ""}><span>每件分開記</span></label><label><input type="radio" name="rcMode" value="one" ${RC.mode === "one" ? "checked" : ""}><span>記成一筆（附明細）</span></label></div></div>
+    </form>
+    <div class="sheet-foot"><button class="btn" data-act="rc-back">重新掃描</button><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="rc-save">記入支出</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  $(".sheet-body").scrollTop = y;
+}
+function saveReceipt() {
+  rcRead();
+  const items = RC.items.filter((x) => x.name && x.amount != null);
+  if (!items.length) { toast("沒有可以記錄的商品"); return; }
+  const me = meId(), all = companions().map((p) => p.id), tm = parseHHMM(RC.time);
+  const forOf = (w) => w === "*" ? all : w ? [w] : [me];
+  const base = { type: RC.type, dayId: RC.dayId, ...(tm != null ? { time: tm } : {}), plan: null, cur: RC.cur, pay: RC.pay, ...(RC.by !== me ? { by: RC.by } : {}), receipt: "r-" + uid() };
+  const sameFor = (f) => f.length === 1 && f[0] === me ? {} : { for: f };
+  const out = [];
+  if (RC.mode === "one") {
+    // 一筆：如果每件買給的人不同，按人分開成幾筆
+    const groups = new Map();
+    for (const x of items) { const k = x.for || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+    for (const [k, g] of groups) out.push({ id: "e-" + uid(), ...base, title: (RC.store || "收據購物") + (groups.size > 1 ? `（${k === "*" ? "全部人" : compName(k || me)}）` : ""), actual: Math.round(g.reduce((a, x) => a + x.amount, 0) * 100) / 100, ...sameFor(forOf(k)),
+      note: g.map((x) => `${x.name}${x.qty > 1 ? " ×" + x.qty : ""} ${money(x.amount, RC.cur)}`).join("、"), items: g.map((x) => ({ name: x.name, orig: x.orig, qty: x.qty, amount: x.amount })) });
+  } else {
+    for (const x of items) out.push({ id: "e-" + uid(), ...base, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), actual: x.amount, ...sameFor(forOf(x.for)), note: [RC.store, x.orig].filter(Boolean).join(" · ") });
+  }
+  if (RC.photo && out[0]) out[0].photos = [RC.photo];
+  closeSheet();
+  commit((doc) => { doc.expenses = doc.expenses || []; doc.expenses.push(...out); }, `已記入 ${out.length} 筆支出`);
+  RC = null;
+}
+
 // ---------- 整個行程預算 ----------
 function openBudgetEditor() {
   const b = (S.doc.meta || {}).budget || {};
@@ -2350,6 +2572,7 @@ function openExpenseEditor(id, preset = {}) {
       <label class="field"><span>項目</span><input type="text" name="title" value="${esc(e.title)}" placeholder="例如：ICOCA 交通卡、手信"></label>
       <div class="grid2"><label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label>
       <label class="field"><span>日期</span><select name="dayId"><option value="">全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === e.dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label></div>
+      ${(e.items || []).length ? `<div class="field"><span>收據明細（${e.items.length}）</span><div class="rclist">${e.items.map((x) => `<div class="sline"><span>${esc(x.name)}${x.qty > 1 ? " ×" + x.qty : ""}${x.orig ? `<small>${esc(x.orig)}</small>` : ""}</span><b>${money(x.amount, e.cur || localCur())}</b></div>`).join("")}</div></div>` : ""}
       <label class="field"><span>時間<small class="hint" style="margin:0 0 0 6px">填了會顯示在當天行程的時間線上</small></span><input type="time" name="time" value="${e.time != null ? hhmm(e.time) : ""}"></label>
       ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur, pay: e.pay, share: e.share, by: e.by, for: e.for, photos: e.photos }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(e.note || "")}"></label>
@@ -4156,6 +4379,17 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "reorder-go": closeSheet(); keepAnchor(() => commit(() => ({ sort: true }), "已按時間重新排列")); break;
+    case "rc-open": openReceipt(); break;
+    case "rc-group": openReceiptGroup(id); break;
+    case "rc-photo": { const inp = $("#rcFile"); inp.value = ""; inp.click(); break; }
+    case "rc-paste-open": openReceiptPaste(); break;
+    case "rc-back": openReceipt(); break;
+    case "rc-copy": { try { await navigator.clipboard.writeText(RECEIPT_PROMPT); toast("已複製提示"); } catch { const ta = $("#rcText"); ta.value = RECEIPT_PROMPT; ta.select(); toast("請手動複製上面的提示"); } break; }
+    case "rc-parse": { const data = pickJSON($("#rcText").value); if (!data || !Array.isArray(data.items)) { toast("讀不到結果，請確認貼上了 AI 回覆的 JSON"); break; } openReceiptConfirm(data, null); break; }
+    case "rc-del": rcRead(); RC.items.splice(+t.dataset.i, 1); renderReceiptConfirm(); break;
+    case "rc-add": rcRead(); RC.items.push({ name: "", orig: "", qty: 1, amount: null, for: "" }); renderReceiptConfirm(); break;
+    case "rc-save": saveReceipt(); break;
+    case "rc-zoom": { const lb = $("#lightbox"); lb.innerHTML = `<img src="${esc(t.src)}" alt=""><button data-act="lb-close">✕</button>`; lb.hidden = false; break; }
     case "cat-view": S.catView = id; render(); break;
     case "mf-clear": S.mf = { type: "", pay: "", by: "", for: "" }; render(); break;
     case "expense-edit": openExpenseEditor(id); break;
@@ -4296,22 +4530,36 @@ document.addEventListener("click", async (e) => {
         <div class="lb-tools"><button data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(t.dataset.photo)}">移除這張旅行相片</button></div>`;
       lb.hidden = false; break;
     }
-    case "memo-del":
+    case "memo-del": {
       $("#lightbox").hidden = true;
+      const mf = $("#memoForm"), keep = mf ? { note: mf.note.value, caption: mf.caption.value } : null;
       commit(() => { const f = findItem(id); if (!f || !f.item.memo) return; f.item.memo.photos = f.item.memo.photos.filter((p) => p !== t.dataset.photo); });
+      if (keep) { openMemoEditor(id); const g = $("#memoForm"); g.note.value = keep.note; g.caption.value = keep.caption; }
       break;
+    }
     case "diary-open": {
       S.dayId = DIARY; S.manage = false;
-      const f = findItem(id); if (f && !f.item.done) S.diaryAll = true;
+      const f = findItem(id); if (f && f.day.kind === "day") { S.diaryDay = f.day.id; S.diaryMode = "day"; }
       render(); window.scrollTo(0, 0);
-      const el = document.getElementById("de-" + id);
-      if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); const ta = el.querySelector("textarea"); setTimeout(() => ta && ta.focus({ preventScroll: true }), 350); }
+      const el = document.getElementById("de-" + id); if (el) el.scrollIntoView({ block: "center" });
+      openMemoEditor(id);
       break;
     }
     case "diary-jump": { const el = document.getElementById("dd-" + id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - ($("#tabs").offsetHeight || 0) - 8, behavior: "smooth" }); break; }
     case "diary-go": closeSheet(); S.dayId = DIARY; S.manage = false; render(); window.scrollTo(0, 0); if (S.trips.length < 2) loadTrips().then(() => { if (S.dayId === DIARY && S.trips.length > 1) render(); }); break;
     case "diary-trip": if (id !== S.tripId) { await switchTrip(id); S.dayId = DIARY; render(); window.scrollTo(0, 0); } break;
-    case "diary-filter": S.diaryAll = id === "all"; ls.set("trip.diaryAll", S.diaryAll ? "1" : ""); render(); break;
+    case "diary-mode": S.diaryMode = id; ls.set("trip.diaryMode", id); render(); window.scrollTo(0, 0); break;
+    case "diary-day": S.diaryDay = id; S.diaryMode = "day"; render(); window.scrollTo(0, 0); break;
+    case "journal-edit": openJournalEditor(id || (S.diaryMode === "all" ? (diaryDays().find((x) => dayDate(x) === todayISO()) || diaryCurDay()).id : diaryCurDay().id)); break;
+    case "journal-save": { const v = $("#journalForm").j.value; closeSheet(); commit(() => { const d = S.doc.days.find((x) => x.id === id); if (d) d.journal = v; }); break; }
+    case "memo-edit": openMemoEditor(id); break;
+    case "memo-save": {
+      const f = $("#memoForm"), note = f.note.value, caption = f.caption.value.trim();
+      closeSheet();
+      commit(() => { const x = findItem(id); if (!x) return; const mm = x.item.memo = x.item.memo || { photos: [], note: "" }; mm.note = note; if (caption) mm.caption = caption; else delete mm.caption; });
+      break;
+    }
+    case "memo-fav": commit(() => { const x = findItem(id); if (!x) return; const mm = x.item.memo = x.item.memo || { photos: [], note: "" }; mm.fav = !mm.fav; if (!mm.fav) delete mm.fav; }); break;
     case "photo": {
       const lb = $("#lightbox");
       const f = findItem(id), pv = V(f.item), cur = photoModeOf(f.item, pv, t.dataset.photo);
@@ -4518,7 +4766,7 @@ setPhotoMode(ls.get("trip.photoMode") === "full" ? "full" : "thumb");
 S.view = ls.get("trip.view") === "map" ? "map" : "list";
 S.cardOff = ls.get("trip.cardOff") === "1";
 S.npOpen = new Set();
-S.diaryAll = ls.get("trip.diaryAll") === "1";
+S.diaryMode = ls.get("trip.diaryMode") === "all" ? "all" : "day";
 S.theme = ls.get("trip.theme") === "dark" ? "dark" : ls.get("trip.theme") === "light" ? "light" : "auto";
 setTheme(S.theme);
 
@@ -4526,6 +4774,7 @@ document.addEventListener("input", (e) => {
   if (e.target.classList && e.target.classList.contains("invalid")) { e.target.classList.remove("invalid"); const er = e.target.closest(".field")?.querySelector(".field-err"); if (er) er.remove(); }
   if (e.target.dataset.act === "search") { S.q = e.target.value; render(); }
   if (/^cost(Plan|Actual)$/.test(e.target.name || "")) updateCostPreview();
+  if (e.target.closest && e.target.closest("#rcForm") && RC) { rcRead(); const el = $("#rcSum"); if (el) el.innerHTML = rcSumHTML(); }
   if (e.target.dataset && e.target.dataset.imp != null && e.target.dataset.k && IMP) { const x = IMP.items[+e.target.dataset.imp]; x.data[e.target.dataset.k] = e.target.value; if (e.target.dataset.k === "title") { const n = IMP.items.filter((y) => y.use !== false && y.data.title).length; const go = $("#impGo"); if (go) { go.disabled = !n; go.textContent = n ? `加入備選地點（${n}）` : "加入備選地點"; } } }
   if (e.target.dataset && e.target.dataset.journal) { const id = e.target.dataset.journal, val = e.target.value; autosize(e.target); diaryWrite((doc) => { const d = doc.days.find((x) => x.id === id); if (d) { if (val.trim()) d.journal = val; else delete d.journal; } }); }
   if (e.target.dataset && e.target.dataset.memo && e.target.classList.contains("de-note")) { const id = e.target.dataset.memo, val = e.target.value; autosize(e.target); diaryWrite(() => { const f = findItem(id); if (!f) return; f.item.memo = f.item.memo || { photos: [] }; f.item.memo.note = val; }); }
@@ -4542,6 +4791,7 @@ document.addEventListener("input", (e) => {
 });
 
 document.addEventListener("change", async (e) => {
+  if (e.target.id === "rcFile" && e.target.files[0]) { receiptFromPhoto(e.target.files[0]); return; }
   if (e.target.dataset && e.target.dataset.mf) { S.mf = S.mf || {}; S.mf[e.target.dataset.mf] = e.target.value; render(); return; }
   if (e.target.name === "costCur") { updateCostPreview(); return; }
   if (e.target.form && e.target.form.id === "schedForm") { const go = $("#schedGo"); if (go) { go.dataset.act = "sched-calc"; go.textContent = "重新計算"; go.disabled = false; } return; }
@@ -4589,7 +4839,12 @@ document.addEventListener("change", async (e) => {
     const files = [...e.target.files], id = e.target.dataset.id, memo = e.target.dataset.memo === "1"; if (!files.length) return;
     try {
       const ids = await uploadFiles(files);
-      if (memo) { commit(() => { const f = findItem(id); if (!f) return; f.item.memo = f.item.memo || { photos: [], note: "" }; f.item.memo.photos = [...(f.item.memo.photos || []), ...ids]; }); return; }
+      if (memo) {
+        const mf = $("#memoForm"), keep = mf && mf.dataset.id === id ? { note: mf.note.value, caption: mf.caption.value } : null;
+        commit(() => { const f = findItem(id); if (!f) return; f.item.memo = f.item.memo || { photos: [], note: "" }; f.item.memo.photos = [...(f.item.memo.photos || []), ...ids]; });
+        if (keep) { openMemoEditor(id); const g = $("#memoForm"); g.note.value = keep.note; g.caption.value = keep.caption; }
+        return;
+      }
       commit(() => { const f = findItem(id); V(f.item).photos.push(...ids); });
     } catch (err) { toast("圖片上傳失敗：" + err.message); }
   }
