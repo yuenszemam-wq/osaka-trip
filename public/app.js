@@ -837,6 +837,10 @@ function timelineHTML(d, q) {
   const groups = [[], [], []];
   let last = 0;
   d.items.forEach((node, i) => { const p = periodOf(nodeStart(node)); if (p != null) last = Math.max(last, p); groups[last].push([node, i]); });
+  // 時間線上的支出（其他支出中有日期和時間的）
+  const xs = (S.doc.expenses || []).filter((e) => e.dayId === d.id && e.time != null).sort((a, b) => a.time - b.time);
+  let xi = 0;
+  const flush = (upto) => { let h = ""; while (xi < xs.length && (upto == null || xs[xi].time < upto)) h += expenseRowHTML(xs[xi++]); return h; };
   let html = `<div class="timeline">${S.manage ? insertRow(-1, "在最前面加入", "") : ""}`;
   groups.forEach((g, gi) => {
     if (!g.length) return;
@@ -846,12 +850,20 @@ function timelineHTML(d, q) {
     const range = timed.length ? `${fmt(timed[0].start)}–${fmt(Math.max(...timed.map((x) => endOf(x))))}` : "";
     html += `<details class="period" data-key="${esc(key)}" ${S.closed.has(key) ? "" : "open"}><summary>${PERIODS[gi]}<span class="range">${range}</span><span class="count">${count}</span></summary>`;
     for (const [node, i] of g) {
+      const ns = nodeStart(node); if (ns != null) html += flush(ns);
       if (isBranch(node)) html += branchHTML(d, node, i, cf, nums);
       else html += itemHTML(node, d, cf[node.id], { at: i, route: "", shared: true, num: nums[node.id] });
     }
+    if (gi === groups.length - 1 || !groups.slice(gi + 1).some((x) => x.length)) html += flush(null);
     html += `</details>`;
   });
-  return html + `</div>`;
+  return html + flush(null) + `</div>`;
+}
+function expenseRowHTML(e) {
+  const amt = e.actual != null ? e.actual : e.plan, cur = e.cur || localCur(), tag = whoTag(e);
+  return `<button class="xrow" data-act="expense-edit" data-id="${esc(e.id)}"><span class="xt">${fmt(e.time)}</span><span class="xi">${icon("wallet")}</span>
+    <span class="xb"><b>${esc(e.title || "支出")}</b><small>${[catOf(e.type)[0], tag, e.pay && PAY[e.pay] ? payLabel(e.pay) : "", e.actual == null && e.plan != null ? "預計" : ""].filter(Boolean).map(esc).join(" · ")}</small></span>
+    ${amt != null ? `<span class="xa">${money(amt, cur)}${cur !== "HKD" && toHKD(amt, cur, e.pay) != null ? `<small>≈${money(toHKD(amt, cur, e.pay), "HKD")}</small>` : ""}</span>` : ""}</button>`;
 }
 
 // ---- 備注頁（住宿、備選、自訂） ----
@@ -1393,7 +1405,7 @@ function foldBtn(it) {
 }
 function insertRow(at, label, route) {
   const r = route ? ` data-route="${esc(route)}"` : "";
-  return `<div class="insert"><button data-act="add-main" data-at="${at}"${r}>＋ ${label}行程</button><button class="info" data-act="add-main" data-type="info" data-at="${at}"${r}>ⓘ 資訊</button></div>`;
+  return `<div class="insert"><button data-act="add-main" data-at="${at}"${r}>＋ ${label}行程</button><button class="info" data-act="add-main" data-type="info" data-at="${at}"${r}>ⓘ 資訊</button>${route ? "" : `<button class="info" data-act="expense-at" data-at="${at}">💴 支出</button>`}</div>`;
 }
 function toolsHTML(it, d, pos) {
   const id = esc(it.id);
@@ -1966,20 +1978,31 @@ function whoFields(c) {
     <div class="field"><span>買給誰<small class="hint" style="margin:0 0 0 6px">可選多人，平均分攤</small></span><div class="payseg">${L.map((p) => `<label><input type="checkbox" name="costFor" value="${esc(p.id)}" ${sp.for.includes(p.id) ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div></div>`;
 }
 // 每人已付、應分擔、差額，以及誰要給誰多少
+// 同行者換好現金分給我：該筆現金的港幣價值當作同行者替我付了
+function cashHK(x) { if (x.hkd > 0) return x.hkd; const r = cashRate() || (S.doc.meta || {}).rate; return localCur() === "HKD" ? x.amount : r ? x.amount * r : null; }
+function cashGifts() {
+  const me = meId(), ids = companions().map((p) => p.id);
+  return ((S.doc.wallet || {}).log || []).filter((x) => x.kind === "cash" && x.by && x.by !== me && ids.includes(x.by))
+    .map((x) => ({ id: x.id, title: `換錢 ${money(x.amount, localCur())}（${compName(x.by)} 提供）`, by: x.by, for: [me], hk: cashHK(x), cash: true }));
+}
 function settleOf(rows) {
-  const L = companions(), paid = {}, owe = {};
-  for (const p of L) { paid[p.id] = 0; owe[p.id] = 0; }
+  const L = companions(), paid = {}, owe = {}, det = {};
+  for (const p of L) { paid[p.id] = 0; owe[p.id] = 0; det[p.id] = { paid: [], owe: [] }; }
+  const add = (title, h, sp, r) => {
+    paid[sp.by] += h; det[sp.by].paid.push({ title, h, r });
+    for (const x of sp.for) { owe[x] += h / sp.for.length; det[x].owe.push({ title, h: h / sp.for.length, n: sp.for.length, by: sp.by, r }); }
+  };
   for (const r of rows) {
     const h = toHKD(effOf(r), r.cur, r.pay); if (h == null) continue;
-    const sp = splitOf(r); paid[sp.by] += h;
-    for (const x of sp.for) owe[x] += h / sp.for.length;
+    add(r.title || "（未命名）", h, splitOf(r), r);
   }
+  for (const g of cashGifts()) if (g.hk != null) add(g.title, g.hk, { by: g.by, for: g.for }, { cash: true });
   const bal = L.map((p) => ({ id: p.id, v: paid[p.id] - owe[p.id] }));
   const give = bal.filter((b) => b.v < -0.5).map((b) => ({ ...b, v: -b.v })).sort((a, b) => b.v - a.v);
   const get = bal.filter((b) => b.v > 0.5).sort((a, b) => b.v - a.v);
   const moves = [];
   for (const g of give) for (const r of get) { if (g.v < 0.5) break; const n = Math.min(g.v, r.v); if (n < 0.5) continue; moves.push({ from: g.id, to: r.id, n }); g.v -= n; r.v -= n; }
-  return { L, paid, owe, moves };
+  return { L, paid, owe, det, moves };
 }
 function settleHTML(rows) {
   const L = companions();
@@ -1989,6 +2012,10 @@ function settleHTML(rows) {
     <table class="stable"><thead><tr><th></th><th>已付</th><th>應分擔</th><th>差額</th></tr></thead><tbody>
     ${L.map((p) => { const b = st.paid[p.id] - st.owe[p.id]; return `<tr class="${p.id === me ? "me" : ""}"><td>${esc(p.name)}${p.me ? "（我）" : ""}</td><td>${money(st.paid[p.id], "HKD")}</td><td>${money(st.owe[p.id], "HKD")}</td><td class="${b > 0.5 ? "pos" : b < -0.5 ? "neg" : ""}">${Math.abs(b) < 0.5 ? "—" : (b > 0 ? "+" : "−") + money(Math.abs(b), "HKD")}</td></tr>`; }).join("")}
     </tbody></table>
+    <div class="sdetail">${L.map((p) => { const d = st.det[p.id]; const line = (x, extra) => `<div class="sline"><span>${esc(x.title)}${extra ? `<small>${extra}</small>` : ""}</span><b>${money(x.h, "HKD")}</b></div>`;
+      return `<details><summary>${esc(p.name)}${p.me ? "（我）" : ""} 明細<span>付 ${money(st.paid[p.id], "HKD")} · 擔 ${money(st.owe[p.id], "HKD")}</span></summary>
+        <div class="sgroup"><h4>已付（${d.paid.length}）</h4>${d.paid.length ? d.paid.map((x) => line(x, x.r && x.r.actual == null && x.r.plan != null ? "預計" : "")).join("") : `<div class="sline none">沒有</div>`}</div>
+        <div class="sgroup"><h4>應分擔（${d.owe.length}）</h4>${d.owe.length ? d.owe.map((x) => line(x, [x.n > 1 ? `${x.n} 人分` : "", x.by !== p.id ? compName(x.by) + " 付" : "", x.r && x.r.actual == null && x.r.plan != null ? "預計" : ""].filter(Boolean).join(" · "))).join("") : `<div class="sline none">沒有</div>`}</div></details>`; }).join("")}</div>
     ${st.moves.length ? `<div class="moves">${st.moves.map((m) => `<div>${esc(compName(m.from, true))} → ${esc(compName(m.to, true))}<b>${money(m.n, "HKD")}</b></div>`).join("")}</div>` : `<div class="moves"><div class="even">✓ 已經平數，不用找數</div></div>`}</div>`;
 }
 let COMPED = null; // 編輯中的同行者
@@ -2016,7 +2043,8 @@ function costRows() {
   const add = (it, d, sub) => {
     const v = V(it); const c = v.cost;
     if (!c || (c.plan == null && c.actual == null)) return;
-    rows.push({ id: it.id, title: v.title, type: v.type || "place", day: d, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, note: c.note, time: it.start });
+    const cd = c.dayId === "none" ? null : c.dayId ? S.doc.days.find((x) => x.id === c.dayId) || d : d;
+    rows.push({ id: it.id, title: c.title || v.title, type: c.type || v.type || "place", day: cd, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, note: c.note, time: c.time != null ? c.time : it.start });
   };
   for (const d of S.doc.days) {
     if (isIdeas(d)) continue;
@@ -2028,7 +2056,7 @@ function costRows() {
     rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, share: x.share, by: x.by, for: x.for, note: x.where });
   }
   for (const e of S.doc.expenses || []) {
-    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, share: e.share, by: e.by, for: e.for, note: e.note });
+    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, share: e.share, by: e.by, for: e.for, note: e.note, time: e.time });
   }
   return rows;
 }
@@ -2060,14 +2088,16 @@ function walletState(rows) {
     if (x.kind === "cash") cashIn += x.amount || 0;
     if (x.kind === "ic") { icIn += x.amount || 0; if (x.from === "card") icFromCard += x.amount || 0; else icFromCash += x.amount || 0; }
   }
-  let cashOut = 0, icOut = 0, cardOut = 0;
+  let cashOut = 0, icOut = 0, cardOut = 0; const icRows = [], icPlan = [];
   const me = meId();
   for (const r of rows) {
     if (splitOf(r).by !== me) continue; // 只計自己付款的
+    if (r.pay === "ic" && r.actual == null && r.plan != null) icPlan.push(r);
+    if (r.pay === "ic" && r.actual != null && r.cur !== cur) icPlan.push(r);
     const n = loc(r.actual, r.cur); if (n == null) continue; // 只計實際已付的金額
-    if (r.pay === "cash") cashOut += n; else if (r.pay === "ic") icOut += n; else if (r.pay === "card") cardOut += n;
+    if (r.pay === "cash") cashOut += n; else if (r.pay === "ic") { icOut += n; icRows.push(r); } else if (r.pay === "card") cardOut += n;
   }
-  return { cur, log, cashIn, cashOut, icIn, icOut, icFromCash, icFromCard, cardOut,
+  return { cur, log, cashIn, cashOut, icIn, icOut, icFromCash, icFromCard, cardOut, icRows, icPlan,
     cash: cashIn - cashOut - icFromCash, ic: icIn - icOut, card: cardOut + icFromCard };
 }
 function walletHTML(rows) {
@@ -2080,11 +2110,12 @@ function walletHTML(rows) {
         <button class="btn small" data-act="wallet-add" data-id="cash">${icon("plus")}換錢／加現金</button></div>
       <div class="wbox ${st.ic < 0 ? "neg" : ""}"><div class="wk">🚃 IC卡餘額</div><div class="wv">${money(st.ic, cur)}</div>${hk(st.ic, "ic")}
         <div class="wd">增值 ${money(st.icIn, cur)}<br>− IC卡支出 ${money(st.icOut, cur)}</div>
+        ${st.icRows.length || st.icPlan.length ? `<details class="icdet"><summary>IC卡明細（${st.icRows.length}）</summary>${st.icRows.map((r) => `<div class="sline"><span>${esc(r.title || "（未命名）")}<small>${r.day ? esc(r.day.label) : "全程"}${r.time != null ? " · " + fmt(r.time) : ""}</small></span><b>${money(r.actual, cur)}</b></div>`).join("")}${st.icPlan.length ? `<p class="hint" style="margin:6px 0 0">⚠ 未計入：${st.icPlan.map((r) => esc(r.title || "（未命名）") + (r.actual == null ? "（只有預計）" : "（不是" + esc(CUR_NAME[cur] || cur) + "）")).join("、")}</p>` : ""}</details>` : ""}
         <button class="btn small" data-act="wallet-add" data-id="ic">${icon("plus")}增值</button></div>
     </div>
     <div class="wcard">💳 信用卡已簽 <b>${money(st.card, cur)}</b>${hk(st.card, "card")}${st.icFromCard ? `<span class="hint">（包括 IC卡增值 ${money(st.icFromCard, cur)}）</span>` : ""}</div>
     ${cur !== "HKD" ? `<div class="wrate">${icon("swap")}<span>現金匯率：${cr ? `1 ${cur} = <b>${cr.toFixed(4)}</b> HKD（固定）` : `未設定（使用市場匯率）`}</span><button class="btn small" data-act="cash-rate">${icon("pencil")}${cr ? "修改" : "設定"}</button></div>` : ""}
-    ${st.log.length ? `<details class="wlog"><summary>換錢及增值紀錄（${st.log.length}）</summary>${st.log.slice().reverse().map((x) => `<div class="wrow"><span>${x.kind === "cash" ? "💴 換錢" : `🚃 IC卡增值 · ${x.from === "card" ? "💳 信用卡" : "💴 現金"}`}${x.note ? ` · ${esc(x.note)}` : ""}<small>${new Date(x.t).toLocaleDateString("zh-HK")}</small></span><b>${money(x.amount, cur)}</b><button class="btn small" data-act="wallet-del" data-id="${esc(x.id)}" aria-label="刪除">${icon("trash")}</button></div>`).join("")}</details>` : ""}
+    ${st.log.length ? `<details class="wlog"><summary>換錢及增值紀錄（${st.log.length}）</summary>${st.log.slice().reverse().map((x) => `<div class="wrow"><span>${x.kind === "cash" ? "💴 換錢" + (x.by && x.by !== meId() ? ` · ${esc(compName(x.by))} 提供` : "") : `🚃 IC卡增值 · ${x.from === "card" ? "💳 信用卡" : "💴 現金"}`}${x.note ? ` · ${esc(x.note)}` : ""}<small>${new Date(x.t).toLocaleDateString("zh-HK")}</small></span><b>${money(x.amount, cur)}</b><button class="btn small" data-act="wallet-del" data-id="${esc(x.id)}" aria-label="刪除">${icon("trash")}</button></div>`).join("")}</details>` : ""}
     <p class="hint" style="margin:8px 0 0">餘額按你自己付款的「實際」金額和付款方式計算。IC卡增值是轉帳，不計入支出總額。</p></div>`;
 }
 function openWalletAdd(kind) {
@@ -2094,6 +2125,7 @@ function openWalletAdd(kind) {
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${kind === "cash" ? "💴 換錢／加現金" : "🚃 IC卡增值"}</h2><button class="btn ghost" data-act="close">✕</button></div>
     <form id="walletForm" onsubmit="return false">
       <label class="field"><span>${kind === "cash" ? "換到的現金" : "增值金額"}（${esc(CUR_NAME[cur] || cur)}）</span><input type="text" inputmode="decimal" name="amount" placeholder="例如：${kind === "cash" ? "50000" : "3000"}"></label>
+      ${kind === "cash" && companions().length > 1 ? `<div class="field"><span>現金由誰提供</span><div class="payseg">${companions().map((p) => `<label><input type="radio" name="by" value="${esc(p.id)}" ${p.me ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div><small class="hint" style="margin:4px 0 0">同行者換好現金分給你：現金計入你的錢包，分帳時當作他替你付了這筆錢。</small></div>` : ""}
       ${kind === "ic" ? `<div class="field"><span>用甚麼增值</span><div class="payseg"><label><input type="radio" name="from" value="cash" checked><span>💴 現金</span></label><label><input type="radio" name="from" value="card"><span>💳 信用卡</span></label></div></div>` : ""}
       ${kind === "cash" && cur !== "HKD" ? `<label class="field"><span>付了多少港幣（可留空，填了會用來計算現金匯率）</span><input type="text" inputmode="decimal" name="hkd" placeholder="例如：2520"></label>` : ""}
       <label class="field"><span>備註</span><input type="text" name="note" placeholder="${kind === "cash" ? "例如：找換店" : "例如：ICOCA"}"></label>
@@ -2159,10 +2191,21 @@ function moneyHTML() {
   const maxT = Math.max(1, ...Object.values(byType));
   html += `<div class="mcard"><h3>${icon("sliders")} 分類</h3><div class="bars">${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([t, x]) =>
     `<div class="bar" style="--c:${catVar(t)}"><span class="lbl">${icon(catOf(t)[1])}${catOf(t)[0]}</span><span class="tr"><i style="width:${(x / maxT) * 100}%"></i></span><span class="amt">${money(x, "HKD")}</span></div>`).join("")}</div></div>`;
+  // 交易紀錄篩選：付款方式、付款人、買給誰
+  const mf = S.mf || (S.mf = { pay: "", by: "", for: "" });
+  const L2 = companions(), multi = L2.length > 1;
+  const fr = rows.filter((r) => { const sp = splitOf(r); return (!mf.pay || (r.pay || "other") === mf.pay) && (!mf.by || sp.by === mf.by) && (!mf.for || sp.for.includes(mf.for)); });
+  const on = mf.pay || mf.by || mf.for;
+  html += `<div class="mcard mfilter"><h3>${icon("sliders")} 交易紀錄<span class="right">${on ? `<button class="btn small" data-act="mf-clear">清除篩選</button>` : ""}</span></h3>
+    <div class="mfrow"><label><span>付款方式</span><select data-mf="pay"><option value="">全部</option>${Object.entries(PAY).map(([k, [t, e]]) => `<option value="${k}" ${mf.pay === k ? "selected" : ""}>${e} ${t}</option>`).join("")}</select></label>
+    ${multi ? `<label><span>付款人</span><select data-mf="by"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.by === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>
+    <label><span>買給誰</span><select data-mf="for"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.for === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>` : ""}</div>
+    ${on ? `<div class="mfsum">符合 <b>${fr.length}</b> 項 · 合計 <b>${money(sumHK(fr, "eff").s, "HKD")}</b>${mf.for ? `<small>（${esc(compName(mf.for))} 應分擔 ${money(fr.reduce((a, r) => { const h = toHKD(effOf(r), r.cur, r.pay); const sp = splitOf(r); return a + (h == null ? 0 : h / sp.for.length); }, 0), "HKD")}）</small>` : ""}</div>` : ""}</div>`;
   // 每天
   const groups = [];
-  for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = rows.filter((r) => r.day === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
-  const noDay = rows.filter((r) => !r.day); if (noDay.length) groups.push(["全程／其他", noDay]);
+  for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = fr.filter((r) => r.day === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
+  if (on && !fr.length) html += `<div class="empty">沒有符合篩選的交易</div>`;
+  const noDay = fr.filter((r) => !r.day); if (noDay.length) groups.push(["全程／其他", noDay]);
   for (const [label, g] of groups) {
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(sumHK(g, "eff").s, "HKD")}</span></h3>
       <table class="mtable"><thead><tr><th>項目</th><th>金額</th></tr></thead><tbody>
@@ -2178,15 +2221,16 @@ function openCostEditor(id) {
   const f = findItem(id); if (!f) return;
   const v = V(f.item);
   const curs = [...new Set([localCur(), "HKD", v.cost && v.cost.cur].filter(Boolean))];
-  const type = v.type || "place";
+  const c0 = v.cost || {}, type = c0.type || v.type || "place", dayId = c0.dayId || f.day.id;
   const sheet = $("#sheet");
   sheet.className = "sheet";
-  // 和「其他支出」相同的介面：項目、分類、日期、消費、備註
+  // 和「其他支出」相同的介面；項目名稱、分類、日期只屬於這筆支出，不會改行程本身
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${v.cost ? "編輯支出" : "記錄消費"}</h2><button class="btn ghost" data-act="close">✕</button></div>
     <form id="costForm" onsubmit="return false">
-      <label class="field"><span>項目${f.item.variants.length > 1 ? `<small class="hint" style="margin:0 0 0 6px">方案 ${planLetter(f.item.active || 0)}</small>` : ""}</span><input type="text" name="title" value="${esc(v.title || "")}"></label>
+      <p class="hint" style="margin:-6px 0 10px">${icon("pin")} 屬於行程：<b style="color:var(--ink)">${esc(v.title)}</b>${f.item.variants.length > 1 ? `（方案 ${planLetter(f.item.active || 0)}）` : ""}</p>
+      <label class="field"><span>項目</span><input type="text" name="title" value="${esc(c0.title || v.title || "")}"></label>
       <div class="grid2"><label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label>
-      <label class="field"><span>日期</span><select name="dayId" disabled><option>${esc(f.day.label)} ${esc(f.day.sub || "")}${f.item.start != null ? " · " + fmt(f.item.start) : ""}</option></select></label></div>
+      <label class="field"><span>日期</span><select name="dayId"><option value="">全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label></div>
       ${costFields(v.cost, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc((v.cost && v.cost.note) || "")}"></label>
     </form>
@@ -2214,8 +2258,8 @@ function openBudgetEditor() {
 }
 
 // ---------- 其他支出（不屬於任何行程） ----------
-function openExpenseEditor(id) {
-  const e = id ? (S.doc.expenses || []).find((x) => x.id === id) : { id: "", title: "", type: "shop", plan: null, actual: null, cur: localCur(), dayId: "", note: "" };
+function openExpenseEditor(id, preset = {}) {
+  const e = id ? (S.doc.expenses || []).find((x) => x.id === id) : { id: "", title: "", type: "food", plan: null, actual: null, cur: localCur(), dayId: "", note: "", ...preset };
   if (!e) return;
   const curs = [...new Set([localCur(), "HKD", e.cur].filter(Boolean))];
   const sheet = $("#sheet");
@@ -2225,6 +2269,7 @@ function openExpenseEditor(id) {
       <label class="field"><span>項目</span><input type="text" name="title" value="${esc(e.title)}" placeholder="例如：ICOCA 交通卡、手信"></label>
       <div class="grid2"><label class="field"><span>分類</span><select name="type">${Object.entries(CATS).filter(([k]) => k !== "info").map(([k, c]) => `<option value="${k}" ${k === e.type ? "selected" : ""}>${c[0]}</option>`).join("")}</select></label>
       <label class="field"><span>日期</span><select name="dayId"><option value="">全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === e.dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label></div>
+      <label class="field"><span>時間<small class="hint" style="margin:0 0 0 6px">填了會顯示在當天行程的時間線上</small></span><input type="time" name="time" value="${e.time != null ? hhmm(e.time) : ""}"></label>
       ${costFields({ plan: e.plan, actual: e.actual, cur: e.cur, pay: e.pay, share: e.share, by: e.by, for: e.for, photos: e.photos }, curs)}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(e.note || "")}"></label>
     </form>
@@ -2686,8 +2731,9 @@ function readForm() {
   const v = ED.draft.variants[ED.k];
   v.title = f.tfrom ? joinRoute(f.tfrom.value, f.tto.value) : f.title.value.trim();
   v.summary = f.summary.value.trim();
-  const oldNote = v.cost && v.cost.note;
-  const cost = readCost(f); if (cost && oldNote) cost.note = oldNote; if (cost) v.cost = cost; else delete v.cost;
+  const old = v.cost || {};
+  const cost = readCost(f); if (cost) for (const k of ["note", "title", "type", "dayId", "time"]) if (old[k] != null) cost[k] = old[k];
+  if (cost) v.cost = cost; else delete v.cost;
   v.type = f.type.value;
   v.details = f.details.value.replace(/\s+$/, "");
   if (f.stayFrom) { v.stayFrom = f.stayFrom.value || undefined; v.stayTo = f.stayTo.value || undefined; if (v.stayFrom && v.stayTo && v.stayTo < v.stayFrom) v.stayTo = undefined; }
@@ -3722,6 +3768,7 @@ document.addEventListener("click", async (e) => {
       if (amount == null || amount <= 0) { fieldErrorIn(f, "amount", "請輸入金額"); break; }
       const x = { id: "w-" + uid(), kind: id, amount, note: f.note.value.trim(), t: Date.now() };
       if (id === "ic") x.from = (f.querySelector("[name=from]:checked") || {}).value || "cash";
+      if (id === "cash") { const b = (f.querySelector("[name=by]:checked") || {}).value; if (b && b !== meId()) x.by = b; }
       const hkd = f.hkd ? numOrNull(f.hkd.value) : null;
       closeSheet();
       commit((doc) => {
@@ -3785,11 +3832,19 @@ document.addEventListener("click", async (e) => {
     case "cost-edit": closeSheet(); openCostEditor(id); break;
     case "cost-save": {
       const fm = $("#costForm"), c = readCost(fm);
-      const title = fm.title ? fm.title.value.trim() : null, type = fm.type ? fm.type.value : null, note = fm.note ? fm.note.value.trim() : "";
-      if (fm.title && !title) { fieldErrorIn(fm, "title", "請輸入項目名稱"); break; }
-      if (c && note) c.note = note;
+      const title = fm.title ? fm.title.value.trim() : "", type = fm.type ? fm.type.value : "", note = fm.note ? fm.note.value.trim() : "", dayId = fm.dayId ? fm.dayId.value : null;
       closeSheet();
-      commit(() => { const f = findItem(id); if (!f) return; const v = V(f.item); if (title) v.title = title; if (type && type !== (v.type || "place")) v.type = type; if (c) v.cost = c; else delete v.cost; }, c ? "已儲存消費" : "已清除消費");
+      commit(() => {
+        const f = findItem(id); if (!f) return; const v = V(f.item);
+        if (c) {
+          // 只在和行程不同時才另外記下（行程改名時，未改過的支出名稱會跟著）
+          if (note) c.note = note;
+          if (title && title !== v.title) c.title = title;
+          if (type && type !== (v.type || "place")) c.type = type;
+          if (dayId != null && dayId !== f.day.id) c.dayId = dayId || "none";
+          v.cost = c;
+        } else delete v.cost;
+      }, c ? "已儲存消費" : "已清除消費");
       break;
     }
     case "cost-clear": closeSheet(); commit(() => { const f = findItem(id); if (f) delete V(f.item).cost; }, "已清除消費"); break;
@@ -4008,13 +4063,22 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "expense-new": openExpenseEditor(""); break;
+    case "expense-at": {
+      // 在行程時間線中間加入支出：預設日期是這一天，時間是前一個行程結束時間
+      const d = day(), at = +t.dataset.at, n = at >= 0 ? d.items[at] : null;
+      const prev = n ? (isBranch(n) ? activeRoute(n).items.filter((x) => x.start != null).pop() : n) : null;
+      openExpenseEditor("", { dayId: d.id, time: prev && prev.start != null ? endOf(prev) : undefined });
+      break;
+    }
+    case "mf-clear": S.mf = { pay: "", by: "", for: "" }; render(); break;
     case "expense-edit": openExpenseEditor(id); break;
     case "expense-save": {
       const f = $("#expForm");
       if (!f.title.value.trim()) { fieldErrorIn(f, "title", "請輸入項目名稱"); break; }
       const c = readCost(f);
       if (!c) { fieldErrorIn(f, "costPlan", "請輸入預計或實際金額"); break; }
-      const vals = { title: f.title.value.trim(), type: f.type.value, dayId: f.dayId.value, note: f.note.value.trim(), share: undefined, by: undefined, for: undefined, photos: undefined, ...c };
+      const tm = parseHHMM(f.time.value);
+      const vals = { title: f.title.value.trim(), type: f.type.value, dayId: f.dayId.value, time: tm == null ? undefined : tm, note: f.note.value.trim(), share: undefined, by: undefined, for: undefined, photos: undefined, ...c };
       closeSheet();
       commit((doc) => {
         doc.expenses = doc.expenses || [];
@@ -4391,6 +4455,7 @@ document.addEventListener("input", (e) => {
 });
 
 document.addEventListener("change", async (e) => {
+  if (e.target.dataset && e.target.dataset.mf) { S.mf = S.mf || {}; S.mf[e.target.dataset.mf] = e.target.value; render(); return; }
   if (e.target.name === "costCur") { updateCostPreview(); return; }
   if (e.target.form && e.target.form.id === "schedForm") { const go = $("#schedGo"); if (go) { go.dataset.act = "sched-calc"; go.textContent = "重新計算"; go.disabled = false; } return; }
   if (e.target.name === "type" && e.target.form && e.target.form.id === "edForm") {

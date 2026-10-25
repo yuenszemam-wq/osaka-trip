@@ -928,3 +928,34 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .comprow .cme input { position: absolute; opacity: 0; pointer-events: none; }
 .comprow .cme span { display: block; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; background: var(--p); }
 .comprow .cme input:checked + span { border-color: var(--purple); color: var(--purple); background: color-mix(in srgb, var(--purple) 14%, var(--w)); font-weight: 600; }
+
+/* 分帳明細 */
+.sdetail { margin-top: 10px; display: grid; gap: 6px; }
+.sdetail details { border: 1px solid var(--line); border-radius: 10px; background: var(--p); }
+.sdetail summary { padding: 8px 10px; font-size: 13.5px; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; cursor: pointer; }
+.sdetail summary span { font-weight: 400; font-size: 12px; color: var(--muted); }
+.sgroup { padding: 0 10px 8px; }
+.sgroup h4 { margin: 6px 0 2px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.sline { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px dashed var(--line); font-size: 13px; }
+.sline span { min-width: 0; }
+.sline small { display: block; font-size: 11.5px; color: var(--muted); }
+.sline b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sline.none { color: var(--muted); }
+.icdet { margin-top: 6px; text-align: left; }
+.icdet summary { font-size: 12px; color: var(--purple); cursor: pointer; }
+/* 交易紀錄篩選 */
+.mfrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.mfrow label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
+.mfrow select { width: 100%; min-width: 0; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--p); color: var(--ink); font: inherit; font-size: 13px; }
+.mfsum { margin-top: 8px; font-size: 13px; }
+.mfsum small { display: block; color: var(--muted); }
+/* 時間線上的支出 */
+.xrow { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; margin: 6px 0; padding: 8px 12px; border: 1px dashed color-mix(in srgb, var(--purple) 45%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--purple) 6%, var(--w)); color: var(--ink); font: inherit; }
+.xrow .xt { font-size: 12.5px; font-weight: 700; color: var(--purple); font-variant-numeric: tabular-nums; flex: none; }
+.xrow .xi { color: var(--purple); display: inline-flex; flex: none; }
+.xrow .xi svg.i { width: 16px; height: 16px; }
+.xrow .xb { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.xrow .xb b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xrow .xb small { font-size: 11.5px; color: var(--muted); }
+.xrow .xa { flex: none; text-align: right; font-weight: 700; font-size: 13.5px; display: flex; flex-direction: column; }
+.xrow .xa small { font-weight: 400; font-size: 11px; color: var(--muted); }
