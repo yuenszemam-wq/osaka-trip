@@ -959,3 +959,27 @@ details.period.area > summary svg.i { width: 15px; height: 15px; color: var(--pu
 .xrow .xb small { font-size: 11.5px; color: var(--muted); }
 .xrow .xa { flex: none; text-align: right; font-weight: 700; font-size: 13.5px; display: flex; flex-direction: column; }
 .xrow .xa small { font-weight: 400; font-size: 11px; color: var(--muted); }
+
+/* 換錢紀錄可編輯 */
+.wrow .wedit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; color: inherit; font: inherit; text-align: left; }
+.wrow .wedit > span { flex: 1 1 auto; min-width: 0; }
+.wrow .wedit svg.i { width: 14px; height: 14px; color: var(--muted); flex: none; }
+/* 分類：按人切換 */
+.catview { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 10px; padding-bottom: 2px; scrollbar-width: none; }
+.catview button { flex: none; border: 1px solid var(--line); background: var(--p); color: var(--ink); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 12.5px; }
+.catview button.on { border-color: var(--purple); color: var(--purple); background: color-mix(in srgb, var(--purple) 14%, var(--w)); font-weight: 600; }
+.bar .amt small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; text-align: right; }
+.cmpwrap { overflow-x: auto; }
+.cmptable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.cmptable th { font-size: 11.5px; color: var(--muted); font-weight: 500; text-align: right; padding: 4px; white-space: nowrap; }
+.cmptable th:first-child { text-align: left; }
+.cmptable td { padding: 7px 4px; border-top: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; vertical-align: top; }
+.cmptable td:first-child { text-align: left; font-weight: 600; }
+.cmptable td:first-child i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); margin-right: 5px; }
+.cmptable small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+.cmptable tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
+.cmptable .none { color: var(--muted); }
+/* 次序確認 */
+.reord { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; background: var(--p); font-size: 13.5px; }
+.reord > div { padding: 3px 0; }
+.reord span { display: inline-block; min-width: 46px; color: var(--purple); font-weight: 700; font-variant-numeric: tabular-nums; }

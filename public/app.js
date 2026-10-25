@@ -283,14 +283,53 @@ function commit(mut, msg) {
   S.undo.push(JSON.stringify(S.doc));
   if (S.undo.length > 40) S.undo.shift();
   const before = twinKeys(S.doc);
+  // 修改前已經不一致（之前選了「保持次序」）的行程，不再重複詢問
+  const prevMoved = {};
+  for (const d of S.doc.days) if (d.kind === "day") prevMoved[d.id] = pendingMoves(d);
   const res = mut(S.doc);
   syncTwins(S.doc, before);
-  for (const d of S.doc.days) if (d.kind === "day") sortDayByTime(d);
+  // 時間改變後次序和時間不一致：先問清楚，不會自動打亂次序
+  const reorder = [];
+  for (const d of S.doc.days) if (d.kind === "day") {
+    const a = seq(d).map((e) => e.item), sigA = orderSig(d), snap = JSON.stringify(d.items);
+    sortDayByTime(d);
+    if (orderSig(d) === sigA) continue;
+    if (res && res.sort) continue; // 使用者自己按了「按時間排列」
+    const b = seq(d).map((e) => e.item.id), mv = movedItems(a.map((x) => x.id), b), pm = prevMoved[d.id] || new Set();
+    d.items = JSON.parse(snap);
+    if (mv.every((id) => pm.has(id)) && pm.size) continue;
+    reorder.push({ id: d.id, label: d.label + (d.sub ? " · " + d.sub : ""), moved: movedItems(a.map((x) => x.id), b).map((id) => { const x = a.find((y) => y.id === id); return { title: V(x).title, start: x.start }; }) });
+  }
   queueWishSync();
   persistLocal(true);
   render();
   scheduleSave();
   if (msg || (res && res.msg)) toast(msg || res.msg, true);
+  if (reorder.length) openReorderConfirm(reorder);
+}
+function pendingMoves(d) {
+  const t = { ...d, items: JSON.parse(JSON.stringify(d.items)) }, a = seq(t).map((e) => e.item.id), sig = orderSig(t);
+  sortDayByTime(t);
+  return orderSig(t) === sig ? new Set() : new Set(movedItems(a, seq(t).map((e) => e.item.id)).concat(["*"]));
+}
+function orderSig(d) { return dayItemsDeep(d).map((x) => x.id).join(",") + "|" + seq(d).map((e) => e.item.id).join(","); }
+// 次序改變了的行程（保留最長的不變次序，其餘就是被移動的）
+function movedItems(a, b) {
+  const pos = new Map(b.map((id, i) => [id, i])), seqB = a.map((id) => pos.get(id) ?? -1);
+  const n = seqB.length, len = Array(n).fill(1), prev = Array(n).fill(-1);
+  for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) if (seqB[j] < seqB[i] && len[j] + 1 > len[i]) { len[i] = len[j] + 1; prev[i] = j; }
+  let k = len.indexOf(Math.max(0, ...len)); const keep = new Set();
+  while (k >= 0) { keep.add(a[k]); k = prev[k]; }
+  return a.filter((id) => !keep.has(id));
+}
+function openReorderConfirm(list) {
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("history")} 次序和時間不一致</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p>剛才的修改令以下行程的時間和顯示次序不一致。要按開始時間重新排列嗎？</p>
+    ${list.map((d) => `<div class="reord"><b>${esc(d.label)}</b>${d.moved.length ? d.moved.map((m) => `<div>${m.start != null ? `<span>${fmt(m.start)}</span>` : ""}${esc(m.title || "（未命名）")}</div>`).join("") : `<div>子行程次序</div>`}</div>`).join("")}
+    <p class="hint">選「保持次序」的話，行程維持現在的位置，有衝突的時間會顯示提示，之後可以再手動調整。</p>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">保持次序</button><button class="btn primary" data-act="reorder-go">按時間排列</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 // 行程次序跟時間：鎖定的行程不會移動，其他行程推後後可能排在它後面，所以按開始時間重新排列
 // （沒有時間的項目和資訊卡跟著前一項）
@@ -483,7 +522,7 @@ async function load() {
       persistLocal(false);
       // 舊資料：次序和時間不一致的，按時間重新排列
       const was = JSON.stringify(S.doc.days);
-      for (const d of S.doc.days) if (d.kind === "day") { fixNextDay(d); sortDayByTime(d); }
+      for (const d of S.doc.days) if (d.kind === "day") fixNextDay(d);
       if (JSON.stringify(S.doc.days) !== was) { persistLocal(true); scheduleSave(); }
     }
     S.offline = false;
@@ -2115,24 +2154,28 @@ function walletHTML(rows) {
     </div>
     <div class="wcard">💳 信用卡已簽 <b>${money(st.card, cur)}</b>${hk(st.card, "card")}${st.icFromCard ? `<span class="hint">（包括 IC卡增值 ${money(st.icFromCard, cur)}）</span>` : ""}</div>
     ${cur !== "HKD" ? `<div class="wrate">${icon("swap")}<span>現金匯率：${cr ? `1 ${cur} = <b>${cr.toFixed(4)}</b> HKD（固定）` : `未設定（使用市場匯率）`}</span><button class="btn small" data-act="cash-rate">${icon("pencil")}${cr ? "修改" : "設定"}</button></div>` : ""}
-    ${st.log.length ? `<details class="wlog"><summary>換錢及增值紀錄（${st.log.length}）</summary>${st.log.slice().reverse().map((x) => `<div class="wrow"><span>${x.kind === "cash" ? "💴 換錢" + (x.by && x.by !== meId() ? ` · ${esc(compName(x.by))} 提供` : "") : `🚃 IC卡增值 · ${x.from === "card" ? "💳 信用卡" : "💴 現金"}`}${x.note ? ` · ${esc(x.note)}` : ""}<small>${new Date(x.t).toLocaleDateString("zh-HK")}</small></span><b>${money(x.amount, cur)}</b><button class="btn small" data-act="wallet-del" data-id="${esc(x.id)}" aria-label="刪除">${icon("trash")}</button></div>`).join("")}</details>` : ""}
+    ${st.log.length ? `<details class="wlog"><summary>換錢及增值紀錄（${st.log.length}）</summary>${st.log.slice().reverse().map((x) => `<div class="wrow"><button class="wedit" data-act="wallet-edit" data-id="${esc(x.id)}" aria-label="編輯"><span>${x.kind === "cash" ? "💴 換錢" + (x.by && x.by !== meId() ? ` · ${esc(compName(x.by))} 提供` : "") : `🚃 IC卡增值 · ${x.from === "card" ? "💳 信用卡" : "💴 現金"}`}${x.note ? ` · ${esc(x.note)}` : ""}<small>${new Date(x.t).toLocaleDateString("zh-HK")}${x.hkd ? " · 付了 " + money(x.hkd, "HKD") : ""}</small></span><b>${money(x.amount, cur)}</b>${icon("pencil")}</button><button class="btn small" data-act="wallet-del" data-id="${esc(x.id)}" aria-label="刪除">${icon("trash")}</button></div>`).join("")}</details>` : ""}
     <p class="hint" style="margin:8px 0 0">餘額按你自己付款的「實際」金額和付款方式計算。IC卡增值是轉帳，不計入支出總額。</p></div>`;
 }
-function openWalletAdd(kind) {
+function openWalletAdd(kind, wid) {
   const cur = localCur();
+  const x = wid ? ((S.doc.wallet || {}).log || []).find((e) => e.id === wid) : null;
+  if (wid && !x) return;
+  if (x) kind = x.kind;
+  const e = x || { amount: "", note: "", from: "cash", by: meId() };
   const sheet = $("#sheet");
   sheet.className = "sheet";
-  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${kind === "cash" ? "💴 換錢／加現金" : "🚃 IC卡增值"}</h2><button class="btn ghost" data-act="close">✕</button></div>
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${kind === "cash" ? (x ? "💴 編輯換錢紀錄" : "💴 換錢／加現金") : (x ? "🚃 編輯增值紀錄" : "🚃 IC卡增值")}</h2><button class="btn ghost" data-act="close">✕</button></div>
     <form id="walletForm" onsubmit="return false">
-      <label class="field"><span>${kind === "cash" ? "換到的現金" : "增值金額"}（${esc(CUR_NAME[cur] || cur)}）</span><input type="text" inputmode="decimal" name="amount" placeholder="例如：${kind === "cash" ? "50000" : "3000"}"></label>
-      ${kind === "cash" && companions().length > 1 ? `<div class="field"><span>現金由誰提供</span><div class="payseg">${companions().map((p) => `<label><input type="radio" name="by" value="${esc(p.id)}" ${p.me ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div><small class="hint" style="margin:4px 0 0">同行者換好現金分給你：現金計入你的錢包，分帳時當作他替你付了這筆錢。</small></div>` : ""}
-      ${kind === "ic" ? `<div class="field"><span>用甚麼增值</span><div class="payseg"><label><input type="radio" name="from" value="cash" checked><span>💴 現金</span></label><label><input type="radio" name="from" value="card"><span>💳 信用卡</span></label></div></div>` : ""}
-      ${kind === "cash" && cur !== "HKD" ? `<label class="field"><span>付了多少港幣（可留空，填了會用來計算現金匯率）</span><input type="text" inputmode="decimal" name="hkd" placeholder="例如：2520"></label>` : ""}
-      <label class="field"><span>備註</span><input type="text" name="note" placeholder="${kind === "cash" ? "例如：找換店" : "例如：ICOCA"}"></label>
+      <label class="field"><span>${kind === "cash" ? "換到的現金" : "增值金額"}（${esc(CUR_NAME[cur] || cur)}）</span><input type="text" inputmode="decimal" name="amount" value="${e.amount ?? ""}" placeholder="例如：${kind === "cash" ? "50000" : "3000"}"></label>
+      ${kind === "cash" && companions().length > 1 ? `<div class="field"><span>現金由誰提供</span><div class="payseg">${companions().map((p) => `<label><input type="radio" name="by" value="${esc(p.id)}" ${p.id === (e.by || meId()) ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div><small class="hint" style="margin:4px 0 0">同行者換好現金分給你：現金計入你的錢包，分帳時當作他替你付了這筆錢。</small></div>` : ""}
+      ${kind === "ic" ? `<div class="field"><span>用甚麼增值</span><div class="payseg"><label><input type="radio" name="from" value="cash" ${e.from !== "card" ? "checked" : ""}><span>💴 現金</span></label><label><input type="radio" name="from" value="card" ${e.from === "card" ? "checked" : ""}><span>💳 信用卡</span></label></div></div>` : ""}
+      ${kind === "cash" && cur !== "HKD" ? `<label class="field"><span>付了多少港幣（可留空，填了會用來計算現金匯率）</span><input type="text" inputmode="decimal" name="hkd" value="${e.hkd ?? ""}" placeholder="例如：2520"></label>` : ""}
+      <label class="field"><span>備註</span><input type="text" name="note" value="${esc(e.note || "")}" placeholder="${kind === "cash" ? "例如：找換店" : "例如：ICOCA"}"></label>
     </form>
-    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="wallet-save" data-id="${kind}">加入</button></div></div>`;
+    <div class="sheet-foot">${x ? `<button class="btn danger" data-act="wallet-del" data-id="${esc(x.id)}">刪除</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="wallet-save" data-id="${kind}" ${x ? `data-wid="${esc(x.id)}"` : ""}>${x ? "儲存" : "加入"}</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
-  setTimeout(() => { const x = $("#walletForm [name=amount]"); if (x) x.focus(); }, 80);
+  if (!x) setTimeout(() => { const i = $("#walletForm [name=amount]"); if (i) i.focus(); }, 80);
 }
 function openCashRate() {
   const cur = localCur(), w = S.doc.wallet || {};
@@ -2185,12 +2228,6 @@ function moneyHTML() {
     html += `<div class="empty">還沒有消費紀錄。<br>在行程的「編輯 → 消費」輸入預計和實際金額，<br>或按下方「＋ 新增支出」加入其他支出（例如交通卡、手信）。</div>`;
     return html + `<button class="btn" style="width:100%" data-act="expense-new">${icon("plus")} 新增其他支出（交通卡、手信等）</button></div>`;
   }
-  // 類別
-  const byType = {};
-  for (const r of rows) { const h = toHKD(effOf(r), r.cur, r.pay); if (h != null) byType[r.type] = (byType[r.type] || 0) + h; }
-  const maxT = Math.max(1, ...Object.values(byType));
-  html += `<div class="mcard"><h3>${icon("sliders")} 分類</h3><div class="bars">${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([t, x]) =>
-    `<div class="bar" style="--c:${catVar(t)}"><span class="lbl">${icon(catOf(t)[1])}${catOf(t)[0]}</span><span class="tr"><i style="width:${(x / maxT) * 100}%"></i></span><span class="amt">${money(x, "HKD")}</span></div>`).join("")}</div></div>`;
   // 交易紀錄篩選：付款方式、付款人、買給誰
   const mf = S.mf || (S.mf = { pay: "", by: "", for: "" });
   const L2 = companions(), multi = L2.length > 1;
@@ -2201,6 +2238,32 @@ function moneyHTML() {
     ${multi ? `<label><span>付款人</span><select data-mf="by"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.by === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>
     <label><span>買給誰</span><select data-mf="for"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.for === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>` : ""}</div>
     ${on ? `<div class="mfsum">符合 <b>${fr.length}</b> 項 · 合計 <b>${money(sumHK(fr, "eff").s, "HKD")}</b>${mf.for ? `<small>（${esc(compName(mf.for))} 應分擔 ${money(fr.reduce((a, r) => { const h = toHKD(effOf(r), r.cur, r.pay); const sp = splitOf(r); return a + (h == null ? 0 : h / sp.for.length); }, 0), "HKD")}）</small>` : ""}</div>` : ""}</div>`;
+  // 類別：可切換「全部」、「按人比較」或某一位同行者（按應分擔金額計）
+  {
+    const cv = S.catView || "all", Lc = companions(), vp = Lc.find((p) => p.id === cv);
+    const by = {}; // type -> { all, [pid]: share }
+    for (const r of fr) {
+      const h = toHKD(effOf(r), r.cur, r.pay); if (h == null) continue;
+      const o = by[r.type] || (by[r.type] = { all: 0 }); o.all += h;
+      const sp = splitOf(r); for (const x of sp.for) o[x] = (o[x] || 0) + h / sp.for.length;
+    }
+    const key = vp ? vp.id : "all";
+    const ents = Object.entries(by).map(([t, o]) => [t, o[key] || 0, o]).filter(([, x]) => x > 0.005).sort((a, b) => b[1] - a[1]);
+    const total = ents.reduce((a, [, x]) => a + x, 0), maxT = Math.max(1, ...ents.map(([, x]) => x));
+    const pct = (x, t) => t ? Math.round((x / t) * 1000) / 10 + "%" : "0%";
+    html += `<div class="mcard"><h3>${icon("sliders")} 分類${on ? `<small class="hint" style="margin-left:6px">（已篩選）</small>` : ""}<span class="right">${money(total, "HKD")}</span></h3>
+      ${Lc.length > 1 ? `<div class="catview">${[["all", "全部"], ["cmp", "按人比較"], ...Lc.map((p) => [p.id, p.name + (p.me ? "（我）" : "")])].map(([k, t]) => `<button class="${cv === k || (k === "all" && !vp && cv !== "cmp") ? "on" : ""}" data-act="cat-view" data-id="${esc(k)}">${esc(t)}</button>`).join("")}</div>` : ""}`;
+    if (cv === "cmp" && Lc.length > 1) {
+      const all = Object.entries(by).sort((a, b) => b[1].all - a[1].all);
+      html += `<div class="cmpwrap"><table class="cmptable"><thead><tr><th>分類</th>${Lc.map((p) => `<th>${esc(p.name)}</th>`).join("")}</tr></thead><tbody>
+        ${all.map(([t, o]) => `<tr><td style="--c:${catVar(t)}"><i></i>${catOf(t)[0]}<small>${money(o.all, "HKD")}</small></td>${Lc.map((p) => `<td>${o[p.id] ? `${money(o[p.id], "HKD")}<small>${pct(o[p.id], o.all)}</small>` : `<span class="none">—</span>`}</td>`).join("")}</tr>`).join("")}
+        <tr class="tot"><td>合計<small>${money(all.reduce((a, [, o]) => a + o.all, 0), "HKD")}</small></td>${Lc.map((p) => { const v = all.reduce((a, [, o]) => a + (o[p.id] || 0), 0), T = all.reduce((a, [, o]) => a + o.all, 0); return `<td>${money(v, "HKD")}<small>${pct(v, T)}</small></td>`; }).join("")}</tr>
+        </tbody></table></div><p class="hint" style="margin:6px 0 0">每格是該人應分擔的金額，百分比是佔該分類總額的比例。</p>`;
+    } else if (!ents.length) html += `<div class="hint">沒有支出</div>`;
+    else html += `<div class="bars">${ents.map(([t, x]) => `<div class="bar" style="--c:${catVar(t)}"><span class="lbl">${icon(catOf(t)[1])}${catOf(t)[0]}</span><span class="tr"><i style="width:${(x / maxT) * 100}%"></i></span><span class="amt">${money(x, "HKD")}<small>${pct(x, total)}</small></span></div>`).join("")}</div>
+      ${vp ? `<p class="hint" style="margin:6px 0 0">${esc(vp.name)} 應分擔的金額，百分比是佔他總開銷的比例。</p>` : ""}`;
+    html += `</div>`;
+  }
   // 每天
   const groups = [];
   for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = fr.filter((r) => r.day === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
@@ -3763,10 +3826,12 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "wallet-add": openWalletAdd(id); break;
+    case "wallet-edit": openWalletAdd("", id); break;
     case "wallet-save": {
       const f = $("#walletForm"), amount = numOrNull(f.amount.value);
       if (amount == null || amount <= 0) { fieldErrorIn(f, "amount", "請輸入金額"); break; }
-      const x = { id: "w-" + uid(), kind: id, amount, note: f.note.value.trim(), t: Date.now() };
+      const wid = t.dataset.wid, old = wid ? ((S.doc.wallet || {}).log || []).find((e) => e.id === wid) : null;
+      const x = { id: old ? old.id : "w-" + uid(), kind: id, amount, note: f.note.value.trim(), t: old ? old.t : Date.now() };
       if (id === "ic") x.from = (f.querySelector("[name=from]:checked") || {}).value || "cash";
       if (id === "cash") { const b = (f.querySelector("[name=by]:checked") || {}).value; if (b && b !== meId()) x.by = b; }
       const hkd = f.hkd ? numOrNull(f.hkd.value) : null;
@@ -3774,9 +3839,10 @@ document.addEventListener("click", async (e) => {
       commit((doc) => {
         doc.wallet = doc.wallet || { log: [] }; doc.wallet.log = doc.wallet.log || [];
         if (hkd > 0) x.hkd = hkd;
-        doc.wallet.log.push(x);
+        const k = doc.wallet.log.findIndex((e) => e.id === x.id);
+        if (k >= 0) doc.wallet.log[k] = x; else doc.wallet.log.push(x);
         // 填了港幣：按所有換錢紀錄計算平均現金匯率（未手動固定時）
-        if (hkd > 0 && !doc.wallet.cashRateManual) {
+        if ((hkd > 0 || (old && old.hkd)) && !doc.wallet.cashRateManual && doc.wallet.log.some((e) => e.kind === "cash" && e.hkd > 0)) {
           const ex = doc.wallet.log.filter((e) => e.kind === "cash" && e.hkd > 0);
           doc.wallet.cashRate = ex.reduce((a, e) => a + e.hkd, 0) / ex.reduce((a, e) => a + e.amount, 0);
         }
@@ -3785,6 +3851,7 @@ document.addEventListener("click", async (e) => {
     }
     case "wallet-del": {
       if (!t.dataset.sure) { t.innerHTML = "確定？"; t.dataset.sure = "1"; break; }
+      closeSheet();
       commit((doc) => { if (doc.wallet) doc.wallet.log = (doc.wallet.log || []).filter((x) => x.id !== id); });
       break;
     }
@@ -4070,6 +4137,8 @@ document.addEventListener("click", async (e) => {
       openExpenseEditor("", { dayId: d.id, time: prev && prev.start != null ? endOf(prev) : undefined });
       break;
     }
+    case "reorder-go": closeSheet(); keepAnchor(() => commit(() => ({ sort: true }), "已按時間重新排列")); break;
+    case "cat-view": S.catView = id; render(); break;
     case "mf-clear": S.mf = { pay: "", by: "", for: "" }; render(); break;
     case "expense-edit": openExpenseEditor(id); break;
     case "expense-save": {
