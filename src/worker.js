@@ -15,7 +15,7 @@ export default {
     let m;
     if ((m = /^\/api\/share\/([\w-]+)\/photos\/([\w-]+)$/.exec(p)) && request.method === "GET") return publicSharePhoto({ request, env, ctx, params: { token: m[1], id: m[2] } });
     if ((m = /^\/api\/share\/([\w-]+)\/?$/.exec(p)) && request.method === "GET") return publicShare({ request, env, ctx, params: { token: m[1] } });
-    if (/^\/s\/[\w-]+\/?$/.test(p) && request.method === "GET") return env.ASSETS.fetch(new Request(new URL("/index.html", url), request));
+    if (/^\/s\/[\w-]+\/?$/.test(p) && request.method === "GET") return env.ASSETS.fetch(new Request(new URL("/", url), { headers: request.headers }));
     if (!OPEN.test(p)) {
       let g;
       try { g = await gate(request, env); } catch (e) { return json({ error: e.message || String(e) }, 500); }

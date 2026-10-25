@@ -765,9 +765,10 @@ function diaryChrome() {
   document.body.classList.add("diarymode");
   $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${ro ? "Shared journal" : "Travel memories"}</div><h1 class="dbrand">旅行回憶錄</h1></div>
     <div class="status"><div class="status-btns">${ro ? "" : `<button class="iconbtn sm" data-act="share-open" aria-label="分享日記">${icon("upload")}</button><button class="iconbtn sm" data-act="diary-back" aria-label="返回行程">${icon("back")}</button>`}</div></div>`;
+  const menuBtn = ro ? "" : `<button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button>`;
   const trips = S.trips.length ? S.trips : [{ id: S.tripId, title: m.title }];
   $("#tabs").innerHTML = `${trips.length > 1 ? `<div class="dtrips">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${icon("suitcase")}${esc(t.title || "旅程")}</button>`).join("")}</div>` : ""}
-    <div class="toprow3 dtool"><div class="switch"><button data-act="diary-mode" data-id="book" aria-pressed="${S.diaryMode !== "album"}">${icon("book")} 手帳</button><button data-act="diary-mode" data-id="album" aria-pressed="${S.diaryMode === "album"}">${icon("image")} 相簿</button></div>
+    <div class="toprow3 dtool">${menuBtn}<div class="switch"><button data-act="diary-mode" data-id="book" aria-pressed="${S.diaryMode !== "album"}">${icon("book")} 手帳</button><button data-act="diary-mode" data-id="album" aria-pressed="${S.diaryMode === "album"}">${icon("image")} 相簿</button></div>
     ${ro ? "" : `<button class="manage" data-act="journal-edit" aria-label="寫下今天">${icon("pencil")}寫下</button>`}</div>`;
   document.title = `${m.title || "旅程"} · 旅行回憶錄`;
 }
@@ -1404,25 +1405,32 @@ function polaroidHTML(photos, caption, right, id) {
   return `<div class="polaroid"><i class="tape"></i><div class="pgrid n${Math.min(n, 4)}">${show.map(img).join("")}</div>
     ${caption || right ? `<div class="pcap"><em>${esc(caption || "")}</em><span>${esc(right || "")}</span></div>` : ""}</div>`;
 }
-// 一則回憶：標題 → 相片 → 詳細文字
+// 一則回憶：標題（右邊編輯）→ 相片 → 詳細文字；有消費金額會列出
+function costLine(c) {
+  if (!c) return "";
+  const n = c.actual != null ? c.actual : c.plan; if (n == null) return "";
+  const cur = c.cur || localCur(), hk = cur !== "HKD" ? toHKD(n, cur, c.pay) : null;
+  return `${money(n, cur)}${hk != null ? `（≈${money(hk, "HKD")}）` : ""}${c.actual == null ? " 預計" : ""}`;
+}
 function memoryHTML(m, k) {
   const ro = !!S.share;
   if (m.kind === "exp") {
-    const e = m.e;
+    const e = m.e, mm = e.memo || {}, amt = costLine(e);
     return `<article class="mem tilt${k % 2}">
       <div class="mmeta"><i></i>${[e.time != null ? fmt(e.time) : "", catOf(e.type || "shop")[0]].filter(Boolean).join(" · ")}</div>
-      <h4>${esc(e.title || "支出")}</h4>
-      ${polaroidHTML(m.photos, "", e.time != null ? fmt(e.time) : "", e.id)}
-      ${!ro ? `<div class="mact"><button data-act="expense-edit" data-id="${esc(e.id)}">✎ 編輯</button></div>` : ""}</article>`;
+      <div class="mtitle"><h4>${esc(e.title || "支出")}</h4>${!ro ? `<button class="medit" data-act="exp-memo" data-id="${esc(e.id)}" aria-label="編輯">${icon("pencil")}</button>` : ""}</div>
+      ${amt ? `<div class="mcost">${icon("wallet")}${esc(amt)}</div>` : ""}
+      ${polaroidHTML(m.photos, mm.caption || "", e.time != null ? fmt(e.time) : "", e.id)}
+      ${(mm.note || "").trim() ? `<p class="mnote">${esc(mm.note)}</p>` : ""}</article>`;
   }
-  const x = m.x, v = V(x), mm = memoOf(x), area = areaOf(x), cat = catOf(v.type || "place")[0];
+  const x = m.x, v = V(x), mm = memoOf(x), area = areaOf(x), cat = catOf(v.type || "place")[0], amt = costLine(v.cost);
   const right = [area !== "其他" ? area : "", x.start != null ? fmt(x.start) : ""].filter(Boolean).join(" · ");
   return `<article class="mem tilt${k % 2}" id="de-${esc(x.id)}">
-    <div class="mmeta"><i></i>${[x.start != null ? fmt(x.start) : "", cat, area !== "其他" ? area : ""].filter(Boolean).map(esc).join(" · ")}${mm.fav ? `<span class="favmark">♥</span>` : ""}</div>
-    <h4>${esc(v.title || "（未命名）")}</h4>
+    <div class="mmeta"><i></i>${[x.start != null ? fmt(x.start) : "", cat, area !== "其他" ? area : ""].filter(Boolean).map(esc).join(" · ")}</div>
+    <div class="mtitle"><h4>${esc(v.title || "（未命名）")}</h4>${!ro ? `<button class="medit" data-act="memo-edit" data-id="${esc(x.id)}" aria-label="編輯回憶">${icon("pencil")}</button>` : ""}</div>
+    ${amt ? `<div class="mcost">${icon("wallet")}${esc(amt)}</div>` : ""}
     ${m.photos.length ? polaroidHTML(m.photos, mm.caption, right, x.id) : mm.caption ? `<blockquote class="mquote">${esc(mm.caption)}</blockquote>` : ""}
-    ${(mm.note || "").trim() ? `<p class="mnote">${esc(mm.note)}</p>` : ""}
-    ${!ro ? `<div class="mact"><button data-act="memo-fav" data-id="${esc(x.id)}" class="${mm.fav ? "on" : ""}">${mm.fav ? "♥ 已收藏" : "♡ 收藏這一刻"}</button><button data-act="memo-edit" data-id="${esc(x.id)}">✎ 編輯回憶</button></div>` : ""}</article>`;
+    ${(mm.note || "").trim() ? `<p class="mnote">${esc(mm.note)}</p>` : ""}</article>`;
 }
 function footprintHTML(d) {
   const rows = seq(d).map((e) => e.item).filter((x) => !isInfo(x));
@@ -1480,11 +1488,12 @@ async function openShare(highlight) {
   try { const r = await fetch("/api/shares"); shares = (await r.json()).shares || []; } catch {}
   const tname = (id) => (S.trips.find((x) => x.id === id) || {}).title || id;
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("upload")} 分享日記</h2><button class="btn ghost" data-act="close">✕</button></div>
-    <p class="hint" style="margin:-6px 0 12px">建立一條連結，沒有裝置權限的人也可以瀏覽日記和相片，但不能修改。不會顯示消費金額。</p>
-    ${shares.length ? `<div class="field"><span>已建立的連結</span>${shares.map((x) => `<div class="sharerow ${x.token === highlight ? "new" : ""}"><div><b>${esc(x.trips.map(tname).join("、"))}</b><small>${esc(location.origin)}/s/${esc(x.token)}</small></div>
+    <p class="hint" style="margin:-6px 0 12px">建立一條連結，沒有裝置權限的人也可以瀏覽日記和相片，但不能修改。</p>
+    ${shares.length ? `<div class="field"><span>已建立的連結</span>${shares.map((x) => `<div class="sharerow ${x.token === highlight ? "new" : ""}"><div><b>${esc(x.trips.map(tname).join("、"))}</b>${x.money ? `<small>包括消費金額</small>` : ""}<small>${esc(location.origin)}/s/${esc(x.token)}</small></div>
       <button class="btn small primary" data-act="share-copy" data-id="${esc(x.token)}">${icon("upload")}分享</button><button class="btn small danger" data-act="share-del" data-id="${esc(x.token)}">停止</button></div>`).join("")}</div>` : ""}
     <form id="shareForm" onsubmit="return false"><div class="field"><span>新的連結包括這些旅程</span>
-      ${(S.trips.length ? S.trips : [{ id: S.tripId, title: (S.doc.meta || {}).title }]).map((t) => `<label class="checkline"><input type="checkbox" name="st" value="${esc(t.id)}" ${t.id === S.tripId ? "checked" : ""}><span>${esc(t.title || t.id)}</span></label>`).join("")}</div></form>
+      ${(S.trips.length ? S.trips : [{ id: S.tripId, title: (S.doc.meta || {}).title }]).map((t) => `<label class="checkline"><input type="checkbox" name="st" value="${esc(t.id)}" ${t.id === S.tripId ? "checked" : ""}><span>${esc(t.title || t.id)}</span></label>`).join("")}</div>
+      <div class="field"><span>選項</span><label class="checkline"><input type="checkbox" name="money"><span>顯示消費金額</span></label></div></form>
     <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">關閉</button><button class="btn primary" data-act="share-make">${icon("plus")}建立分享連結</button></div></div>`;
 }
 // 分享模式：只讀載入日記
@@ -1507,12 +1516,101 @@ function openMemoEditor(id) {
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("book")} 編輯回憶</h2><button class="btn ghost" data-act="close">✕</button></div>
     <p class="hint" style="margin:-6px 0 12px">${esc(f.day.label)}${f.item.start != null ? " · " + fmt(f.item.start) : ""} · <b style="color:var(--ink)">${esc(v.title)}</b></p>
     <form id="memoForm" data-id="${esc(id)}" onsubmit="return false">
-      <div class="field"><span>相片</span><div class="edit-photos">${(mm.photos || []).map((p) => `<div class="ep"><img src="${esc(photoUrl(p))}" alt=""><button type="button" class="x" data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(p)}">✕</button></div>`).join("")}<button type="button" class="addphoto" data-act="memo-photo" data-id="${esc(id)}">＋ 相片</button></div></div>
+      <div class="field"><span>相片（按相片可以裁切、旋轉）</span><div class="edit-photos">${(mm.photos || []).map((p) => `<div class="ep"><img src="${esc(photoUrl(p))}" alt="" data-act="photo-edit" data-photo="${esc(p)}"><button type="button" class="x" data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(p)}">✕</button></div>`).join("")}<button type="button" class="addphoto" data-act="memo-photo" data-id="${esc(id)}">＋ 相片</button></div></div>
       <label class="field"><span>一句話（會寫在相片下面，可留空）</span><input type="text" name="caption" value="${esc(mm.caption || "")}" placeholder="例如：A little sweetness in Osaka."></label>
       <label class="field"><span>這一站的感受</span><textarea name="note" rows="6" placeholder="吃了甚麼、看到甚麼、當時的心情…">${esc(mm.note || "")}</textarea></label>
     </form>
     <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="memo-save" data-id="${esc(id)}">儲存</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function openExpMemoEditor(id) {
+  const e = (S.doc.expenses || []).find((x) => x.id === id); if (!e) return;
+  const mm = e.memo || {};
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("book")} 編輯回憶</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">${esc(e.title || "支出")}${costLine(e) ? " · " + esc(costLine(e)) : ""}</p>
+    <form id="expMemoForm" data-id="${esc(id)}" onsubmit="return false">
+      <div class="field"><span>相片（按相片可以裁切、旋轉）</span><div class="edit-photos">${(e.photos || []).map((p) => `<div class="ep"><img src="${esc(photoUrl(p))}" alt="" data-act="photo-edit" data-photo="${esc(p)}"><button type="button" class="x" data-act="exp-photo-del" data-id="${esc(id)}" data-photo="${esc(p)}">✕</button></div>`).join("")}<button type="button" class="addphoto" data-act="exp-photo-add" data-id="${esc(id)}">＋ 相片</button></div></div>
+      <label class="field"><span>一句話（會寫在相片下面，可留空）</span><input type="text" name="caption" value="${esc(mm.caption || "")}"></label>
+      <label class="field"><span>詳情</span><textarea name="note" rows="6" placeholder="買了甚麼、為甚麼買、用起來怎樣…">${esc(mm.note || "")}</textarea></label>
+      <input type="file" id="expMemoFile" accept="image/*" multiple hidden>
+    </form>
+    <div class="sheet-foot"><button class="btn" data-act="expense-edit" data-id="${esc(id)}">編輯支出</button><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="exp-memo-save" data-id="${esc(id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+// ---------- 相片編輯：裁切、旋轉 ----------
+let PE = null;
+function openPhotoEditor(photo, back) {
+  PE = { photo, back, rot: 0, ratio: 0, box: null, img: null };
+  const lb = $("#lightbox");
+  lb.innerHTML = `<div class="pe"><div class="pe-stage" id="peStage"><canvas id="peCanvas"></canvas><div class="pe-box" id="peBox"><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div>
+    <div class="pe-bar"><button data-act="pe-rot" data-id="-90">⟲ 左轉</button><button data-act="pe-rot" data-id="90">⟳ 右轉</button>
+      ${[["0", "自由"], ["1", "1:1"], ["1.3333", "4:3"], ["0.75", "3:4"]].map(([r, t]) => `<button data-act="pe-ratio" data-id="${r}" class="${r === "0" ? "on" : ""}">${t}</button>`).join("")}</div>
+    <div class="pe-bar"><button data-act="pe-cancel">取消</button><button data-act="pe-reset">還原</button><button class="pe-save" data-act="pe-save">儲存</button></div></div>`;
+  lb.hidden = false;
+  const img = new Image();
+  img.onload = () => { PE.img = img; peDraw(true); };
+  img.src = photoUrl(photo);
+}
+function peDraw(resetBox) {
+  const c = $("#peCanvas"), st = $("#peStage"); if (!c || !PE.img) return;
+  const img = PE.img, r = ((PE.rot % 360) + 360) % 360, sw = r % 180 ? img.naturalHeight : img.naturalWidth, sh = r % 180 ? img.naturalWidth : img.naturalHeight;
+  const maxW = st.clientWidth, maxH = st.clientHeight, sc = Math.min(maxW / sw, maxH / sh), dpr = window.devicePixelRatio || 1;
+  const cw = Math.round(sw * sc), ch = Math.round(sh * sc);
+  c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr); c.style.width = cw + "px"; c.style.height = ch + "px";
+  PE.W = cw; PE.H = ch;
+  const g = c.getContext("2d"); g.save(); g.scale(dpr, dpr); g.translate(cw / 2, ch / 2); g.rotate((r * Math.PI) / 180);
+  g.drawImage(img, -img.naturalWidth * sc / 2, -img.naturalHeight * sc / 2, img.naturalWidth * sc, img.naturalHeight * sc); g.restore();
+  PE.scale = sc;
+  if (resetBox || !PE.box) PE.box = { x: 0, y: 0, w: cw, h: ch };
+  if (PE.ratio) peFitRatio();
+  pePlace();
+}
+function peFitRatio() {
+  const R = PE.ratio; let w = PE.W, h = w / R; if (h > PE.H) { h = PE.H; w = h * R; }
+  PE.box = { x: (PE.W - w) / 2, y: (PE.H - h) / 2, w, h };
+}
+function pePlace() {
+  const c = $("#peCanvas"), b = $("#peBox"), st = $("#peStage"); if (!c || !b) return;
+  const ox = c.offsetLeft, oy = c.offsetTop;
+  Object.assign(b.style, { left: ox + PE.box.x + "px", top: oy + PE.box.y + "px", width: PE.box.w + "px", height: PE.box.h + "px" });
+}
+function peDragStart(e) {
+  const b = e.target.closest("#peBox"); if (!b || !PE) return;
+  e.preventDefault();
+  const h = e.target.dataset.h || "move", s = { x: e.clientX, y: e.clientY, box: { ...PE.box } };
+  const W = PE.W, H = PE.H, MIN = 40;
+  const mv = (ev) => {
+    const dx = ev.clientX - s.x, dy = ev.clientY - s.y; let { x, y, w, h: hh } = s.box;
+    if (h === "move") { x = Math.min(Math.max(0, x + dx), W - w); y = Math.min(Math.max(0, y + dy), H - hh); }
+    else {
+      if (h.includes("w")) { const nx = Math.min(Math.max(0, x + dx), x + w - MIN); w += x - nx; x = nx; }
+      if (h.includes("e")) w = Math.min(Math.max(MIN, w + dx), W - x);
+      if (h.includes("n")) { const ny = Math.min(Math.max(0, y + dy), y + hh - MIN); hh += y - ny; y = ny; }
+      if (h.includes("s")) hh = Math.min(Math.max(MIN, hh + dy), H - y);
+      if (PE.ratio) { hh = w / PE.ratio; if (y + hh > H) { hh = H - y; w = hh * PE.ratio; } if (h.includes("n")) y = s.box.y + s.box.h - hh; if (h.includes("w")) x = s.box.x + s.box.w - w; }
+    }
+    PE.box = { x, y, w, h: hh }; pePlace();
+  };
+  const up = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); };
+  window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+}
+document.addEventListener("pointerdown", peDragStart);
+async function peSave() {
+  const img = PE.img, r = ((PE.rot % 360) + 360) % 360, k = 1 / PE.scale;
+  const sw = r % 180 ? img.naturalHeight : img.naturalWidth, sh = r % 180 ? img.naturalWidth : img.naturalHeight;
+  const full = document.createElement("canvas"); full.width = sw; full.height = sh;
+  const g = full.getContext("2d"); g.translate(sw / 2, sh / 2); g.rotate((r * Math.PI) / 180); g.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+  const bx = Math.round(PE.box.x * k), by = Math.round(PE.box.y * k), bw = Math.max(1, Math.round(PE.box.w * k)), bh = Math.max(1, Math.round(PE.box.h * k));
+  const out = document.createElement("canvas"); out.width = Math.min(bw, sw - bx); out.height = Math.min(bh, sh - by);
+  out.getContext("2d").drawImage(full, bx, by, out.width, out.height, 0, 0, out.width, out.height);
+  const blob = await new Promise((res) => out.toBlob(res, "image/jpeg", 0.88));
+  const [id] = await uploadFiles([new File([blob], "edit.jpg", { type: "image/jpeg" })]);
+  // 所有用到這張相片的地方都換成新的
+  const old = PE.photo, back = PE.back;
+  commit((doc) => { const walk = (o) => { if (Array.isArray(o)) { o.forEach((v, i) => { if (v === old) o[i] = id; else if (v && typeof v === "object") walk(v); }); } else if (o && typeof o === "object") for (const key of Object.keys(o)) { if (key === "photoModes" && o[key] && o[key][old]) { o[key][id] = o[key][old]; } walk(o[key]); } }; walk(doc); }, "已儲存相片");
+  $("#lightbox").hidden = true; PE = null;
+  if (back) back(id);
 }
 function openJournalEditor(dayId) {
   const d = S.doc.days.find((x) => x.id === dayId); if (!d) return;
@@ -4059,7 +4157,7 @@ document.addEventListener("click", async (e) => {
   const t = e.target.closest("[data-act]");
   if (!t) {
     if (e.target.id === "sheet" || e.target.classList.contains("sheet")) closeSheet();
-    if (e.target.closest("#lightbox")) $("#lightbox").hidden = true;
+    if (e.target.closest("#lightbox") && !e.target.closest(".pe")) $("#lightbox").hidden = true;
     return;
   }
   const a = t.dataset.act, id = t.dataset.id;
@@ -4622,14 +4720,37 @@ document.addEventListener("click", async (e) => {
       const lb = $("#lightbox");
       lb.innerHTML = `<img src="${esc(photoUrl(all[k]))}" alt=""><button data-act="lb-close">✕</button>
         <div class="lb-cap"><b>${esc(title || "")}</b>${mm.caption ? `<em>${esc(mm.caption)}</em>` : ""}</div>
-        <div class="lb-tools">${all.length > 1 ? all.map((p, i) => `<button data-act="album-view" data-id="${esc(id)}" data-photo="${esc(p)}" ${i === k ? 'style="background:#72598e"' : ""}>${i + 1}</button>`).join("") : ""}${!S.share && f && (mm.photos || []).includes(all[k]) ? `<button data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(all[k])}">移除這張</button>` : ""}</div>`;
+        <div class="lb-tools">${all.length > 1 ? all.map((p, i) => `<button data-act="album-view" data-id="${esc(id)}" data-photo="${esc(p)}" ${i === k ? 'style="background:#72598e"' : ""}>${i + 1}</button>`).join("") : ""}${!S.share ? `<button data-act="photo-edit" data-photo="${esc(all[k])}">✂ 裁切／旋轉</button>` : ""}${!S.share && f && (mm.photos || []).includes(all[k]) ? `<button data-act="memo-del" data-id="${esc(id)}" data-photo="${esc(all[k])}">移除這張</button>` : ""}</div>`;
       lb.hidden = false; break;
     }
     case "share-open": openShare(); break;
+    case "exp-memo": openExpMemoEditor(id); break;
+    case "exp-memo-save": {
+      const f = $("#expMemoForm"), note = f.note.value, caption = f.caption.value.trim();
+      closeSheet();
+      commit(() => { const e = (S.doc.expenses || []).find((x) => x.id === id); if (!e) return; const mm = {}; if (note.trim()) mm.note = note; if (caption) mm.caption = caption; if (Object.keys(mm).length) e.memo = mm; else delete e.memo; });
+      break;
+    }
+    case "exp-photo-add": { const inp = $("#expMemoFile"); inp.value = ""; inp.click(); break; }
+    case "exp-photo-del": {
+      const f = $("#expMemoForm"), keep = { note: f.note.value, caption: f.caption.value };
+      commit(() => { const e = (S.doc.expenses || []).find((x) => x.id === id); if (e) e.photos = (e.photos || []).filter((p) => p !== t.dataset.photo); });
+      openExpMemoEditor(id); const g = $("#expMemoForm"); g.note.value = keep.note; g.caption.value = keep.caption; break;
+    }
+    case "photo-edit": {
+      const mf = $("#memoForm"), ef = $("#expMemoForm"), f = mf || ef, keep = f ? { note: f.note.value, caption: f.caption.value, id: f.dataset.id, exp: !!ef } : null;
+      openPhotoEditor(t.dataset.photo, keep ? () => { keep.exp ? openExpMemoEditor(keep.id) : openMemoEditor(keep.id); const g = $(keep.exp ? "#expMemoForm" : "#memoForm"); if (g) { g.note.value = keep.note; g.caption.value = keep.caption; } } : null);
+      break;
+    }
+    case "pe-rot": PE.rot += +id; peDraw(true); break;
+    case "pe-ratio": PE.ratio = +id; $$(".pe-bar [data-act=pe-ratio]").forEach((b) => b.classList.toggle("on", b === t)); if (PE.ratio) peFitRatio(); else PE.box = { x: 0, y: 0, w: PE.W, h: PE.H }; pePlace(); break;
+    case "pe-reset": PE.rot = 0; PE.ratio = 0; $$(".pe-bar [data-act=pe-ratio]").forEach((b) => b.classList.toggle("on", b.dataset.id === "0")); peDraw(true); break;
+    case "pe-cancel": $("#lightbox").hidden = true; PE = null; break;
+    case "pe-save": t.disabled = true; t.textContent = "儲存中…"; try { await peSave(); } catch (err) { toast("儲存失敗：" + err.message); t.disabled = false; t.textContent = "儲存"; } break;
     case "share-make": {
       const ids = $$("#shareForm [name=st]:checked").map((x) => x.value);
       if (!ids.length) { toast("請選擇最少一個旅程"); break; }
-      try { const r = await fetch("/api/shares", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trips: ids, token: t.dataset.token || undefined }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); openShare(j.token); } catch (err) { toast("建立分享連結失敗：" + err.message); }
+      try { const r = await fetch("/api/shares", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trips: ids, money: !!($("#shareForm [name=money]") || {}).checked }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); openShare(j.token); } catch (err) { toast("建立分享連結失敗：" + err.message); }
       break;
     }
     case "share-copy": { const u = location.origin + "/s/" + id; try { if (navigator.share) await navigator.share({ title: "旅行回憶錄", url: u }); else { await navigator.clipboard.writeText(u); toast("已複製連結"); } } catch { try { await navigator.clipboard.writeText(u); toast("已複製連結"); } catch {} } break; }
@@ -4880,6 +5001,11 @@ document.addEventListener("input", (e) => {
 
 document.addEventListener("change", async (e) => {
   if (e.target.id === "rcFile" && e.target.files[0]) { receiptFromPhoto(e.target.files[0]); return; }
+  if (e.target.id === "expMemoFile" && e.target.files.length) {
+    const f = $("#expMemoForm"), id = f.dataset.id, keep = { note: f.note.value, caption: f.caption.value };
+    try { const ids = await uploadFiles([...e.target.files]); commit(() => { const x = (S.doc.expenses || []).find((y) => y.id === id); if (x) x.photos = [...(x.photos || []), ...ids]; }); openExpMemoEditor(id); const g = $("#expMemoForm"); g.note.value = keep.note; g.caption.value = keep.caption; } catch (err) { toast("上傳失敗：" + err.message); }
+    return;
+  }
   if (e.target.dataset && e.target.dataset.mf) { S.mf = S.mf || {}; S.mf[e.target.dataset.mf] = e.target.value; render(); return; }
   if (e.target.name === "costCur") { updateCostPreview(); return; }
   if (e.target.form && e.target.form.id === "schedForm") { const go = $("#schedGo"); if (go) { go.dataset.act = "sched-calc"; go.textContent = "重新計算"; go.disabled = false; } return; }

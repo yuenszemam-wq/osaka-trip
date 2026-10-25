@@ -1115,3 +1115,27 @@ body.diarymode .switch button[aria-pressed=true] { color: var(--ink); }
 body.diarymode .switch button[aria-pressed=true] svg { color: #6f8160; }
 body.diarymode .manage, body.diarymode .iconbtn { background: transparent; color: var(--ink); }
 body.diarymode #tabs.stuck { box-shadow: 0 6px 14px -12px #0004; }
+
+/* 回憶卡：標題右邊編輯、消費金額 */
+.lit .mtitle { display: flex; align-items: flex-start; gap: 10px; }
+.lit .mtitle h4 { flex: 1 1 auto; min-width: 0; }
+.lit .medit { flex: none; margin-top: 10px; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--rule); background: transparent; color: var(--sage); display: grid; place-items: center; }
+.lit .medit svg.i { width: 16px; height: 16px; }
+.lit .mcost { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--soft-l); margin: -2px 0 4px; }
+.lit .mcost svg.i { width: 14px; height: 14px; color: var(--sage); }
+/* 相片編輯 */
+.pe { position: absolute; inset: 0; display: flex; flex-direction: column; padding: max(16px, env(safe-area-inset-top)) 12px max(14px, env(safe-area-inset-bottom)); gap: 10px; }
+.pe-stage { position: relative; flex: 1 1 0; min-height: 0; display: flex; align-items: center; justify-content: center; touch-action: none; }
+.pe-stage canvas { display: block; flex: none; }
+.pe-box { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px #0009; cursor: move; touch-action: none; }
+.pe-box i { position: absolute; width: 22px; height: 22px; border: 3px solid #fff; background: transparent; }
+.pe-box i[data-h=nw] { left: -4px; top: -4px; border-right: 0; border-bottom: 0; }
+.pe-box i[data-h=ne] { right: -4px; top: -4px; border-left: 0; border-bottom: 0; }
+.pe-box i[data-h=sw] { left: -4px; bottom: -4px; border-right: 0; border-top: 0; }
+.pe-box i[data-h=se] { right: -4px; bottom: -4px; border-left: 0; border-top: 0; }
+.pe-stage { overflow: hidden; }
+.pe-bar { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.pe-bar button { padding: 9px 14px; font-size: 14px; border-radius: 999px; background: #2b2540; color: #fff; border: 1px solid #ffffff40; font-family: inherit; }
+.pe-bar button.on { background: #8c9d78; border-color: #b9c7a5; }
+.pe-bar .pe-save { background: #8c9d78; border-color: #b9c7a5; font-weight: 600; }
+body.diarymode #tabs .dtool .ntab.menu { flex: none; }
