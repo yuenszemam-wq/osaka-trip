@@ -2817,7 +2817,7 @@ function openMenu() {
     </details>
     <div class="menu-grow"></div>
     <div class="menu-sec">外觀</div>
-    <div class="seg">${[["light", "sun", "淺色"], ["dark", "moon", "深色"], ["cute", "heart", "可愛"], ["auto", "auto", "跟隨系統"]].map(([k, i, t]) => `<button data-act="theme" data-id="${k}" aria-pressed="${S.theme === k}">${icon(i)}${t}</button>`).join("")}</div>
+    <div class="seg">${[["light", "sun", "淺色"], ["dark", "moon", "深色"], ["cute", "heart", "可愛"]].map(([k, i, t]) => `<button data-act="theme" data-id="${k}" aria-pressed="${S.theme === k}">${icon(i)}${t}</button>`).join("")}</div>
     <div class="seg" style="margin-top:8px">${[["thumb", "image", "圖片縮圖"], ["full", "image", "圖片大圖"]].map(([k, i, t]) => `<button data-act="photo-mode" data-id="${k}" aria-pressed="${S.photoMode === k}">${icon(i)}${t}</button>`).join("")}</div>
     <p class="hint" style="margin-top:14px" id="authHint">所有修改都會留下版本紀錄。</p>
     <input type="file" id="importFile" accept="application/json,.json" hidden></div>`;
@@ -3157,7 +3157,7 @@ function setTheme(t) {
   S.theme = t;
   if (t === "auto") { delete document.documentElement.dataset.theme; ls.del("trip.theme"); }
   else { document.documentElement.dataset.theme = t; ls.set("trip.theme", t); }
-  requestAnimationFrame(() => { const c = getComputedStyle(document.documentElement).getPropertyValue("--p").trim(); if (c) $("#themeColor").setAttribute("content", c); });
+  requestAnimationFrame(() => { const c = t === "cute" ? "#2c2232" : getComputedStyle(document.documentElement).getPropertyValue("--p").trim(); if (c) $("#themeColor").setAttribute("content", c); });
 }
 
 // ---------- 編輯行程 ----------
@@ -4977,7 +4977,9 @@ S.view = ls.get("trip.view") === "map" ? "map" : "list";
 S.cardOff = ls.get("trip.cardOff") === "1";
 S.npOpen = new Set();
 S.diaryMode = ls.get("trip.diaryMode") === "album" ? "album" : "book";
-S.theme = ["dark", "light", "cute"].includes(ls.get("trip.theme")) ? ls.get("trip.theme") : "auto";
+// 沒有選擇過外觀的話，按手機目前的深淺色決定一次
+S.theme = ["dark", "light", "cute"].includes(ls.get("trip.theme")) ? ls.get("trip.theme") : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+document.documentElement.dataset.theme = S.theme;
 setTheme(S.theme);
 
 document.addEventListener("input", (e) => {

@@ -1141,80 +1141,89 @@ body.diarymode #tabs.stuck { box-shadow: 0 6px 14px -12px #0004; }
 body.diarymode #tabs .dtool .ntab.menu { flex: none; }
 
 
-/* ===================== 可愛主題（緞帶、菱格紋、深紫卡片） ===================== */
+/* ===================== 可愛主題（黑紫卡片．粉紅蕾絲．蝴蝶結） ===================== */
 :root[data-theme="cute"] {
-  --p: #e6dbf3; --w: #fcf8ff; --ink: #2e2638; --ink-2: #4a3f57; --muted: #7d6f8e; --purple: #6f4fa0; --on-purple: #fff;
-  --soft: #efe4fa; --line: #d3c3e6; --warn-bg: #fbe6ef; --warn-line: #eab4cc; --warn-ink: #9a3f68; --ok: #5c9a78;
-  --shadow: 0 14px 40px #4b2f6a26; color-scheme: light;
-  --plum: #2b2532; --plum2: #332b3b; --plum-line: #4e4359; --pink: #f8d6ea; --pink-line: #e78fbf; --lav: #e0d6f8; --lav-line: #9f86de; --gold: #f2c94c;
-  --bow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 50'%3E%3Cg fill='%233a3242' stroke='%23a996bd' stroke-width='2.6' stroke-linejoin='round'%3E%3Cpath d='M31 24 L21 46 L28 42 L32 48 L33 27Z'/%3E%3Cpath d='M33 24 L43 46 L36 42 L32 48 L31 27Z'/%3E%3Cpath d='M32 22 C22 6 5 4 5 17 C5 31 22 31 32 22Z'/%3E%3Cpath d='M32 22 C42 6 59 4 59 17 C59 31 42 31 32 22Z'/%3E%3Ccircle cx='32' cy='22' r='6.5'/%3E%3C/g%3E%3Cpath d='M14 14 C18 15 22 18 26 21 M50 14 C46 15 42 18 38 21' stroke='%23a996bd' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); --star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 0C13 8 16 11 24 12C16 13 13 16 12 24C11 16 8 13 0 12C8 11 11 8 12 0Z' fill='%23f2c94c'/%3E%3C/svg%3E"); --heart: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 22'%3E%3Cpath d='M12 21C5 15 1 11 1 6.5A5.5 5.5 0 0 1 12 4a5.5 5.5 0 0 1 11 2.5C23 11 19 15 12 21Z' fill='%23f6c7e0'/%3E%3C/svg%3E");
+  --p: #f3eef8; --w: #fffbfe; --ink: #2d2235; --ink-2: #4b3d57; --muted: #77688a; --purple: #6b4c8a; --on-purple: #fff;
+  --soft: #f1e6f8; --line: #dccdea; --warn-bg: #fbe7f0; --warn-line: #ebbad0; --warn-ink: #93405f; --ok: #5c9a78;
+  --shadow: 0 14px 40px #4b2f6a1f; color-scheme: light;
+  --plum: #2e2434; --plum2: #392c41; --plum-line: #574565; --edge: #d7c5e8; --tile1: #fbe9f3; --tile2: #ebddf7; --tile-line: #e2cdea;
+  --bow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 60'%3E%3Cg stroke='%23cdb3e6' stroke-width='3.2' stroke-linejoin='round'%3E%3Cpath d='M44 30 C30 8 6 6 6 24 C6 42 30 50 44 32Z' fill='%23453652'/%3E%3Cpath d='M52 30 C66 8 90 6 90 24 C90 42 66 50 52 32Z' fill='%23453652'/%3E%3C/g%3E%3Cpath d='M16 22 C24 22 34 26 42 30 M80 22 C72 22 62 26 54 30' stroke='%2366557a' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Crect x='40' y='22' width='16' height='16' rx='4' transform='rotate(45 48 30)' fill='%23f2b9dd' stroke='%23fff' stroke-width='1.5'/%3E%3C/svg%3E"); --sbow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 40'%3E%3Cg fill='none' stroke='%23b99bd3' stroke-width='3.5' stroke-linecap='round'%3E%3Cpath d='M30 18 C22 4 6 6 8 16 C10 26 24 24 30 20 M34 18 C42 4 58 6 56 16 C54 26 40 24 34 20'/%3E%3Cpath d='M30 21 L24 36 M34 21 L40 36'/%3E%3C/g%3E%3Ccircle cx='32' cy='19' r='4.5' fill='%23b99bd3'/%3E%3C/svg%3E"); --star: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 0C13 8 16 11 24 12C16 13 13 16 12 24C11 16 8 13 0 12C8 11 11 8 12 0Z' fill='%23e9c46a'/%3E%3C/svg%3E");
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Noto Serif TC", serif;
 }
-:root[data-theme="cute"], :root[data-theme="cute"] body { background-color: #e6dbf3; }
-[data-theme="cute"] body { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cpath d='M36 0L72 36L36 72L0 36Z' fill='%23ddd0ef'/%3E%3Cpath d='M36 0L72 36L36 72L0 36Z' fill='none' stroke='%23f3ecfb' stroke-width='1.5' stroke-dasharray='3 4'/%3E%3C/svg%3E"); background-size: 72px 72px; }
-/* 頂部：深紫直條紋橫額 + 緞帶 + 星星 + 波浪邊 */
+:root[data-theme="cute"], :root[data-theme="cute"] body { background-color: #f3eef8; }
+[data-theme="cute"] body { background-image: repeating-linear-gradient(90deg, #f4eff9 0 26px, #efe8f6 26px 52px); }
+/* 頂部橫額：黑紫直條紋、粉紫襯線字、蝴蝶結、蕾絲邊 */
 [data-theme="cute"] .brand {
-  position: relative; margin: max(12px, env(safe-area-inset-top)) 12px 18px; padding: 22px 20px 26px; border-radius: 26px;
-  color: #f6effc; border: 3px solid var(--plum-line); box-shadow: 0 5px 0 #c3b2d8;
-  background: var(--star) no-repeat 18px 20px / 18px, var(--star) no-repeat 46% 16px / 14px, var(--star) no-repeat calc(100% - 92px) 70% / 16px,
-    repeating-linear-gradient(90deg, var(--plum) 0 16px, var(--plum2) 16px 32px);
+  position: relative; margin: 0; padding: max(26px, calc(env(safe-area-inset-top) + 14px)) 22px 34px; min-height: 178px; align-items: flex-start;
+  color: #fff; background: var(--star) no-repeat calc(100% - 64px) calc(100% - 30px) / 15px, repeating-linear-gradient(90deg, #2c2232 0 20px, #36293d 20px 40px);
+  box-shadow: inset 0 -16px 22px -12px #0006;
 }
-[data-theme="cute"] .brand::before {
-  content: ""; position: absolute; left: -10px; right: -10px; top: -14px; height: 40px; pointer-events: none;
-  background: var(--bow) no-repeat left top / 50px, var(--bow) no-repeat right top / 50px;
-}
-[data-theme="cute"] .brand::after {
-  content: ""; position: absolute; left: 14px; right: 14px; bottom: -11px; height: 12px; pointer-events: none;
-  background: radial-gradient(circle at 8px 0, var(--plum-line) 7px, transparent 7.5px) repeat-x 0 0 / 16px 12px;
-}
-[data-theme="cute"] .brand .kicker, [data-theme="cute"] .brand h1 small { color: #d9c8ec; }
-[data-theme="cute"] .brand h1 { font-family: inherit; font-weight: 800; letter-spacing: 0; }
-[data-theme="cute"] .brand .iconbtn { background: #ffffff14; border-color: #ffffff2e; color: #f6effc; }
-[data-theme="cute"] .brand .sync { color: #e9dcf7; }
-/* 分頁：虛線粉紅／淡紫膠囊 */
-[data-theme="cute"] .toprows { background: transparent; }
-[data-theme="cute"] .toprows.stuck { background: #e6dbf3f2; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); border-bottom-color: transparent; box-shadow: 0 8px 16px -14px #4b2f6a80; }
-[data-theme="cute"] .ntab { border: 2px dashed var(--pink-line); background: var(--pink); color: #5a3a50; box-shadow: 0 0 0 3px #fff; border-radius: 999px; font-weight: 600; }
-[data-theme="cute"] .ntab[aria-pressed="true"] { border-color: var(--lav-line); background: var(--lav); color: #3e2f6b; }
-[data-theme="cute"] .ntab.menu { background: var(--plum); color: #fff; border: 2px solid var(--plum-line); box-shadow: 0 0 0 3px #fff; border-radius: 14px; }
-[data-theme="cute"] .addtab { border-color: var(--lav-line); color: #6f4fa0; background: #fff8; }
-[data-theme="cute"] .dtab { border: 2px dashed var(--lav-line); background: #fbf7ffcc; color: #5d4c74; border-radius: 18px; }
-[data-theme="cute"] .dtab[aria-pressed="true"] { background: var(--plum); color: #fff; border: 2px solid var(--plum-line); box-shadow: 0 3px 0 #c3b2d8; }
-[data-theme="cute"] .dtab[aria-pressed="true"] small, [data-theme="cute"] .dtab[aria-pressed="true"] .wx, [data-theme="cute"] .dtab[aria-pressed="true"] .wx i { color: #e6d8f5; }
-[data-theme="cute"] .switch { background: #fbf7ffb3; border: 2px dashed var(--lav-line); border-radius: 999px; }
-[data-theme="cute"] .switch button { border-radius: 999px; }
-[data-theme="cute"] .switch button[aria-pressed="true"] { background: var(--plum); color: #fff; }
-[data-theme="cute"] .manage { border: 2px dashed var(--pink-line); background: var(--pink); color: #5a3a50; border-radius: 999px; }
-[data-theme="cute"] .manage.add, [data-theme="cute"] .manage[aria-pressed="true"] { background: var(--plum); color: #fff; border: 2px solid var(--plum-line); }
-[data-theme="cute"] .ttab, [data-theme="cute"] .areachips button { border: 2px dashed var(--lav-line); background: #fbf7ffcc; border-radius: 999px; }
-[data-theme="cute"] .period > summary { color: #5d4c74; font-weight: 600; }
+[data-theme="cute"] .brand::before { content: ""; position: absolute; right: 18px; bottom: 44px; width: 96px; height: 60px; background: var(--bow) no-repeat center / contain; pointer-events: none; filter: drop-shadow(0 3px 3px #0005); }
+[data-theme="cute"] .brand::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 12px; pointer-events: none;
+  background: radial-gradient(circle at 9px 12px, #f3eef8 7.5px, transparent 8px) repeat-x 0 0 / 18px 12px; }
+[data-theme="cute"] .brand .kicker { color: #ffffff3d; letter-spacing: .22em; font-weight: 600; }
+[data-theme="cute"] .brand h1 { font: 500 50px/1.05 var(--serif); letter-spacing: -1px; color: #ecc8ee; text-shadow: 0 3px 0 #1b141f; margin-top: 10px; }
+[data-theme="cute"] .brand h1 small { display: block; margin: 14px 0 0; color: #fff; font-size: 13px; letter-spacing: .35em; text-shadow: none; }
+[data-theme="cute"] .brand .status { position: relative; z-index: 1; }
+[data-theme="cute"] .brand .iconbtn { background: #ffffff12; border-color: #ffffff26; color: #f3e6fa; }
+[data-theme="cute"] .brand .sync { color: #e6d6f2; }
+/* 分頁 */
+[data-theme="cute"] .toprows { background: transparent; padding-top: 12px; }
+[data-theme="cute"] .toprows.stuck { background: #f3eef8f0; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom-color: var(--edge); box-shadow: 0 8px 18px -16px #4b2f6a; }
+[data-theme="cute"] .rowtabs { gap: 10px; padding-bottom: 6px; }
+[data-theme="cute"] .ntab { flex-direction: column; justify-content: center; gap: 4px; min-width: 74px; height: 64px; padding: 6px 12px; border-radius: 18px;
+  background: linear-gradient(180deg, var(--tile1), var(--tile2)); border: 2px solid var(--tile-line); box-shadow: 0 4px 0 var(--edge); color: var(--ink); font-size: 13px; font-weight: 600; }
+[data-theme="cute"] .ntab svg.i { width: 20px; height: 20px; color: #6b4c8a; }
+[data-theme="cute"] .ntab[aria-pressed="true"] { background: linear-gradient(180deg, #f6d4e9, #dcc7f3); border-color: #b993d6; color: var(--plum); }
+[data-theme="cute"] .ntab.menu { width: 56px; min-width: 56px; height: 64px; background: var(--plum); border: 2px solid var(--plum-line); box-shadow: 0 4px 0 #bba3d2; color: #fff; border-radius: 18px; }
+[data-theme="cute"] .ntab.menu svg.i { color: #fff; }
+[data-theme="cute"] .addtab { border: 2px dashed var(--edge); color: var(--purple); background: #fffbfe; border-radius: 18px; }
+[data-theme="cute"] .dtab { background: #fffbfe; border: 2px solid var(--edge); box-shadow: 0 4px 0 var(--edge); border-radius: 18px; color: var(--ink); font-weight: 700; padding: 9px 8px; }
+[data-theme="cute"] .dtab small { color: var(--muted); font-weight: 500; letter-spacing: .06em; }
+[data-theme="cute"] .dtab[aria-pressed="true"] { background: var(--plum); border-color: var(--plum-line); color: #fff; box-shadow: 0 4px 0 #bba3d2; }
+[data-theme="cute"] .dtab[aria-pressed="true"] small, [data-theme="cute"] .dtab[aria-pressed="true"] .wx, [data-theme="cute"] .dtab[aria-pressed="true"] .wx i { color: #e6d8f2; }
+[data-theme="cute"] .switch { background: #e5d8f0; border: 2px solid var(--edge); border-radius: 18px; }
+[data-theme="cute"] .switch button { border-radius: 14px; color: var(--ink-2); white-space: nowrap; }
+[data-theme="cute"] .switch button[aria-pressed="true"] { background: #fff6fb; color: var(--plum); box-shadow: 0 2px 0 #d7c5e8; }
+[data-theme="cute"] .manage { background: #fffbfe; border: 2px solid var(--edge); box-shadow: 0 4px 0 var(--edge); border-radius: 16px; color: var(--ink); }
+[data-theme="cute"] .manage.add, [data-theme="cute"] .manage[aria-pressed="true"] { background: var(--plum); color: #fff; border-color: var(--plum-line); box-shadow: 0 4px 0 #bba3d2; }
+[data-theme="cute"] .ttab, [data-theme="cute"] .areachips button { background: #fffbfe; border: 2px solid var(--edge); border-radius: 999px; }
+[data-theme="cute"] .search { background: #fffbfe; border: 2px solid var(--edge); border-radius: 16px; }
+[data-theme="cute"] .period > summary { color: var(--ink-2); font-weight: 600; letter-spacing: .08em; }
 [data-theme="cute"] .period .count { background: var(--plum); color: #fff; }
-/* 深紫卡片（卡片內的文字改為淺色） */
+/* 黑紫卡片：蕾絲上邊、右上角蝴蝶結 */
 [data-theme="cute"] :is(.place, .mcard, .stopcard, .shop-row, .shop-sum > div, .wcard, .stops li, .xrow) {
-  --w: #2b2532; --p: #352d3e; --ink: #f6effc; --ink-2: #ded2ea; --muted: #b7a9c8; --line: #4e4359; --soft: #3d3347; --purple: #e5c8f7; --on-purple: #2b2532;
+  --w: #2e2434; --p: #382c40; --ink: #f8f1fc; --ink-2: #e0d4ea; --muted: #b8a9c8; --line: #514160; --soft: #403348; --purple: #e2c6f4; --on-purple: #2e2434;
   --warn-bg: #4a2f3c; --warn-line: #7b4a62; --warn-ink: #f5bfd7; --ok: #8fd1ad;
-  --c-activity: #c9a8e4; --c-food: #f0ad8a; --c-shop: #9fd0b1; --c-stay: #9cc4e6; --c-transport: #c3bdd3; --c-flight: #e1bf98; --c-info: #c2bed2;
-  background: var(--w); color: var(--ink); border: 3px solid var(--plum-line); box-shadow: 0 5px 0 #c3b2d8;
+  --c-activity: #d2b0ec; --c-food: #f2b08d; --c-shop: #a3d4b5; --c-stay: #a0c6e8; --c-transport: #c8c0d8; --c-flight: #e4c29c; --c-info: #c6c1d6;
+  background: var(--w); color: var(--ink); border: 2px solid #5b4868; box-shadow: 0 5px 0 #d4c1e4;
 }
-[data-theme="cute"] .place, [data-theme="cute"] .mcard { border-radius: 24px; }
-[data-theme="cute"] .place { margin-top: 16px; }
-[data-theme="cute"] :is(.place, .mcard)::before {
-  content: ""; position: absolute; left: -12px; right: -12px; top: -16px; height: 34px; pointer-events: none; z-index: 1;
-  background: var(--bow) no-repeat left top / 40px, var(--bow) no-repeat right top / 40px;
-}
-[data-theme="cute"] .mcard { position: relative; margin-top: 18px; }
-[data-theme="cute"] .mcard.total { background: var(--heart) no-repeat calc(100% - 18px) 18px / 22px, repeating-linear-gradient(90deg, var(--plum) 0 16px, var(--plum2) 16px 32px); }
-[data-theme="cute"] .place .check { background: transparent; border-color: #8e7fa1; }
-[data-theme="cute"] .place .check.on, [data-theme="cute"] .place.done .check { background: var(--pink); border-color: var(--pink); color: #5a3a50; }
-[data-theme="cute"] .place.done { opacity: .78; }
-[data-theme="cute"] :is(.place, .mcard) .btn { background: #3d3347; border-color: #5b4f68; color: #f6effc; }
-[data-theme="cute"] .bbar, [data-theme="cute"] .bars .tr { background: #1f1a25; }
-/* 按鈕和底部表單 */
-[data-theme="cute"] .btn.primary { background: var(--plum); border-color: var(--plum); color: #fff; }
-[data-theme="cute"] .sheet-body { border-top: 3px solid var(--plum-line); }
-[data-theme="cute"] .sheet-body::before { content: ""; display: block; height: 0; }
-[data-theme="cute"] .menu-list button, [data-theme="cute"] .menu-list a { border-radius: 999px; border: 2px dashed var(--lav-line); background: #fbf7ff; }
-[data-theme="cute"] .menu-diary { border: 2px dashed var(--pink-line) !important; background: var(--pink) !important; color: #4f3346; }
+[data-theme="cute"] .place, [data-theme="cute"] .mcard { position: relative; border-radius: 22px; padding-top: 22px; }
+[data-theme="cute"] .place { margin-top: 14px; }
+[data-theme="cute"] .mcard { margin-top: 16px; }
+[data-theme="cute"] :is(.place, .mcard)::before { content: ""; position: absolute; left: 16px; right: 16px; top: 7px; height: 7px; pointer-events: none;
+  background: radial-gradient(circle, #6a587a 2.6px, transparent 3px) repeat-x 0 0 / 10px 7px; }
+[data-theme="cute"] :is(.place, .mcard)::after { content: ""; position: absolute; right: 26px; top: -14px; width: 44px; height: 28px; pointer-events: none; background: var(--sbow) no-repeat center / contain; }
+[data-theme="cute"] .place .number { background: linear-gradient(160deg, #f6d6ea, #d9c3f1); color: var(--plum); border-radius: 14px; box-shadow: 0 3px 0 #8e74a6; font-family: var(--serif); font-weight: 700; }
+[data-theme="cute"] .place .check { background: transparent; border-color: #9584a6; }
+[data-theme="cute"] .place .check.on, [data-theme="cute"] .place.done .check { background: #f6d6ea; border-color: #f6d6ea; color: var(--plum); }
+[data-theme="cute"] .place.done { opacity: .8; }
+[data-theme="cute"] :is(.place, .mcard) .btn { background: #403348; border-color: #5d4c6b; color: #f8f1fc; }
+[data-theme="cute"] .bbar, [data-theme="cute"] .bars .tr { background: #1f1925; }
+/* 一般按鈕、底部表單、菜單 */
+[data-theme="cute"] .btn { border-radius: 14px; }
+[data-theme="cute"] .btn.primary { background: var(--plum); border-color: var(--plum); color: #fff; box-shadow: 0 3px 0 #bba3d2; }
+[data-theme="cute"] .sheet-body { background: #f8f3fb; border-radius: 26px 26px 0 0; }
+[data-theme="cute"] .sheet-body .field input, [data-theme="cute"] .sheet-body .field select, [data-theme="cute"] .sheet-body .field textarea { border: 2px solid var(--edge); background: #fffdfe; }
+[data-theme="cute"] .menu-list button, [data-theme="cute"] .menu-list a { border: 0; border-bottom: 1px solid var(--edge); border-radius: 0; background: transparent; }
+[data-theme="cute"] .menu-list button.on { background: var(--plum); color: #fff; border: 2px solid var(--plum-line); border-radius: 18px; box-shadow: 0 4px 0 #bba3d2; }
+[data-theme="cute"] .menu-list button.on .tsub { color: #dccdea; }
+[data-theme="cute"] .menu-diary { background: linear-gradient(160deg, #fbe2f0, #f2d3e8) !important; border: 2px solid #f0c9e0 !important; box-shadow: 0 4px 0 #e6c3da; border-radius: 22px; }
+[data-theme="cute"] .menu-diary.wishbtn { background: linear-gradient(160deg, #efe3fb, #dccbf3) !important; border-color: #d5c0ef !important; box-shadow: 0 4px 0 #cdb8e6; }
+[data-theme="cute"] .menu-diary > svg.i { color: var(--plum) !important; }
+[data-theme="cute"] .seg { background: #e5d8f0; }
 /* 日記：淡紫紙 */
-:root[data-theme="cute"] .diary.lit { --paper: #efe6f8; --paper2: #fdf9ff; --ink-l: #2e2638; --soft-l: #7d6f8e; --sage: #8b6cc0; --sage-bg: #e0d3f4; --tape: #f3bfdcbb; --rule: #d7c8ea; }
-:root[data-theme="cute"] body.diarymode { --dpaper: #efe6f8; }
-[data-theme="cute"] .switch button { white-space: nowrap; padding-left: 10px; padding-right: 10px; }
+:root[data-theme="cute"] .diary.lit { --paper: #f3eef8; --paper2: #fffbfe; --ink-l: #2d2235; --soft-l: #77688a; --sage: #8a66b5; --sage-bg: #e6d8f4; --tape: #d9c3f1cc; --rule: #dccdea; }
+:root[data-theme="cute"] body.diarymode { --dpaper: #f3eef8; }
+[data-theme="cute"] .lit .ddays button.on { background: var(--plum); color: #fff; border-color: var(--plum-line); }
+[data-theme="cute"] .lit .ddays button.on small { color: #dccdea; }
