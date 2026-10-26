@@ -1204,3 +1204,35 @@ body.diarymode #tabs .dtool .ntab.menu { flex: none; }
 [data-theme="cute"] .lit .ddays button.on, [data-theme="cute"] .lit .dtrips button.on, [data-theme="cute"] body.diarymode #tabs .dtrips button.on { background: #3e2d49; color: #ffdcf3; border-color: #b99bcd; }
 [data-theme="cute"] .lit .ddays button.on small { color: #d9bddf; }
 [data-theme="cute"] .lit .dempty { border-color: #c7acd7; color: #755980; }
+
+/* ---- 可愛主題：主行程黑紫卡片、交通白底 ---- */
+:root[data-theme="cute"] .place {
+  --w: #2e2434; --p: #382c40; --ink: #f8f1fc; --ink-2: #e0d4ea; --muted: #b8a9c8; --line: #514160; --soft: #403348; --purple: #e2c6f4; --on-purple: #2e2434;
+  --warn-bg: #4a2f3c; --warn-line: #7b4a62; --warn-ink: #f5bfd7; --ok: #8fd1ad;
+  --c-activity: #d2b0ec; --c-food: #f2b08d; --c-shop: #a3d4b5; --c-stay: #a0c6e8; --c-transport: #c8c0d8; --c-flight: #e4c29c; --c-info: #c6c1d6;
+  background: var(--w); color: var(--ink); border-color: #5b4868; box-shadow: 0 4px 0 #cdb8de;
+}
+[data-theme="cute"] .place .number { background: linear-gradient(160deg, #f6d6ea, #d9c3f1); color: #2e2434; }
+[data-theme="cute"] .place .check { background: transparent; border-color: #9584a6; }
+[data-theme="cute"] .place .btn { background: #403348; border-color: #5d4c6b; color: #f8f1fc; }
+[data-theme="cute"] .transport { background: #fffaff; border-radius: 0 14px 14px 0; border-left-color: #b99bcd; padding-right: 10px; box-shadow: 0 2px 0 #e3d2ee; }
+
+/* ---- 可愛主題：旅行回憶錄 ---- */
+:root[data-theme="cute"] body.diarymode #brand { background: repeating-linear-gradient(90deg, #302536 0 14px, #3c2e44 14px 28px); }
+:root[data-theme="cute"] body.diarymode .dbrand { color: #f6c9e9; text-shadow: 1px 2px 0 #201525; }
+:root[data-theme="cute"] body.diarymode #brand .kicker { color: #e2c4ed; }
+:root[data-theme="cute"] body.diarymode #brand .iconbtn { color: #efd0f2; border-color: #876b98; background: #34263edb; }
+:root[data-theme="cute"] body.diarymode #tabs { background-color: #eee3f6; background-image: repeating-linear-gradient(90deg, #eee3f6 0 15px, #e3d5ee 15px 30px); }
+:root[data-theme="cute"] body.diarymode { background-image: repeating-linear-gradient(90deg, #eee3f6 0 15px, #e3d5ee 15px 30px); }
+:root[data-theme="cute"] body.diarymode #tabs .dtrips button { background: #faf4ff; border-color: #cdb5dc; color: #34253f; }
+:root[data-theme="cute"] body.diarymode .manage { background: #f7d5ed; border-color: #c99bc8; color: #59364e; }
+:root[data-theme="cute"] body.diarymode .ntab.menu { background: #3c2b47; color: #f6d8ef; border-color: #bda2ce; }
+:root[data-theme="cute"] body.diarymode .switch { background: #d9c4e8; }
+:root[data-theme="cute"] body.diarymode .switch button[aria-pressed=true] { background: #fff5fd; color: #52355f; }
+:root[data-theme="cute"] body.diarymode .switch button[aria-pressed=true] svg { color: #805194; }
+[data-theme="cute"] .diary.lit { background: transparent; padding-left: 14px; padding-right: 14px; }
+[data-theme="cute"] .lit :is(.dpage, .dcover, .alday) { background: #f9f3fc; border: 1px solid #e0ceec; border-radius: 20px; padding: 20px 16px; margin: 14px 0; box-shadow: 0 3px 0 #e3d2ee; }
+[data-theme="cute"] .lit .dcover { border-bottom: 1px solid #e0ceec; }
+[data-theme="cute"] .lit .ddays button, [data-theme="cute"] .lit .dtrips button { background: #fff6ff; border-color: #cdb8dd; color: #34253f; }
+[data-theme="cute"] .lit .ddays small { color: #745883; }
+[data-theme="cute"] .lit .dsep { margin: 6px 0; }
