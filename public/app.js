@@ -2817,7 +2817,7 @@ function openMenu() {
     </details>
     <div class="menu-grow"></div>
     <div class="menu-sec">外觀</div>
-    <div class="seg">${[["light", "sun", "淺色"], ["dark", "moon", "深色"], ["auto", "auto", "跟隨系統"]].map(([k, i, t]) => `<button data-act="theme" data-id="${k}" aria-pressed="${S.theme === k}">${icon(i)}${t}</button>`).join("")}</div>
+    <div class="seg">${[["light", "sun", "淺色"], ["dark", "moon", "深色"], ["cute", "heart", "可愛"], ["auto", "auto", "跟隨系統"]].map(([k, i, t]) => `<button data-act="theme" data-id="${k}" aria-pressed="${S.theme === k}">${icon(i)}${t}</button>`).join("")}</div>
     <div class="seg" style="margin-top:8px">${[["thumb", "image", "圖片縮圖"], ["full", "image", "圖片大圖"]].map(([k, i, t]) => `<button data-act="photo-mode" data-id="${k}" aria-pressed="${S.photoMode === k}">${icon(i)}${t}</button>`).join("")}</div>
     <p class="hint" style="margin-top:14px" id="authHint">所有修改都會留下版本紀錄。</p>
     <input type="file" id="importFile" accept="application/json,.json" hidden></div>`;
@@ -4977,7 +4977,7 @@ S.view = ls.get("trip.view") === "map" ? "map" : "list";
 S.cardOff = ls.get("trip.cardOff") === "1";
 S.npOpen = new Set();
 S.diaryMode = ls.get("trip.diaryMode") === "album" ? "album" : "book";
-S.theme = ls.get("trip.theme") === "dark" ? "dark" : ls.get("trip.theme") === "light" ? "light" : "auto";
+S.theme = ["dark", "light", "cute"].includes(ls.get("trip.theme")) ? ls.get("trip.theme") : "auto";
 setTheme(S.theme);
 
 document.addEventListener("input", (e) => {
