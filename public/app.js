@@ -2341,7 +2341,7 @@ function costRows() {
     const v = V(it); const c = v.cost;
     if (!c || (c.plan == null && c.actual == null)) return;
     const cd = c.dayId === "none" ? null : c.dayId ? S.doc.days.find((x) => x.id === c.dayId) || d : d;
-    rows.push({ id: it.id, title: c.title || v.title, type: c.type || v.type || "place", day: cd, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, note: c.note, time: c.time != null ? c.time : it.start });
+    rows.push({ id: it.id, title: c.title || v.title, type: c.type || v.type || "place", day: cd, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, note: c.note, time: c.time != null ? c.time : it.start, bill: c.bill, key: "i:" + it.id });
   };
   for (const d of S.doc.days) {
     if (isIdeas(d)) continue;
@@ -2350,12 +2350,48 @@ function costRows() {
   }
   for (const x of S.doc.shopping || []) {
     if (!x.done || (x.plan == null && x.actual == null)) continue;
-    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, share: x.share, by: x.by, for: x.for, note: x.where });
+    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, share: x.share, by: x.by, for: x.for, note: x.where, bill: x.bill, key: "s:" + x.id });
   }
   for (const e of S.doc.expenses || []) {
-    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, share: e.share, by: e.by, for: e.for, note: e.note, time: e.time });
+    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, share: e.share, by: e.by, for: e.for, note: e.note, time: e.time, bill: e.bill || e.receipt, key: "e:" + e.id });
   }
   return rows;
+}
+// ---- 單據：把不同項目歸類成同一張單（只影響顯示，計算仍按每項） ----
+// doc.bills = [{ id, title, dayId }]；項目用 bill 欄位連到單據（行程消費：cost.bill；購物清單：bill；其他支出：bill）
+function billMap(rows) {
+  const m = new Map();
+  for (const b of S.doc.bills || []) m.set(b.id, { ...b, firstDay: null });
+  for (const r of rows) {
+    if (!r.bill) continue;
+    if (!m.has(r.bill)) { // 掃描收據時分開記的商品：當作同一張單
+      const e = (S.doc.expenses || []).find((x) => x.receipt === r.bill);
+      m.set(r.bill, { id: r.bill, title: (e && (e.note || "").split(" · ")[0]) || "收據購物", firstDay: null, virtual: true });
+    }
+    const b = m.get(r.bill); if (!b.firstDay && r.day) b.firstDay = r.day;
+  }
+  return m;
+}
+function setRowBill(doc, key, billId) {
+  const [k, id] = [key.slice(0, 1), key.slice(2)];
+  const apply = (o) => { if (billId) o.bill = billId; else delete o.bill; };
+  if (k === "i") { const f = findItem(id); if (f && V(f.item).cost) apply(V(f.item).cost); }
+  if (k === "s") { const x = (doc.shopping || []).find((y) => y.id === id); if (x) apply(x); }
+  if (k === "e") { const x = (doc.expenses || []).find((y) => y.id === id); if (x) { apply(x); if (!billId) delete x.receipt; else if (x.receipt && x.receipt !== billId) delete x.receipt; } }
+}
+function openBill(id) {
+  const rows = costRows(), bills = billMap(rows), b = bills.get(id); if (!b) return;
+  const mem = rows.filter((r) => r.bill === id);
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>🧾 單據</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <form id="billForm" onsubmit="return false">
+      <div class="grid2"><label class="field"><span>單據名稱</span><input type="text" name="title" value="${esc(b.title)}" placeholder="例如：松本清"></label>
+      <label class="field"><span>日期</span><select name="dayId"><option value="__auto" ${b.dayId === undefined ? "selected" : ""}>跟項目</option><option value="" ${b.dayId === "" ? "selected" : ""}>全程／其他</option>${S.doc.days.filter((d) => d.kind === "day").map((d) => `<option value="${esc(d.id)}" ${d.id === b.dayId ? "selected" : ""}>${esc(d.label)} ${esc(d.sub || "")}</option>`).join("")}</select></label></div>
+      <div class="field"><span>項目（${mem.length}）· 合計 ${money(sumHK(mem, "eff").s, "HKD")}</span><div class="rclist">${mem.map((r) => `<div class="sline"><button type="button" class="bl" data-act="${r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${esc(r.title || "（未命名）")}<small>${catOf(r.type)[0]}${whoTag(r) ? " · " + esc(whoTag(r)) : ""}</small></button><b>${money(effOf(r), r.cur)}</b><button type="button" class="btn small" data-act="bill-remove" data-id="${esc(r.key)}" data-bill="${esc(id)}" aria-label="移出單據">✕</button></div>`).join("")}</div>
+      <small class="hint">每項的分類、付款人和買給誰不變，分帳仍按每項計算。</small></div>
+    </form>
+    <div class="sheet-foot"><button class="btn danger" data-act="bill-split" data-id="${esc(id)}">拆散單據</button><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="bill-save" data-id="${esc(id)}">儲存</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 // 每項的金額：有實際數就用實際數，否則用預計
 const effOf = (r) => r.actual != null ? r.actual : r.plan;
@@ -2525,17 +2561,35 @@ function moneyHTML() {
     ${multi ? `<label><span>付款人</span><select data-mf="by"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.by === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>
     <label><span>買給誰</span><select data-mf="for"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.for === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>` : ""}</div>
     ${on ? `<div class="mfsum">符合 <b>${fr.length}</b> 項 · 合計 <b>${money(sumHK(fr, "eff").s, "HKD")}</b>${mf.for ? `<small>（${esc(compName(mf.for))} 應分擔 ${money(fr.reduce((a, r) => { const h = toHKD(effOf(r), r.cur, r.pay); const sp = splitOf(r); return a + (h == null ? 0 : h / sp.for.length); }, 0), "HKD")}）</small>` : ""}</div>` : ""}</div>`;
-  // 每天
+  // 每天（同一張單的項目合在一起顯示總額；計算仍按每項明細）
+  const pick = S.billPick;
+  const bills = billMap(rows);
+  const rowDay = (r) => { const b = r.bill && bills.get(r.bill); if (b && b.dayId !== undefined) return b.dayId ? S.doc.days.find((x) => x.id === b.dayId) || null : null; if (b) return b.firstDay; return r.day; };
+  html += `<div class="billbar">${pick ? `<span>已選 <b>${pick.size}</b> 項</span><button class="btn small primary" data-act="bill-make" ${pick.size < 1 ? "disabled" : ""}>${icon("plus")}合併成一張單</button><button class="btn small" data-act="bill-pick-off">取消</button>`
+    : `<button class="btn small" data-act="bill-pick-on">${icon("check")}選擇項目合併成單</button>`}</div>`;
   const groups = [];
-  for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = fr.filter((r) => r.day === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
+  for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = fr.filter((r) => rowDay(r) === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
   if (on && !fr.length) html += `<div class="empty">沒有符合篩選的交易</div>`;
-  const noDay = fr.filter((r) => !r.day); if (noDay.length) groups.push(["全程／其他", noDay]);
+  const noDay = fr.filter((r) => !rowDay(r)); if (noDay.length) groups.push(["全程／其他", noDay]);
+  const rowHTML = (r, inBill) => {
+    const act = pick ? "bill-pick" : r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit", id = pick ? r.key : r.id;
+    return `<tr class="${inBill ? "inbill" : ""} ${pick && pick.has(r.key) ? "picked" : ""}"><td><button class="t" data-act="${act}" data-id="${esc(id)}">${pick ? `<i class="pk">${pick.has(r.key) ? "✓" : ""}</i>` : ""}${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${whoTag(r) ? " · " + esc(whoTag(r)) : ""}${r.pay && PAY[r.pay] ? " · " + payLabel(r.pay) : ""}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
+      <td>${moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`;
+  };
   for (const [label, g] of groups) {
+    const done = new Set(); let body = "";
+    for (const r of g) {
+      const b = r.bill && bills.get(r.bill);
+      if (!b || pick) { body += rowHTML(r, false); continue; }
+      if (done.has(b.id)) continue; done.add(b.id);
+      const mem = g.filter((x) => x.bill === b.id), open = S.billOpen && S.billOpen.has(b.id);
+      const local = mem.every((x) => x.cur === mem[0].cur) ? mem.reduce((a, x) => a + (effOf(x) || 0), 0) : null;
+      body += `<tr class="billrow"><td><button class="t" data-act="bill-toggle" data-id="${esc(b.id)}"><span class="bico">${icon(open ? "down" : "arrow")}</span>🧾 ${esc(b.title)}<small>${mem.length} 項${mem.some((x) => x.actual == null) ? " · 含預計" : ""}</small></button></td>
+        <td>${local != null ? moneyCell(local, mem[0].cur, mem[0].pay) : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}<button class="bedit" data-act="bill-open" data-id="${esc(b.id)}" aria-label="編輯單據">${icon("pencil")}</button></td></tr>`;
+      if (open) body += mem.map((x) => rowHTML(x, true)).join("");
+    }
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(sumHK(g, "eff").s, "HKD")}</span></h3>
-      <table class="mtable"><thead><tr><th>項目</th><th>金額</th></tr></thead><tbody>
-      ${g.map((r) => `<tr><td><button class="t" data-act="${r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit"}" data-id="${esc(r.id)}">${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${whoTag(r) ? " · " + esc(whoTag(r)) : ""}${r.pay && PAY[r.pay] ? " · " + payLabel(r.pay) : ""}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
-        <td>${moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`).join("")}
-      </tbody></table></div>`;
+      <table class="mtable"><thead><tr><th>項目</th><th>金額</th></tr></thead><tbody>${body}</tbody></table></div>`;
   }
   return html + `<button class="btn" style="width:100%" data-act="expense-new">${icon("plus")} 新增其他支出（交通卡、手信等）</button></div>`;
 }
@@ -2700,8 +2754,10 @@ function saveReceipt() {
     for (const x of items) out.push({ id: "e-" + uid(), ...base, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), actual: x.amount, ...sameFor(forOf(x.for)), note: [RC.store, x.orig].filter(Boolean).join(" · ") });
   }
   if (RC.photo && out[0]) out[0].photos = [RC.photo];
+  let bill = null;
+  if (RC.mode !== "one" && out.length > 1) { bill = { id: base.receipt, title: RC.store || "收據購物", ...(RC.dayId ? {} : { dayId: "" }) }; for (const e of out) e.bill = bill.id; }
   closeSheet();
-  commit((doc) => { doc.expenses = doc.expenses || []; doc.expenses.push(...out); }, `已記入 ${out.length} 筆支出`);
+  commit((doc) => { doc.expenses = doc.expenses || []; doc.expenses.push(...out); if (bill) { doc.bills = doc.bills || []; doc.bills.push(bill); } }, `已記入 ${out.length} 筆支出`);
   RC = null;
 }
 
@@ -3197,7 +3253,7 @@ function readForm() {
   v.title = f.tfrom ? joinRoute(f.tfrom.value, f.tto.value) : f.title.value.trim();
   v.summary = f.summary.value.trim();
   const old = v.cost || {};
-  const cost = readCost(f); if (cost) for (const k of ["note", "title", "type", "dayId", "time"]) if (old[k] != null) cost[k] = old[k];
+  const cost = readCost(f); if (cost) for (const k of ["note", "title", "type", "dayId", "time", "bill"]) if (old[k] != null) cost[k] = old[k];
   if (cost) v.cost = cost; else delete v.cost;
   v.type = f.type.value;
   v.details = f.details.value.replace(/\s+$/, "");
@@ -4312,6 +4368,7 @@ document.addEventListener("click", async (e) => {
           if (title && title !== v.title) c.title = title;
           if (type && type !== (v.type || "place")) c.type = type;
           if (dayId != null && dayId !== f.day.id) c.dayId = dayId || "none";
+          if (v.cost && v.cost.bill) c.bill = v.cost.bill;
           v.cost = c;
         } else delete v.cost;
       }, c ? "已儲存消費" : "已清除消費");
@@ -4553,6 +4610,40 @@ document.addEventListener("click", async (e) => {
     case "rc-save": saveReceipt(); break;
     case "rc-zoom": { const lb = $("#lightbox"); lb.innerHTML = `<img src="${esc(t.src)}" alt=""><button data-act="lb-close">✕</button>`; lb.hidden = false; break; }
     case "cat-view": S.catView = id; render(); break;
+    case "bill-pick-on": S.billPick = new Set(); render(); break;
+    case "bill-pick-off": S.billPick = null; render(); break;
+    case "bill-pick": if (S.billPick) { S.billPick.has(id) ? S.billPick.delete(id) : S.billPick.add(id); keepAnchor(() => render()); } break;
+    case "bill-make": {
+      const keys = [...(S.billPick || [])]; if (!keys.length) break;
+      const rows = costRows().filter((r) => keys.includes(r.key));
+      const days = [...new Set(rows.map((r) => r.day && r.day.id).filter(Boolean))];
+      const bid = "b-" + uid(), title = (rows.find((r) => r.extra && r.note) || {}).note?.split(" · ")[0] || rows[0].title + (rows.length > 1 ? " 等" : "");
+      S.billPick = null;
+      commit((doc) => { doc.bills = doc.bills || []; doc.bills.push({ id: bid, title, ...(days.length === 1 ? {} : { dayId: "" }) }); for (const k of keys) setRowBill(doc, k, bid); }, `已合併 ${keys.length} 項`);
+      S.billOpen = S.billOpen || new Set(); S.billOpen.add(bid);
+      openBill(bid);
+      break;
+    }
+    case "bill-toggle": S.billOpen = S.billOpen || new Set(); S.billOpen.has(id) ? S.billOpen.delete(id) : S.billOpen.add(id); keepAnchor(() => render()); break;
+    case "bill-open": openBill(id); break;
+    case "bill-save": {
+      const f = $("#billForm"), title = f.title.value.trim() || "單據", dv = f.dayId.value;
+      closeSheet();
+      commit((doc) => {
+        doc.bills = doc.bills || [];
+        let b = doc.bills.find((x) => x.id === id);
+        if (!b) { b = { id }; doc.bills.push(b); for (const e of doc.expenses || []) if (e.receipt === id) e.bill = id; }
+        b.title = title; if (dv === "__auto") delete b.dayId; else b.dayId = dv;
+      }, "已儲存單據");
+      break;
+    }
+    case "bill-remove": { const bid = t.dataset.bill; commit((doc) => setRowBill(doc, id, null)); openBill(bid); break; }
+    case "bill-split": {
+      if (!t.dataset.sure) { t.textContent = "再按一次拆散"; t.dataset.sure = "1"; break; }
+      closeSheet();
+      commit((doc) => { for (const r of costRows()) if (r.bill === id) setRowBill(doc, r.key, null); doc.bills = (doc.bills || []).filter((x) => x.id !== id); }, "已拆散單據");
+      break;
+    }
     case "mf-clear": S.mf = { type: "", pay: "", by: "", for: "" }; render(); break;
     case "expense-edit": openExpenseEditor(id); break;
     case "expense-save": {
