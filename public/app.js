@@ -2231,7 +2231,7 @@ async function drawRouteMap(d, noGeocode) {
 function companions() {
   const m = S.doc.meta || {};
   if (Array.isArray(m.companions) && m.companions.length) return m.companions;
-  const L = [{ id: "me", name: "Sally", me: true }];
+  const L = [{ id: "me", name: ls.get("trip.myName") || "我", me: true }];
   for (let i = 2; i <= (+m.people || 1); i++) L.push({ id: "p" + i, name: "同行者 " + i }); // 舊資料：共同支出人數
   return L;
 }
@@ -4267,6 +4267,7 @@ document.addEventListener("click", async (e) => {
       if (!L.length) { toast("請最少輸入一個名字"); break; }
       if (!L.some((p) => p.me)) L[0].me = true;
       closeSheet();
+      ls.set("trip.myName", L.find((p) => p.me).name);
       commit((doc) => { doc.meta.companions = L; delete doc.meta.people; }, "已儲存同行者");
       break;
     }

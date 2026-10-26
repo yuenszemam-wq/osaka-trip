@@ -1,4 +1,14 @@
-# 旅行手帳（大阪之旅）
+# 旅行手帳
+
+## 給朋友：部署你自己的一份（資料完全獨立）
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yuenszemam-wq/osaka-trip)
+
+按上面的按鈕，就會在你自己的 Cloudflare 帳戶建立一個全新的網站和資料庫。你的行程只會存在你自己的帳戶，原作者看不到；你也看不到原作者的行程。全部使用 Cloudflare 免費額度。
+
+詳細步驟見 [朋友部署教學](docs/朋友部署教學.md)。
+
+## 功能
 
 可以隨時編輯的行程網站，部署在 Cloudflare Workers，資料存在 Cloudflare D1。
 
