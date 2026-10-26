@@ -3157,7 +3157,7 @@ function setTheme(t) {
   S.theme = t;
   if (t === "auto") { delete document.documentElement.dataset.theme; ls.del("trip.theme"); }
   else { document.documentElement.dataset.theme = t; ls.set("trip.theme", t); }
-  requestAnimationFrame(() => { const c = t === "cute" ? "#2c2232" : getComputedStyle(document.documentElement).getPropertyValue("--p").trim(); if (c) $("#themeColor").setAttribute("content", c); });
+  requestAnimationFrame(() => { const c = t === "cute" ? "#302536" : getComputedStyle(document.documentElement).getPropertyValue("--p").trim(); if (c) $("#themeColor").setAttribute("content", c); });
 }
 
 // ---------- 編輯行程 ----------
