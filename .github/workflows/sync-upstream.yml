@@ -1,0 +1,32 @@
+# 朋友部署的網站：由原作者的版本取得最新功能（自己的資料和 Cloudflare 設定不會改變）
+# 在 GitHub 的 Actions 分頁按「Run workflow」就可以更新；另外每星期日會自動檢查一次
+name: 更新到最新版本
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 20 * * 0"
+permissions:
+  contents: write
+jobs:
+  sync:
+    # 原作者自己的專案不需要執行
+    if: github.repository != 'yuenszemam-wq/osaka-trip'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 合併最新版本
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp wrangler.jsonc "$RUNNER_TEMP/wrangler.mine.jsonc"
+          git remote add upstream https://github.com/yuenszemam-wq/osaka-trip.git
+          git fetch upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then echo "已經是最新版本"; exit 0; fi
+          git merge upstream/main --allow-unrelated-histories -X theirs --no-edit -m "更新到最新版本" || { git checkout --theirs . && git add -A && git commit --no-edit -m "更新到最新版本"; }
+          # 保留自己的 Cloudflare 設定（資料庫 ID、網站名稱）
+          cp "$RUNNER_TEMP/wrangler.mine.jsonc" wrangler.jsonc
+          git add wrangler.jsonc
+          git diff --cached --quiet || git commit -m "保留自己的 Cloudflare 設定"
+          git push
