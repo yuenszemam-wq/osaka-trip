@@ -1236,3 +1236,12 @@ body.diarymode #tabs .dtool .ntab.menu { flex: none; }
 [data-theme="cute"] .lit .ddays button, [data-theme="cute"] .lit .dtrips button { background: #fff6ff; border-color: #cdb8dd; color: #34253f; }
 [data-theme="cute"] .lit .ddays small { color: #745883; }
 [data-theme="cute"] .lit .dsep { margin: 6px 0; }
+
+/* ---- 可愛主題：是日路線（地點黑紫、交通白底） ---- */
+:root[data-theme="cute"] :is(.stops li:not(.leg):not(.npgroup), .stopcard) {
+  --w: #2e2434; --p: #382c40; --ink: #f8f1fc; --ink-2: #e0d4ea; --muted: #b8a9c8; --line: #514160; --soft: #403348; --purple: #e2c6f4; --on-purple: #2e2434;
+  --c-activity: #d2b0ec; --c-food: #f2b08d; --c-shop: #a3d4b5; --c-stay: #a0c6e8; --c-transport: #c8c0d8; --c-flight: #e4c29c; --c-info: #c6c1d6;
+  background: var(--w); color: var(--ink); border-color: #5b4868; box-shadow: 0 4px 0 #cdb8de;
+}
+:root[data-theme="cute"] .stops li.leg { background: #fffaff; border-color: #e0ceec; }
+:root[data-theme="cute"] .stops li.npgroup { background: #f9f3fcb3; border-color: #cdb5dc; box-shadow: none; }
