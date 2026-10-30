@@ -2409,6 +2409,14 @@ function openBill(id) {
 }
 // 每項的金額：有實際數就用實際數，否則用預計
 const effOf = (r) => r.actual != null ? r.actual : r.plan;
+// 港幣是否已確認：港幣支出、已和月結單配對、或用現金／IC卡付而且有自己填的匯率；只有預計金額的都算未確認
+function hkConfirmed(r) {
+  if (r.actual == null) return false;
+  if (r.cur === "HKD" || r.hkd != null) return true;
+  if (r.pay === "cash") return !!cashRate();
+  if (r.pay === "ic") return !!(icRate() || cashRate());
+  return false;
+}
 // 港幣金額：已和月結單配對的用月結單上的實際港幣，否則按匯率換算
 const hkOf = (r) => r.hkd != null && r.actual != null ? r.hkd : toHKD(effOf(r), r.cur, r.pay);
 function sumHK(rows, key) {
@@ -2569,13 +2577,14 @@ function moneyHTML() {
     html += `</div>`;
   }
   // 交易紀錄篩選：分類、付款方式、付款人、買給誰（放在分類下面、交易明細上面）
-  const mf = S.mf || (S.mf = { type: "", pay: "", by: "", for: "" });
+  const mf = S.mf || (S.mf = { type: "", pay: "", by: "", for: "", hk: "" });
   const L2 = companions(), multi = L2.length > 1;
-  const fr = rows.filter((r) => { const sp = splitOf(r); return (!mf.type || r.type === mf.type) && (!mf.pay || (r.pay || "other") === mf.pay) && (!mf.by || sp.by === mf.by) && (!mf.for || sp.for.includes(mf.for)); });
-  const on = mf.type || mf.pay || mf.by || mf.for;
+  const fr = rows.filter((r) => { const sp = splitOf(r); return (!mf.hk || (mf.hk === "no") !== hkConfirmed(r)) && (!mf.type || r.type === mf.type) && (!mf.pay || (r.pay || "other") === mf.pay) && (!mf.by || sp.by === mf.by) && (!mf.for || sp.for.includes(mf.for)); });
+  const on = mf.type || mf.pay || mf.by || mf.for || mf.hk;
+  const nUnconf = rows.filter((r) => !hkConfirmed(r)).length;
   const types = [...new Set(rows.map((r) => r.type))];
   html += `<div class="mcard mfilter"><h3>${icon("sliders")} 交易紀錄<span class="right">${on ? `<button class="btn small" data-act="mf-clear">清除篩選</button>` : ""}</span></h3>
-    <div class="mfrow"><label><span>分類</span><select data-mf="type"><option value="">全部</option>${types.map((k) => `<option value="${esc(k)}" ${mf.type === k ? "selected" : ""}>${catOf(k)[0]}</option>`).join("")}</select></label><label><span>付款方式</span><select data-mf="pay"><option value="">全部</option>${Object.entries(PAY).map(([k, [t, e]]) => `<option value="${k}" ${mf.pay === k ? "selected" : ""}>${e} ${t}</option>`).join("")}</select></label>
+    <div class="mfrow"><label><span>港幣</span><select data-mf="hk"><option value="">全部</option><option value="no" ${mf.hk === "no" ? "selected" : ""}>未確認（${nUnconf}）</option><option value="yes" ${mf.hk === "yes" ? "selected" : ""}>已確認</option></select></label><label><span>分類</span><select data-mf="type"><option value="">全部</option>${types.map((k) => `<option value="${esc(k)}" ${mf.type === k ? "selected" : ""}>${catOf(k)[0]}</option>`).join("")}</select></label><label><span>付款方式</span><select data-mf="pay"><option value="">全部</option>${Object.entries(PAY).map(([k, [t, e]]) => `<option value="${k}" ${mf.pay === k ? "selected" : ""}>${e} ${t}</option>`).join("")}</select></label>
     ${multi ? `<label><span>付款人</span><select data-mf="by"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.by === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>
     <label><span>買給誰</span><select data-mf="for"><option value="">全部</option>${L2.map((p) => `<option value="${esc(p.id)}" ${mf.for === p.id ? "selected" : ""}>${esc(p.name)}${p.me ? "（我）" : ""}</option>`).join("")}</select></label>` : ""}</div>
     ${on ? `<div class="mfsum">符合 <b>${fr.length}</b> 項 · 合計 <b>${money(sumHK(fr, "eff").s, "HKD")}</b>${mf.for ? `<small>（${esc(compName(mf.for))} 應分擔 ${money(fr.reduce((a, r) => { const h = toHKD(effOf(r), r.cur, r.pay); const sp = splitOf(r); return a + (h == null ? 0 : h / sp.for.length); }, 0), "HKD")}）</small>` : ""}</div>` : ""}</div>`;
@@ -4843,7 +4852,7 @@ document.addEventListener("click", async (e) => {
       commit((doc) => { for (const r of costRows()) if (r.bill === id) setRowBill(doc, r.key, null); doc.bills = (doc.bills || []).filter((x) => x.id !== id); }, "已拆散單據");
       break;
     }
-    case "mf-clear": S.mf = { type: "", pay: "", by: "", for: "" }; render(); break;
+    case "mf-clear": S.mf = { type: "", pay: "", by: "", for: "", hk: "" }; render(); break;
     case "expense-edit": openExpenseEditor(id); break;
     case "expense-save": {
       const f = $("#expForm");
