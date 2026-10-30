@@ -2583,7 +2583,7 @@ function moneyHTML() {
   const pick = S.billPick;
   const bills = billMap(rows);
   const rowDay = (r) => { const b = r.bill && bills.get(r.bill); if (b && b.dayId !== undefined) return b.dayId ? S.doc.days.find((x) => x.id === b.dayId) || null : null; if (b) return b.firstDay; return r.day; };
-  if (pick) html += `<p class="hint billhint">${icon("check")} 按項目選擇要合併的支出，然後按上方的「合併」。</p>`;
+  if (pick) html += `<p class="hint billhint">${icon("check")} 勾選要合併的支出或已有的單據，然後按上方的「合併」。單據內取消勾選的商品，會被移出單據。</p>`;
   const groups = [];
   for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = fr.filter((r) => rowDay(r) === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
   if (on && !fr.length) html += `<div class="empty">沒有符合篩選的交易</div>`;
@@ -2597,9 +2597,16 @@ function moneyHTML() {
     const done = new Set(); let body = "";
     for (const r of g) {
       const b = r.bill && bills.get(r.bill);
-      if (!b || pick) { body += rowHTML(r, false); continue; }
+      if (!b) { body += rowHTML(r, false); continue; }
       if (done.has(b.id)) continue; done.add(b.id);
       const mem = g.filter((x) => x.bill === b.id), open = S.billOpen && S.billOpen.has(b.id);
+      if (pick) {
+        // 選擇模式：勾選單據＝選取單內全部商品；取消勾選某件商品＝把它移出單據
+        const n = mem.filter((x) => pick.has(x.key)).length, st = n === mem.length ? "✓" : n ? "–" : "";
+        body += `<tr class="billrow open ${n ? "picked" : ""}"><td><div class="bline"><button class="t" data-act="bill-pick-all" data-id="${esc(b.id)}"><i class="pk ${n && n < mem.length ? "part" : ""}">${st}</i>${esc(b.title)}<span class="bn">${mem.length} 項${n && n < mem.length ? ` · 已選 ${n}` : ""}</span></button></div></td><td></td></tr>`;
+        body += mem.map((x) => rowHTML(x, true)).join("");
+        continue;
+      }
       const local = mem.every((x) => x.cur === mem[0].cur) ? mem.reduce((a, x) => a + (effOf(x) || 0), 0) : null;
       body += `<tr class="billrow ${open ? "open" : ""}"><td><div class="bline"><button class="t" data-act="bill-toggle" data-id="${esc(b.id)}"><span class="bico">${icon("down")}</span>${esc(b.title)}<span class="bn">${mem.length} 項${mem.some((x) => x.actual == null) ? " · 含預計" : ""}</span></button><button class="bedit" data-act="bill-open" data-id="${esc(b.id)}" aria-label="編輯單據">${icon("pencil")}</button></div></td>
         <td>${local != null ? `<span>${money(local, mem[0].cur)}</span><span class="hk">${mem.some((x) => x.hkd != null) ? "" : "≈"}${money(sumHK(mem, "eff").s, "HKD")}</span>` : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}</td></tr>`;
@@ -2818,6 +2825,13 @@ function parseStatement(text) {
 // 可以配對的支出（實際金額、信用卡優先）和用信用卡增值的 IC 卡紀錄
 function stmCandidates() {
   const out = costRows().filter((r) => r.actual != null).map((r) => ({ key: r.key, title: r.title, cur: r.cur, amt: r.actual, date: r.day ? dayDate(r.day) : null, pay: r.pay, hkd: r.hkd }));
+  // 已合併的單據：按單據總額配對
+  const rows = costRows().filter((r) => r.actual != null), bills = billMap(rows);
+  for (const b of bills.values()) {
+    const mem = rows.filter((r) => r.bill === b.id); if (mem.length < 2 || mem.some((r) => r.cur !== mem[0].cur)) continue;
+    const d = b.dayId ? S.doc.days.find((x) => x.id === b.dayId) : b.firstDay;
+    out.push({ key: "b:" + b.id, title: "🧾 " + b.title + `（${mem.length} 項）`, cur: mem[0].cur, amt: Math.round(mem.reduce((a, r) => a + r.actual, 0) * 100) / 100, date: d ? dayDate(d) : null, pay: mem.every((r) => r.pay === "card") ? "card" : mem[0].pay, hkd: mem.every((r) => r.hkd != null) ? 1 : null, bill: true, members: mem.map((r) => ({ key: r.key, amt: r.actual })) });
+  }
   for (const x of ((S.doc.wallet || {}).log || [])) if (x.kind === "ic" && x.from === "card") out.push({ key: "w:" + x.id, title: "IC卡增值" + (x.note ? " · " + x.note : ""), cur: localCur(), amt: x.amount, date: new Date(x.t).toISOString().slice(0, 10), pay: "card", hkd: x.hkdCard ?? x.hkd });
   return out;
 }
@@ -2830,10 +2844,15 @@ function stmMatch(lines) {
     if (L.cur && c.cur && L.cur !== c.cur) continue;
     const dd = dayDiff(L.date, c.date);
     if (dd != null && dd > 4) continue;
-    scored.push({ L, c, s: (c.pay === "card" ? 10 : 0) + (dd == null ? 2 : 5 - dd) });
+    scored.push({ L, c, s: (c.pay === "card" ? 10 : 0) + (dd == null ? 2 : 5 - dd) + (c.bill ? 1 : 0) });
   }
   scored.sort((a, b) => b.s - a.s);
-  for (const { L, c } of scored) { if (L.match !== undefined || used.has(c.key)) continue; L.match = c.key; used.add(c.key); }
+  for (const { L, c } of scored) {
+    if (L.match !== undefined || used.has(c.key)) continue;
+    if (c.members && c.members.some((m) => used.has(m.key))) continue;
+    const owner = cands.find((x) => x.members && x.members.some((m) => m.key === c.key)); if (owner && used.has(owner.key)) continue;
+    L.match = c.key; used.add(c.key); if (c.members) for (const m of c.members) used.add(m.key);
+  }
   for (const L of lines) if (L.match === undefined) L.match = "";
   return cands;
 }
@@ -2865,7 +2884,7 @@ function renderStatement() {
   $(".sheet-body").scrollTop = y;
 }
 function applyStatement() {
-  const { lines } = STM, me = meId();
+  const { lines } = STM;
   const upd = lines.filter((L) => L.match), add = lines.filter((L) => !L.match && L.add);
   closeSheet();
   commit((doc) => {
@@ -2876,6 +2895,17 @@ function applyStatement() {
       if (k === "s") set((doc.shopping || []).find((x) => x.id === id));
       if (k === "e") set((doc.expenses || []).find((x) => x.id === id));
       if (k === "w") { const x = ((doc.wallet || {}).log || []).find((y) => y.id === id); if (x) { x.hkdCard = L.hkd; x.hkd = L.hkd; } }
+      if (k === "b") {
+        // 單據：按各項金額比例分配實際港幣（最後一項補足餘數，總和等於月結單金額）
+        const c = STM.cands.find((x) => x.key === L.match); if (!c) continue;
+        let left = Math.round(L.hkd * 100);
+        c.members.forEach((m, i) => {
+          const part = i === c.members.length - 1 ? left : Math.round(L.hkd * 100 * m.amt / c.amt); left -= part;
+          const [mk, mid] = [m.key.slice(0, 1), m.key.slice(2)];
+          const o = mk === "i" ? (findItem(mid) && V(findItem(mid).item).cost) : mk === "s" ? (doc.shopping || []).find((x) => x.id === mid) : (doc.expenses || []).find((x) => x.id === mid);
+          if (o) { o.hkd = part / 100; o.stmt = L.desc || true; }
+        });
+      }
     }
     if (add.length) {
       doc.expenses = doc.expenses || [];
@@ -4761,15 +4791,36 @@ document.addEventListener("click", async (e) => {
     case "bill-pick-on": S.billPick = new Set(); render(); break;
     case "bill-pick-off": S.billPick = null; render(); break;
     case "bill-pick": if (S.billPick) { S.billPick.has(id) ? S.billPick.delete(id) : S.billPick.add(id); keepAnchor(() => render()); } break;
+    case "bill-pick-all": {
+      if (!S.billPick) break;
+      const mem = costRows().filter((r) => r.bill === id), all = mem.every((r) => S.billPick.has(r.key));
+      for (const r of mem) all ? S.billPick.delete(r.key) : S.billPick.add(r.key);
+      keepAnchor(() => render()); break;
+    }
     case "bill-make": {
-      const keys = [...(S.billPick || [])]; if (!keys.length) break;
-      const rows = costRows().filter((r) => keys.includes(r.key));
-      const days = [...new Set(rows.map((r) => r.day && r.day.id).filter(Boolean))];
-      const bid = "b-" + uid(), title = (rows.find((r) => r.extra && r.note) || {}).note?.split(" · ")[0] || rows[0].title + (rows.length > 1 ? " 等" : "");
+      const keys = [...(S.billPick || [])], sel = new Set(keys);
+      const all = costRows(), bills = billMap(all);
+      // 涉及的舊單據：有任何一件商品被選中的單據
+      const involved = [...new Set(all.filter((r) => sel.has(r.key) && r.bill && bills.has(r.bill)).map((r) => r.bill))];
       S.billPick = null;
-      commit((doc) => { doc.bills = doc.bills || []; doc.bills.push({ id: bid, title, ...(days.length === 1 ? {} : { dayId: "" }) }); for (const k of keys) setRowBill(doc, k, bid); }, `已合併 ${keys.length} 項`);
-      S.billOpen = S.billOpen || new Set(); S.billOpen.add(bid);
-      openBill(bid);
+      if (!keys.length && !involved.length) { render(); break; }
+      const rows = all.filter((r) => sel.has(r.key));
+      const days = [...new Set(rows.map((r) => r.day && r.day.id).filter(Boolean))];
+      const target = involved[0] || "b-" + uid();
+      const removed = all.filter((r) => r.bill && involved.includes(r.bill) && !sel.has(r.key));
+      commit((doc) => {
+        doc.bills = doc.bills || [];
+        if (!doc.bills.some((b) => b.id === target)) {
+          const old = bills.get(target);
+          doc.bills.push({ id: target, title: old ? old.title : (rows.find((r) => r.extra && r.note) || {}).note?.split(" · ")[0] || rows[0].title + (rows.length > 1 ? " 等" : ""), ...(days.length === 1 ? {} : { dayId: "" }) });
+        }
+        for (const r of removed) setRowBill(doc, r.key, null); // 取消勾選的商品移出單據
+        for (const k of keys) setRowBill(doc, k, target);
+        // 合併後不再使用的單據
+        const usedIds = new Set(costRows().map((r) => r.bill).filter(Boolean));
+        doc.bills = doc.bills.filter((b) => usedIds.has(b.id));
+      });
+      if (keys.length) { S.billOpen = S.billOpen || new Set(); S.billOpen.add(target); if (!involved.length) openBill(target); }
       break;
     }
     case "bill-toggle": S.billOpen = S.billOpen || new Set(); S.billOpen.has(id) ? S.billOpen.delete(id) : S.billOpen.add(id); keepAnchor(() => render()); break;
