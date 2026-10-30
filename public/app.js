@@ -92,11 +92,18 @@ const PAY = { cash: ["現金", "💴"], ic: ["IC卡", "🚃"], card: ["信用卡
 const payLabel = (p) => PAY[p] ? `${PAY[p][1]} ${PAY[p][0]}` : "";
 // 現金（及用現金增值的 IC 卡）可以用手動固定的現金匯率
 const cashRate = () => { const w = S.doc && S.doc.wallet; return w && w.cashRate > 0 ? w.cashRate : null; };
+// IC 卡匯率：按增值時實際付的港幣計算（加權平均）；未填的話用現金匯率
+const icRate = () => {
+  const L = ((S.doc && S.doc.wallet) || {}).log || [];
+  const ex = L.filter((x) => x.kind === "ic" && x.hkd > 0 && x.amount > 0);
+  return ex.length ? ex.reduce((a, x) => a + x.hkd, 0) / ex.reduce((a, x) => a + x.amount, 0) : null;
+};
 function toHKD(n, cur, pay) {
   if (n == null || n === "" || isNaN(n)) return null;
   if (cur === "HKD") return +n;
   const m = S.doc.meta || {};
   if (cur !== (m.currency || "JPY")) return null;
+  if (pay === "ic" && icRate()) return +n * icRate();
   if ((pay === "cash" || pay === "ic") && cashRate()) return +n * cashRate();
   return m.rate ? +n * m.rate : null;
 }
@@ -665,6 +672,12 @@ function syncUI() {
 }
 
 let toastTimer;
+// 明確的操作回饋（例如已複製、讀取失敗），短暫顯示，不帶復原
+function notice(msg) {
+  const el = $("#toast"); if (!el) return;
+  el.innerHTML = `<span>${esc(msg)}</span>`; el.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.hidden = true), 2400);
+}
 function toast(msg, withUndo = false) {
   return; // 已取消所有彈出通知（復原在標題旁的按鈕）
   const el = $("#toast");
@@ -2448,6 +2461,7 @@ function walletHTML(rows) {
         <button class="btn small" data-act="wallet-add" data-id="cash">${icon("plus")}換錢／加現金</button></div>
       <div class="wbox ${st.ic < 0 ? "neg" : ""}"><div class="wk">🚃 IC卡餘額</div><div class="wv">${money(st.ic, cur)}</div>${hk(st.ic, "ic")}
         <div class="wd">增值 ${money(st.icIn, cur)}<br>− IC卡支出 ${money(st.icOut, cur)}</div>
+        ${cur !== "HKD" ? `<div class="wd">${icRate() ? `IC卡匯率：1 ${esc(cur)} = ${icRate().toFixed(4)} HKD<br><small>按增值時實際付的港幣計算</small>` : `<small>在增值紀錄填上實際付的港幣，就會用來計算 IC卡支出的港幣</small>`}</div>` : ""}
         ${st.icRows.length || st.icPlan.length ? `<details class="icdet"><summary>IC卡明細（${st.icRows.length}）</summary>${st.icRows.map((r) => `<div class="sline"><span>${esc(r.title || "（未命名）")}<small>${r.day ? esc(r.day.label) : "全程"}${r.time != null ? " · " + fmt(r.time) : ""}</small></span><b>${money(r.actual, cur)}</b></div>`).join("")}${st.icPlan.length ? `<p class="hint" style="margin:6px 0 0">⚠ 未計入：${st.icPlan.map((r) => esc(r.title || "（未命名）") + (r.actual == null ? "（只有預計）" : "（不是" + esc(CUR_NAME[cur] || cur) + "）")).join("、")}</p>` : ""}</details>` : ""}
         <button class="btn small" data-act="wallet-add" data-id="ic">${icon("plus")}增值</button></div>
     </div>
@@ -2470,6 +2484,7 @@ function openWalletAdd(kind, wid) {
       ${kind === "cash" && companions().length > 1 ? `<div class="field"><span>現金由誰提供</span><div class="payseg">${companions().map((p) => `<label><input type="radio" name="by" value="${esc(p.id)}" ${p.id === (e.by || meId()) ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div><small class="hint" style="margin:4px 0 0">同行者換好現金分給你：現金計入你的錢包，分帳時當作他替你付了這筆錢。</small></div>` : ""}
       ${kind === "ic" ? `<div class="field"><span>用甚麼增值</span><div class="payseg"><label><input type="radio" name="from" value="cash" ${e.from !== "card" ? "checked" : ""}><span>💴 現金</span></label><label><input type="radio" name="from" value="card" ${e.from === "card" ? "checked" : ""}><span>💳 信用卡</span></label></div></div>` : ""}
       ${kind === "cash" && cur !== "HKD" ? `<label class="field"><span>付了多少港幣（可留空，填了會用來計算現金匯率）</span><input type="text" inputmode="decimal" name="hkd" value="${e.hkd ?? ""}" placeholder="例如：2520"></label>` : ""}
+      ${kind === "ic" && cur !== "HKD" ? `<label class="field"><span>實際付了多少港幣（可留空）<small class="hint" style="display:block;margin:0">填了會計算 IC 卡匯率，用 IC 卡付的行程支出會按這個匯率換算港幣</small></span><input type="text" inputmode="decimal" name="hkd" value="${e.hkd ?? e.hkdCard ?? ""}" placeholder="例如：150"></label>` : ""}
       <label class="field"><span>備註</span><input type="text" name="note" value="${esc(e.note || "")}" placeholder="${kind === "cash" ? "例如：找換店" : "例如：ICOCA"}"></label>
     </form>
     <div class="sheet-foot">${x ? `<button class="btn danger" data-act="wallet-del" data-id="${esc(x.id)}">刪除</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="wallet-save" data-id="${kind}" ${x ? `data-wid="${esc(x.id)}"` : ""}>${x ? "儲存" : "加入"}</button></div></div>`;
@@ -2803,7 +2818,7 @@ function parseStatement(text) {
 // 可以配對的支出（實際金額、信用卡優先）和用信用卡增值的 IC 卡紀錄
 function stmCandidates() {
   const out = costRows().filter((r) => r.actual != null).map((r) => ({ key: r.key, title: r.title, cur: r.cur, amt: r.actual, date: r.day ? dayDate(r.day) : null, pay: r.pay, hkd: r.hkd }));
-  for (const x of ((S.doc.wallet || {}).log || [])) if (x.kind === "ic" && x.from === "card") out.push({ key: "w:" + x.id, title: "IC卡增值" + (x.note ? " · " + x.note : ""), cur: localCur(), amt: x.amount, date: new Date(x.t).toISOString().slice(0, 10), pay: "card", hkd: x.hkdCard });
+  for (const x of ((S.doc.wallet || {}).log || [])) if (x.kind === "ic" && x.from === "card") out.push({ key: "w:" + x.id, title: "IC卡增值" + (x.note ? " · " + x.note : ""), cur: localCur(), amt: x.amount, date: new Date(x.t).toISOString().slice(0, 10), pay: "card", hkd: x.hkdCard ?? x.hkd });
   return out;
 }
 const dayDiff = (a, b) => a && b ? Math.abs((new Date(a) - new Date(b)) / 864e5) : null;
@@ -2860,7 +2875,7 @@ function applyStatement() {
       if (k === "i") { const f = findItem(id); if (f) set(V(f.item).cost); }
       if (k === "s") set((doc.shopping || []).find((x) => x.id === id));
       if (k === "e") set((doc.expenses || []).find((x) => x.id === id));
-      if (k === "w") { const x = ((doc.wallet || {}).log || []).find((y) => y.id === id); if (x) x.hkdCard = L.hkd; }
+      if (k === "w") { const x = ((doc.wallet || {}).log || []).find((y) => y.id === id); if (x) { x.hkdCard = L.hkd; x.hkd = L.hkd; } }
     }
     if (add.length) {
       doc.expenses = doc.expenses || [];
@@ -4715,15 +4730,29 @@ document.addEventListener("click", async (e) => {
     case "reorder-go": closeSheet(); keepAnchor(() => commit(() => ({ sort: true }), "已按時間重新排列")); break;
     case "rc-open": openReceipt(); break;
     case "stm-open": openStatement(); break;
-    case "stm-copy": { try { await navigator.clipboard.writeText(STM_PROMPT); toast("已複製提示"); } catch { const ta = $("#stmText"); ta.value = STM_PROMPT; ta.select(); toast("請手動複製提示"); } break; }
-    case "stm-parse": { const lines = parseStatement($("#stmText").value); if (!lines.length) { toast("讀不到 CSV，請確認第一行是 date,description,currency,amount,hkd"); break; } const cands = stmMatch(lines); STM = { lines, cands }; renderStatement(); break; }
+    case "stm-copy": {
+      let ok = false; try { await navigator.clipboard.writeText(STM_PROMPT); ok = true; } catch {}
+      if (!ok) { const x = $("#stmText"); if (x) { x.value = STM_PROMPT; x.focus(); x.select(); try { ok = document.execCommand("copy"); } catch {} } }
+      t.innerHTML = ok ? `${icon("check")} 已複製提示，可以貼到 AI App` : `${icon("note")} 提示已放在下面，請手動複製`; t.classList.add("copied");
+      if (ok) notice("已複製提示"); else notice("未能自動複製，請手動複製下面的提示");
+      setTimeout(() => { if (t.isConnected) { t.innerHTML = `${icon("note")} 複製提示`; t.classList.remove("copied"); } }, 3000);
+      break;
+    }
+    case "stm-parse": { const lines = parseStatement($("#stmText").value); if (!lines.length) { notice("讀不到 CSV，請確認第一行是 date,description,currency,amount,hkd"); break; } const cands = stmMatch(lines); STM = { lines, cands }; renderStatement(); break; }
     case "stm-apply": applyStatement(); break;
     case "rc-group": openReceiptGroup(id); break;
     case "rc-photo": { const inp = $("#rcFile"); inp.value = ""; inp.click(); break; }
     case "rc-paste-open": openReceiptPaste(); break;
     case "rc-back": openReceipt(); break;
-    case "rc-copy": { try { await navigator.clipboard.writeText(RECEIPT_PROMPT); toast("已複製提示"); } catch { const ta = $("#rcText"); ta.value = RECEIPT_PROMPT; ta.select(); toast("請手動複製上面的提示"); } break; }
-    case "rc-parse": { const data = pickJSON($("#rcText").value); if (!data || !Array.isArray(data.items)) { toast("讀不到結果，請確認貼上了 AI 回覆的 JSON"); break; } openReceiptConfirm(data, null); break; }
+    case "rc-copy": {
+      let ok = false; try { await navigator.clipboard.writeText(RECEIPT_PROMPT); ok = true; } catch {}
+      if (!ok) { const x = $("#rcText"); if (x) { x.value = RECEIPT_PROMPT; x.focus(); x.select(); try { ok = document.execCommand("copy"); } catch {} } }
+      t.innerHTML = ok ? `${icon("check")} 已複製提示，可以貼到 AI App` : `${icon("note")} 提示已放在下面，請手動複製`; t.classList.add("copied");
+      if (ok) notice("已複製提示"); else notice("未能自動複製，請手動複製下面的提示");
+      setTimeout(() => { if (t.isConnected) { t.innerHTML = `${icon("note")} 複製提示`; t.classList.remove("copied"); } }, 3000);
+      break;
+    }
+    case "rc-parse": { const data = pickJSON($("#rcText").value); if (!data || !Array.isArray(data.items)) { notice("讀不到結果，請確認貼上了 AI 回覆的 JSON"); break; } openReceiptConfirm(data, null); break; }
     case "rc-del": rcRead(); RC.items.splice(+t.dataset.i, 1); renderReceiptConfirm(); break;
     case "rc-add": rcRead(); RC.items.push({ name: "", orig: "", qty: 1, amount: null, for: "" }); renderReceiptConfirm(); break;
     case "rc-save": saveReceipt(); break;
@@ -4964,7 +4993,7 @@ document.addEventListener("click", async (e) => {
       try { const r = await fetch("/api/shares", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trips: ids, money: !!($("#shareForm [name=money]") || {}).checked }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); openShare(j.token); } catch (err) { toast("建立分享連結失敗：" + err.message); }
       break;
     }
-    case "share-copy": { const u = location.origin + "/s/" + id; try { if (navigator.share) await navigator.share({ title: "旅行回憶錄", url: u }); else { await navigator.clipboard.writeText(u); toast("已複製連結"); } } catch { try { await navigator.clipboard.writeText(u); toast("已複製連結"); } catch {} } break; }
+    case "share-copy": { const u = location.origin + "/s/" + id; try { if (navigator.share) await navigator.share({ title: "旅行回憶錄", url: u }); else { await navigator.clipboard.writeText(u); notice("已複製連結"); } } catch { try { await navigator.clipboard.writeText(u); notice("已複製連結"); } catch {} } break; }
     case "share-del": {
       if (!t.dataset.sure) { t.textContent = "再按一次停止分享"; t.dataset.sure = "1"; break; }
       try { await fetch("/api/shares/" + encodeURIComponent(id), { method: "DELETE" }); toast("已停止分享"); openShare(); } catch (err) { toast("失敗：" + err.message); }
