@@ -2307,7 +2307,7 @@ function settleOf(rows) {
     const h = hkOf(r); if (h == null) continue;
     add(r.title || "（未命名）", h, splitOf(r), r);
   }
-  for (const g of cashGifts(rows)) if (g.hk != null) add(g.title, g.hk, { by: g.by, for: g.for }, { cash: true });
+  // 換錢只是兌換現金，不計入分帳；分帳只按實際支出（誰付款、買給誰）計算
   const bal = L.map((p) => ({ id: p.id, v: paid[p.id] - owe[p.id] }));
   const give = bal.filter((b) => b.v < -0.5).map((b) => ({ ...b, v: -b.v })).sort((a, b) => b.v - a.v);
   const get = bal.filter((b) => b.v > 0.5).sort((a, b) => b.v - a.v);
@@ -2489,7 +2489,7 @@ function openWalletAdd(kind, wid) {
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${kind === "cash" ? (x ? "💴 編輯換錢紀錄" : "💴 換錢／加現金") : (x ? "🚃 編輯增值紀錄" : "🚃 IC卡增值")}</h2><button class="btn ghost" data-act="close">✕</button></div>
     <form id="walletForm" onsubmit="return false">
       <label class="field"><span>${kind === "cash" ? "換到的現金" : "增值金額"}（${esc(CUR_NAME[cur] || cur)}）</span><input type="text" inputmode="decimal" name="amount" value="${e.amount ?? ""}" placeholder="例如：${kind === "cash" ? "50000" : "3000"}"></label>
-      ${kind === "cash" && companions().length > 1 ? `<div class="field"><span>現金由誰提供</span><div class="payseg">${companions().map((p) => `<label><input type="radio" name="by" value="${esc(p.id)}" ${p.id === (e.by || meId()) ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div><small class="hint" style="margin:4px 0 0">同行者換好現金分給你：現金計入你的錢包，分帳時當作他替你付了這筆錢。</small></div>` : ""}
+      ${kind === "cash" && companions().length > 1 ? `<div class="field"><span>現金由誰提供</span><div class="payseg">${companions().map((p) => `<label><input type="radio" name="by" value="${esc(p.id)}" ${p.id === (e.by || meId()) ? "checked" : ""}><span>${esc(p.name)}${p.me ? "（我）" : ""}</span></label>`).join("")}</div><small class="hint" style="margin:4px 0 0">同行者換好現金分給你：現金計入你的錢包，用來付款時會從你的現金扣除。換錢本身不計入分帳，分帳只按實際支出計算。</small></div>` : ""}
       ${kind === "ic" ? `<div class="field"><span>用甚麼增值</span><div class="payseg"><label><input type="radio" name="from" value="cash" ${e.from !== "card" ? "checked" : ""}><span>💴 現金</span></label><label><input type="radio" name="from" value="card" ${e.from === "card" ? "checked" : ""}><span>💳 信用卡</span></label></div></div>` : ""}
       ${kind === "cash" && cur !== "HKD" ? `<label class="field"><span>付了多少港幣（可留空，填了會用來計算現金匯率）</span><input type="text" inputmode="decimal" name="hkd" value="${e.hkd ?? ""}" placeholder="例如：2520"></label>` : ""}
       ${kind === "ic" && cur !== "HKD" ? `<label class="field"><span>實際付了多少港幣（可留空）<small class="hint" style="display:block;margin:0">填了會計算 IC 卡匯率，用 IC 卡付的行程支出會按這個匯率換算港幣</small></span><input type="text" inputmode="decimal" name="hkd" value="${e.hkd ?? e.hkdCard ?? ""}" placeholder="例如：150"></label>` : ""}
