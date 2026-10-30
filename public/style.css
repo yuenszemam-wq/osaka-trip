@@ -1283,3 +1283,4 @@ body.diarymode #tabs .dtool .ntab.menu { flex: none; }
 .btn.copied { border-color: var(--ok); color: var(--ok); }
 .mtable .pk.part { background: color-mix(in srgb, var(--purple) 45%, transparent); border-color: var(--purple); }
 .mtable tr.billrow.picked .pk:not(.part) { background: var(--purple); border-color: var(--purple); }
+.mtable .hk.conf { color: var(--ink-2); }

@@ -2600,7 +2600,9 @@ function moneyHTML() {
   const rowHTML = (r, inBill) => {
     const act = pick ? "bill-pick" : r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit", id = pick ? r.key : r.id;
     return `<tr class="${inBill ? "inbill" : ""} ${pick && pick.has(r.key) ? "picked" : ""}"><td><button class="t" data-act="${act}" data-id="${esc(id)}">${pick ? `<i class="pk">${pick.has(r.key) ? "✓" : ""}</i>` : ""}${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${whoTag(r) ? " · " + esc(whoTag(r)) : ""}${r.pay && PAY[r.pay] ? " · " + payLabel(r.pay) : ""}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
-      <td>${r.hkd != null && r.actual != null && r.cur !== "HKD" ? `<span>${money(r.actual, r.cur)}</span><span class="hk stm" title="月結單實際港幣">✓ ${money(r.hkd, "HKD")}</span>` : moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`;
+      <td>${r.hkd != null && r.actual != null && r.cur !== "HKD" ? `<span>${money(r.actual, r.cur)}</span><span class="hk stm" title="月結單實際港幣">✓ ${money(r.hkd, "HKD")}</span>`
+        : hkConfirmed(r) && r.cur !== "HKD" && hkOf(r) != null ? `<span>${money(r.actual, r.cur)}</span><span class="hk conf" title="按${r.pay === "ic" && icRate() ? "IC卡增值" : "換錢"}時實際付的港幣計算">${money(hkOf(r), "HKD")}</span>`
+        : moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`;
   };
   for (const [label, g] of groups) {
     const done = new Set(); let body = "";
@@ -2618,7 +2620,7 @@ function moneyHTML() {
       }
       const local = mem.every((x) => x.cur === mem[0].cur) ? mem.reduce((a, x) => a + (effOf(x) || 0), 0) : null;
       body += `<tr class="billrow ${open ? "open" : ""}"><td><div class="bline"><button class="t" data-act="bill-toggle" data-id="${esc(b.id)}"><span class="bico">${icon("down")}</span>${esc(b.title)}<span class="bn">${mem.length} 項${mem.some((x) => x.actual == null) ? " · 含預計" : ""}</span></button><button class="bedit" data-act="bill-open" data-id="${esc(b.id)}" aria-label="編輯單據">${icon("pencil")}</button></div></td>
-        <td>${local != null ? `<span>${money(local, mem[0].cur)}</span><span class="hk">${mem.some((x) => x.hkd != null) ? "" : "≈"}${money(sumHK(mem, "eff").s, "HKD")}</span>` : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}</td></tr>`;
+        <td>${local != null ? `<span>${money(local, mem[0].cur)}</span><span class="hk">${mem.every(hkConfirmed) ? "" : "≈"}${money(sumHK(mem, "eff").s, "HKD")}</span>` : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}</td></tr>`;
       if (open) body += mem.map((x) => rowHTML(x, true)).join("");
     }
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(sumHK(g, "eff").s, "HKD")}</span></h3>
