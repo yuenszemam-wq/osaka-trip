@@ -1266,3 +1266,17 @@ body.diarymode #tabs .dtool .ntab.menu { flex: none; }
 .sline .bl { flex: 1 1 auto; min-width: 0; border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; }
 .sline .bl small { display: block; font-size: 11.5px; color: var(--muted); }
 .sline > .btn.small { flex: none; padding: 2px 8px; }
+
+/* 月結單配對 */
+.stmlist { display: grid; gap: 8px; }
+.stmrow { border: 1px solid var(--line); border-radius: 12px; padding: 9px 10px; background: var(--p); }
+.stmrow.ok { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.stmrow .s1 { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.stmrow .s1 > span:first-child { min-width: 0; color: var(--muted); }
+.stmrow .s1 b { display: block; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.stmrow .sa { flex: none; text-align: right; }
+.stmrow .sa small { display: block; color: var(--muted); }
+.stmrow select { width: 100%; margin-top: 6px; padding: 7px 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--w); color: var(--ink); font: inherit; font-size: 13px; }
+.stmrow .sdiff { display: block; margin-top: 4px; font-size: 11.5px; color: var(--ok); }
+.stmrow .snew { margin-top: 6px; font-size: 13px; }
+.mtable .hk.stm { color: var(--ok); }

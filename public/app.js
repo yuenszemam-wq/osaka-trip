@@ -805,7 +805,7 @@ function renderChrome() {
       <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
       <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>${typeTabsHTML(day())}${areaChipsHTML(day())}`)
     : S.dayId === MONEY ? (S.billPick ? `<div class="toprow3">${ptitle("合併成一張單", `已選 ${S.billPick.size} 項`)}<button class="manage" data-act="bill-pick-off">取消</button><button class="manage add" data-act="bill-make" ${S.billPick.size ? "" : "disabled"}>${icon("check")}合併</button></div>`
-      : `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="bill-pick-on" aria-label="合併成一張單">${icon("layers")}合併</button><button class="manage" data-act="rc-open" aria-label="掃描收據">${icon("camera")}收據</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`)
+      : `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="bill-pick-on" aria-label="合併成一張單">${icon("layers")}合併</button><button class="manage" data-act="rc-open" aria-label="匯入收據或月結單">${icon("camera")}匯入</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`)
     : S.dayId === SHOP ? (() => { const L = S.doc.shopping || [], nd = L.filter((x) => x.done).length;
       return `<div class="toprow3">${ptitle("購物清單", `${L.length - nd} 件未買`)}<button class="manage add" data-act="add">${icon("plus")}新增</button></div>
       <div class="toprow4"><div class="switch">${[["todo", "未買", L.length - nd], ["done", "已買", nd], ["all", "全部", L.length]].map(([k, t, n]) => `<button data-act="shop-filter" data-id="${k}" aria-pressed="${(S.shopFilter || "todo") === k}">${t}<small class="cnt">${n}</small></button>`).join("")}</div></div>`; })()
@@ -2291,7 +2291,7 @@ function settleOf(rows) {
     for (const x of sp.for) { owe[x] += h / sp.for.length; det[x].owe.push({ title, h: h / sp.for.length, n: sp.for.length, by: sp.by, r }); }
   };
   for (const r of rows) {
-    const h = toHKD(effOf(r), r.cur, r.pay); if (h == null) continue;
+    const h = hkOf(r); if (h == null) continue;
     add(r.title || "（未命名）", h, splitOf(r), r);
   }
   for (const g of cashGifts(rows)) if (g.hk != null) add(g.title, g.hk, { by: g.by, for: g.for }, { cash: true });
@@ -2342,7 +2342,7 @@ function costRows() {
     const v = V(it); const c = v.cost;
     if (!c || (c.plan == null && c.actual == null)) return;
     const cd = c.dayId === "none" ? null : c.dayId ? S.doc.days.find((x) => x.id === c.dayId) || d : d;
-    rows.push({ id: it.id, title: c.title || v.title, type: c.type || v.type || "place", day: cd, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, note: c.note, time: c.time != null ? c.time : it.start, bill: c.bill, key: "i:" + it.id });
+    rows.push({ id: it.id, title: c.title || v.title, type: c.type || v.type || "place", day: cd, sub, plan: c.plan, actual: c.actual, cur: c.cur || localCur(), pay: c.pay, share: c.share, by: c.by, for: c.for, note: c.note, time: c.time != null ? c.time : it.start, bill: c.bill, hkd: c.hkd, key: "i:" + it.id });
   };
   for (const d of S.doc.days) {
     if (isIdeas(d)) continue;
@@ -2351,10 +2351,10 @@ function costRows() {
   }
   for (const x of S.doc.shopping || []) {
     if (!x.done || (x.plan == null && x.actual == null)) continue;
-    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, share: x.share, by: x.by, for: x.for, note: x.where, bill: x.bill, key: "s:" + x.id });
+    rows.push({ id: x.id, shop: true, title: x.name + (x.qty > 1 ? ` ×${x.qty}` : ""), type: "shop", day: null, plan: x.plan, actual: x.actual, cur: x.cur || localCur(), pay: x.pay, share: x.share, by: x.by, for: x.for, note: x.where, bill: x.bill, hkd: x.hkd, key: "s:" + x.id });
   }
   for (const e of S.doc.expenses || []) {
-    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, share: e.share, by: e.by, for: e.for, note: e.note, time: e.time, bill: e.bill || e.receipt, key: "e:" + e.id });
+    rows.push({ id: e.id, extra: true, title: e.title, type: e.type || "shop", day: S.doc.days.find((x) => x.id === e.dayId) || null, plan: e.plan, actual: e.actual, cur: e.cur || localCur(), pay: e.pay, share: e.share, by: e.by, for: e.for, note: e.note, time: e.time, bill: e.bill || e.receipt, hkd: e.hkd, key: "e:" + e.id });
   }
   return rows;
 }
@@ -2396,9 +2396,11 @@ function openBill(id) {
 }
 // 每項的金額：有實際數就用實際數，否則用預計
 const effOf = (r) => r.actual != null ? r.actual : r.plan;
+// 港幣金額：已和月結單配對的用月結單上的實際港幣，否則按匯率換算
+const hkOf = (r) => r.hkd != null && r.actual != null ? r.hkd : toHKD(effOf(r), r.cur, r.pay);
 function sumHK(rows, key) {
   let s = 0, missing = 0;
-  for (const r of rows) { const n = key === "eff" ? effOf(r) : r[key]; if (n == null) continue; const h = toHKD(n, r.cur, r.pay); if (h == null) missing++; else s += h; }
+  for (const r of rows) { const n = key === "eff" ? effOf(r) : r[key]; if (n == null) continue; const h = (key === "eff" || key === "actual") && r.hkd != null && r.actual != null ? r.hkd : toHKD(n, r.cur, r.pay); if (h == null) missing++; else s += h; }
   return { s, missing };
 }
 function sumLocal(rows, key) {
@@ -2530,7 +2532,7 @@ function moneyHTML() {
     const cv = S.catView || "all", Lc = companions(), vp = Lc.find((p) => p.id === cv);
     const by = {}; // type -> { all, [pid]: share }
     for (const r of rows) {
-      const h = toHKD(effOf(r), r.cur, r.pay); if (h == null) continue;
+      const h = hkOf(r); if (h == null) continue;
       const o = by[r.type] || (by[r.type] = { all: 0 }); o.all += h;
       const sp = splitOf(r); for (const x of sp.for) o[x] = (o[x] || 0) + h / sp.for.length;
     }
@@ -2574,7 +2576,7 @@ function moneyHTML() {
   const rowHTML = (r, inBill) => {
     const act = pick ? "bill-pick" : r.shop ? "shop-edit" : r.extra ? "expense-edit" : "cost-edit", id = pick ? r.key : r.id;
     return `<tr class="${inBill ? "inbill" : ""} ${pick && pick.has(r.key) ? "picked" : ""}"><td><button class="t" data-act="${act}" data-id="${esc(id)}">${pick ? `<i class="pk">${pick.has(r.key) ? "✓" : ""}</i>` : ""}${r.sub ? "↳ " : ""}${esc(r.title || "（未命名）")}<small>${r.time != null ? fmt(r.time) + " · " : ""}${catOf(r.type)[0]}${whoTag(r) ? " · " + esc(whoTag(r)) : ""}${r.pay && PAY[r.pay] ? " · " + payLabel(r.pay) : ""}${r.shop ? " · 購物清單" : r.extra ? " · 其他支出" : ""}</small></button></td>
-      <td>${moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`;
+      <td>${r.hkd != null && r.actual != null && r.cur !== "HKD" ? `<span>${money(r.actual, r.cur)}</span><span class="hk stm" title="月結單實際港幣">✓ ${money(r.hkd, "HKD")}</span>` : moneyCell(effOf(r), r.cur, r.pay)}${r.actual == null ? `<span class="plantag">預計</span>` : ""}</td></tr>`;
   };
   for (const [label, g] of groups) {
     const done = new Set(); let body = "";
@@ -2585,7 +2587,7 @@ function moneyHTML() {
       const mem = g.filter((x) => x.bill === b.id), open = S.billOpen && S.billOpen.has(b.id);
       const local = mem.every((x) => x.cur === mem[0].cur) ? mem.reduce((a, x) => a + (effOf(x) || 0), 0) : null;
       body += `<tr class="billrow ${open ? "open" : ""}"><td><div class="bline"><button class="t" data-act="bill-toggle" data-id="${esc(b.id)}"><span class="bico">${icon("down")}</span>${esc(b.title)}<span class="bn">${mem.length} 項${mem.some((x) => x.actual == null) ? " · 含預計" : ""}</span></button><button class="bedit" data-act="bill-open" data-id="${esc(b.id)}" aria-label="編輯單據">${icon("pencil")}</button></div></td>
-        <td>${local != null ? moneyCell(local, mem[0].cur, mem[0].pay) : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}</td></tr>`;
+        <td>${local != null ? `<span>${money(local, mem[0].cur)}</span><span class="hk">${mem.some((x) => x.hkd != null) ? "" : "≈"}${money(sumHK(mem, "eff").s, "HKD")}</span>` : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}</td></tr>`;
       if (open) body += mem.map((x) => rowHTML(x, true)).join("");
     }
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(sumHK(g, "eff").s, "HKD")}</span></h3>
@@ -2641,10 +2643,11 @@ function pickJSON(text) {
 const numIn = (v) => { if (v == null || v === "") return null; const n = +String(v).replace(/[^\d.\-]/g, ""); return isNaN(n) ? null : n; };
 function openReceipt() {
   const sheet = $("#sheet"); sheet.className = "sheet";
-  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("camera")} 掃描收據</h2><button class="btn ghost" data-act="close">✕</button></div>
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("camera")} 匯入收據／月結單</h2><button class="btn ghost" data-act="close">✕</button></div>
     <p class="hint" style="margin:-6px 0 12px">自動讀出每件商品（翻譯成中文）、金額、日期和付款方式，確認後記入支出。</p>
     <button class="rcopt" data-act="rc-photo"><b>${icon("camera")} 影相／選收據相片</b><span>由網站內置的 AI 自動讀取（免費額度）</span></button>
     <button class="rcopt" data-act="rc-paste-open"><b>${icon("swap")} 用其他 AI App</b><span>複製提示，連同相片傳給 Claude／ChatGPT／Gemini，再把回覆貼回來（通常更準確）</span></button>
+    <button class="rcopt" data-act="stm-open"><b>${icon("wallet")} 匯入信用卡月結單</b><span>交給 ChatGPT 等 AI 整理成 CSV，貼回來就會自動配對，更新每筆支出實際扣了多少港幣</span></button>
     <input type="file" id="rcFile" accept="image/*" hidden>
     <div id="rcStatus" class="hint" style="margin-top:10px"></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
@@ -2759,6 +2762,116 @@ function saveReceipt() {
   closeSheet();
   commit((doc) => { doc.expenses = doc.expenses || []; doc.expenses.push(...out); if (bill) { doc.bills = doc.bills || []; doc.bills.push(bill); } }, `已記入 ${out.length} 筆支出`);
   RC = null;
+}
+
+
+// ---------- 匯入信用卡月結單：配對實際港幣 ----------
+const STM_PROMPT = `請把我附上的信用卡月結單（PDF 或截圖）整理成 CSV，只回覆 CSV（放在一個 code block 內），不要其他文字。
+第一行必須是標題：date,description,currency,amount,hkd
+規則：
+- 每筆消費一行；不要包括還款、利息、年費、上期結欠等非消費項目。退款寫負數。
+- date：交易日期（不是入帳日），格式 YYYY-MM-DD。
+- description：商戶名稱，原文照抄；如有逗號請用引號包住。
+- currency：原本的交易貨幣，例如 JPY；港幣消費寫 HKD。
+- amount：原本貨幣的金額，只寫數字，不要逗號和貨幣符號。
+- hkd：這筆實際扣了多少港幣（已包括匯率和手續費），只寫數字。
+- 如果月結單把海外手續費另外列成一行，請把它加到對應那筆消費的 hkd 內，不要另列一行。`;
+let STM = null;
+function parseCSV(text) {
+  const t = String(text || "").replace(/```[a-z]*\n?/gi, "").trim();
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; continue; }
+    if (c === '"') q = true; else if (c === "," || c === "\t") { row.push(cur); cur = ""; } else if (c === "\n" || c === "\r") { if (c === "\r" && t[i + 1] === "\n") i++; row.push(cur); rows.push(row); row = []; cur = ""; } else cur += c;
+  }
+  row.push(cur); rows.push(row);
+  return rows.map((r) => r.map((x) => x.trim())).filter((r) => r.some((x) => x));
+}
+function parseStatement(text) {
+  const rows = parseCSV(text); if (rows.length < 2) return [];
+  const head = rows[0].map((h) => h.toLowerCase());
+  const col = (names) => head.findIndex((h) => names.some((n) => h.includes(n)));
+  const ci = { date: col(["date", "日期"]), desc: col(["desc", "merchant", "商戶", "說明"]), cur: col(["currency", "貨幣"]), amt: col(["amount", "金額"]), hkd: col(["hkd", "港幣"]) };
+  if (ci.date < 0 || ci.hkd < 0) return [];
+  return rows.slice(1).map((r, i) => {
+    const num = (k) => { if (k < 0) return null; const n = +String(r[k] || "").replace(/[^\d.\-]/g, ""); return r[k] && !isNaN(n) ? n : null; };
+    const d = (r[ci.date] || "").replace(/\//g, "-").replace(/^(\d{4})-(\d{1,2})-(\d{1,2}).*$/, (m, y, mo, da) => `${y}-${mo.padStart(2, "0")}-${da.padStart(2, "0")}`);
+    return { i, date: /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : "", desc: ci.desc >= 0 ? r[ci.desc] : "", cur: ci.cur >= 0 ? (r[ci.cur] || "").toUpperCase() : "", amt: num(ci.amt), hkd: num(ci.hkd) };
+  }).filter((x) => x.hkd != null);
+}
+// 可以配對的支出（實際金額、信用卡優先）和用信用卡增值的 IC 卡紀錄
+function stmCandidates() {
+  const out = costRows().filter((r) => r.actual != null).map((r) => ({ key: r.key, title: r.title, cur: r.cur, amt: r.actual, date: r.day ? dayDate(r.day) : null, pay: r.pay, hkd: r.hkd }));
+  for (const x of ((S.doc.wallet || {}).log || [])) if (x.kind === "ic" && x.from === "card") out.push({ key: "w:" + x.id, title: "IC卡增值" + (x.note ? " · " + x.note : ""), cur: localCur(), amt: x.amount, date: new Date(x.t).toISOString().slice(0, 10), pay: "card", hkd: x.hkdCard });
+  return out;
+}
+const dayDiff = (a, b) => a && b ? Math.abs((new Date(a) - new Date(b)) / 864e5) : null;
+function stmMatch(lines) {
+  const cands = stmCandidates(), used = new Set();
+  const scored = [];
+  for (const L of lines) for (const c of cands) {
+    if (L.amt == null || Math.abs(Math.abs(L.amt) - c.amt) > 0.5) continue;
+    if (L.cur && c.cur && L.cur !== c.cur) continue;
+    const dd = dayDiff(L.date, c.date);
+    if (dd != null && dd > 4) continue;
+    scored.push({ L, c, s: (c.pay === "card" ? 10 : 0) + (dd == null ? 2 : 5 - dd) });
+  }
+  scored.sort((a, b) => b.s - a.s);
+  for (const { L, c } of scored) { if (L.match !== undefined || used.has(c.key)) continue; L.match = c.key; used.add(c.key); }
+  for (const L of lines) if (L.match === undefined) L.match = "";
+  return cands;
+}
+function openStatement() {
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("wallet")} 匯入信用卡月結單</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <ol class="rcsteps"><li>按「複製提示」。</li><li>打開 ChatGPT（或 Claude、Gemini），貼上提示並附上月結單 PDF 或截圖，傳送。<br><small class="hint">卡號、地址等可以先遮蓋，配對只需要日期、商戶和金額。</small></li><li>複製 AI 回覆的 CSV，貼到下面，按「配對」。</li></ol>
+    <button class="btn" style="width:100%" data-act="stm-copy">${icon("note")} 複製提示</button>
+    <label class="field" style="margin-top:12px"><span>CSV</span><textarea id="stmText" rows="8" placeholder="date,description,currency,amount,hkd&#10;2026-10-24,UNIVERSAL STUDIOS JAPAN,JPY,9500,472.3"></textarea></label>
+    <div class="sheet-foot"><button class="btn" data-act="rc-open">返回</button><span class="grow"></span><button class="btn primary" data-act="stm-parse">配對</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+function renderStatement() {
+  const { lines, cands } = STM, ck = new Map(cands.map((c) => [c.key, c]));
+  const n = lines.filter((x) => x.match).length;
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  const y = $(".sheet-body") ? $(".sheet-body").scrollTop : 0;
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("check")} 配對月結單</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 10px">共 ${lines.length} 筆，自動配對了 <b>${n}</b> 筆。按金額和日期配對；可以逐筆改選。配對後，支出會改用月結單上的實際港幣。</p>
+    <form id="stmForm" onsubmit="return false"><div class="stmlist">${lines.map((L, i) => {
+      const opts = cands.filter((c) => L.amt != null && Math.abs(Math.abs(L.amt) - c.amt) <= 0.5 && (!L.cur || !c.cur || L.cur === c.cur));
+      const m = L.match && ck.get(L.match), est = m && L.cur !== "HKD" ? toHKD(m.amt, m.cur, "card") : null;
+      return `<div class="stmrow ${L.match ? "ok" : ""}"><div class="s1"><span>${esc(L.date || "")}<b>${esc(L.desc || "（未命名）")}</b></span><span class="sa">${L.amt != null && L.cur && L.cur !== "HKD" ? `<small>${money(L.amt, L.cur)}</small>` : ""}<b>${money(L.hkd, "HKD")}</b></span></div>
+        <select name="m${i}" data-stm="${i}"><option value="">${opts.length ? "不配對" : "找不到相同金額的支出"}</option>${opts.map((c) => `<option value="${esc(c.key)}" ${c.key === L.match ? "selected" : ""}>${esc(c.title)} · ${money(c.amt, c.cur)}${c.date ? " · " + esc(c.date.slice(5)) : ""}${c.hkd != null ? " · 已配對過" : ""}</option>`).join("")}</select>
+        ${m && est != null ? `<small class="sdiff">估算 ${money(est, "HKD")} → 實際 ${money(L.hkd, "HKD")}（${L.hkd - est >= 0 ? "+" : "−"}${money(Math.abs(L.hkd - est), "HKD")}）</small>` : ""}
+        ${!L.match && L.hkd > 0 ? `<label class="checkline snew"><input type="checkbox" data-stmnew="${i}" ${L.add ? "checked" : ""}><span>新增為一筆支出（信用卡）</span></label>` : ""}</div>`; }).join("")}</div></form>
+    <div class="sheet-foot"><button class="btn" data-act="stm-open">重新貼上</button><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="stm-apply">更新 ${n} 筆</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+  $(".sheet-body").scrollTop = y;
+}
+function applyStatement() {
+  const { lines } = STM, me = meId();
+  const upd = lines.filter((L) => L.match), add = lines.filter((L) => !L.match && L.add);
+  closeSheet();
+  commit((doc) => {
+    for (const L of upd) {
+      const [k, id] = [L.match.slice(0, 1), L.match.slice(2)];
+      const set = (o) => { if (o) { o.hkd = Math.round(L.hkd * 100) / 100; o.stmt = L.desc || true; } };
+      if (k === "i") { const f = findItem(id); if (f) set(V(f.item).cost); }
+      if (k === "s") set((doc.shopping || []).find((x) => x.id === id));
+      if (k === "e") set((doc.expenses || []).find((x) => x.id === id));
+      if (k === "w") { const x = ((doc.wallet || {}).log || []).find((y) => y.id === id); if (x) x.hkdCard = L.hkd; }
+    }
+    if (add.length) {
+      doc.expenses = doc.expenses || [];
+      for (const L of add) {
+        const d = L.date && doc.days.find((x) => x.kind === "day" && dayDate(x) === L.date);
+        const foreign = L.cur && L.cur !== "HKD" && L.amt != null;
+        doc.expenses.push({ id: "e-" + uid(), title: L.desc || "信用卡消費", type: "shop", dayId: d ? d.id : "", plan: null, actual: foreign ? Math.abs(L.amt) : L.hkd, cur: foreign ? L.cur : "HKD", pay: "card", ...(foreign ? { hkd: L.hkd } : {}), stmt: L.desc || true, note: "由月結單新增" });
+      }
+    }
+  }, `已更新 ${upd.length} 筆${add.length ? `，新增 ${add.length} 筆` : ""}`);
+  STM = null;
 }
 
 // ---------- 整個行程預算 ----------
@@ -3253,7 +3366,8 @@ function readForm() {
   v.title = f.tfrom ? joinRoute(f.tfrom.value, f.tto.value) : f.title.value.trim();
   v.summary = f.summary.value.trim();
   const old = v.cost || {};
-  const cost = readCost(f); if (cost) for (const k of ["note", "title", "type", "dayId", "time", "bill"]) if (old[k] != null) cost[k] = old[k];
+  const cost = readCost(f); if (cost) if (cost && old.hkd != null && old.actual === cost.actual && old.cur === cost.cur) { cost.hkd = old.hkd; cost.stmt = old.stmt; }
+  if (cost) for (const k of ["note", "title", "type", "dayId", "time", "bill"]) if (old[k] != null) cost[k] = old[k];
   if (cost) v.cost = cost; else delete v.cost;
   v.type = f.type.value;
   v.details = f.details.value.replace(/\s+$/, "");
@@ -4369,6 +4483,7 @@ document.addEventListener("click", async (e) => {
           if (type && type !== (v.type || "place")) c.type = type;
           if (dayId != null && dayId !== f.day.id) c.dayId = dayId || "none";
           if (v.cost && v.cost.bill) c.bill = v.cost.bill;
+          if (v.cost && v.cost.hkd != null && v.cost.actual === c.actual && v.cost.cur === c.cur) { c.hkd = v.cost.hkd; c.stmt = v.cost.stmt; } // 月結單港幣：金額沒改就保留
           v.cost = c;
         } else delete v.cost;
       }, c ? "已儲存消費" : "已清除消費");
@@ -4499,7 +4614,7 @@ document.addEventListener("click", async (e) => {
       closeSheet();
       commit((doc) => {
         doc.shopping = doc.shopping || [];
-        if (id) Object.assign(doc.shopping.find((e) => e.id === id), vals);
+        if (id) { const o = doc.shopping.find((e) => e.id === id); if (o.hkd != null && (o.actual !== vals.actual || o.cur !== vals.cur)) { delete o.hkd; delete o.stmt; } Object.assign(o, vals); }
         else doc.shopping.push({ id: "s-" + uid(), done: false, ...vals });
       });
       break;
@@ -4599,6 +4714,10 @@ document.addEventListener("click", async (e) => {
     }
     case "reorder-go": closeSheet(); keepAnchor(() => commit(() => ({ sort: true }), "已按時間重新排列")); break;
     case "rc-open": openReceipt(); break;
+    case "stm-open": openStatement(); break;
+    case "stm-copy": { try { await navigator.clipboard.writeText(STM_PROMPT); toast("已複製提示"); } catch { const ta = $("#stmText"); ta.value = STM_PROMPT; ta.select(); toast("請手動複製提示"); } break; }
+    case "stm-parse": { const lines = parseStatement($("#stmText").value); if (!lines.length) { toast("讀不到 CSV，請確認第一行是 date,description,currency,amount,hkd"); break; } const cands = stmMatch(lines); STM = { lines, cands }; renderStatement(); break; }
+    case "stm-apply": applyStatement(); break;
     case "rc-group": openReceiptGroup(id); break;
     case "rc-photo": { const inp = $("#rcFile"); inp.value = ""; inp.click(); break; }
     case "rc-paste-open": openReceiptPaste(); break;
@@ -4656,7 +4775,7 @@ document.addEventListener("click", async (e) => {
       closeSheet();
       commit((doc) => {
         doc.expenses = doc.expenses || [];
-        if (id) Object.assign(doc.expenses.find((x) => x.id === id), vals);
+        if (id) { const o = doc.expenses.find((x) => x.id === id); if (o.hkd != null && (o.actual !== vals.actual || o.cur !== vals.cur)) { delete o.hkd; delete o.stmt; } Object.assign(o, vals); }
         else doc.expenses.push({ id: "e-" + uid(), ...vals });
       }, id ? "已儲存支出" : "已新增支出");
       break;
@@ -5095,6 +5214,8 @@ document.addEventListener("input", (e) => {
 
 document.addEventListener("change", async (e) => {
   if (e.target.id === "rcFile" && e.target.files[0]) { receiptFromPhoto(e.target.files[0]); return; }
+  if (STM && e.target.dataset && e.target.dataset.stm != null) { const L = STM.lines[+e.target.dataset.stm]; const v = e.target.value; for (const o of STM.lines) if (o !== L && v && o.match === v) o.match = ""; L.match = v; renderStatement(); return; }
+  if (STM && e.target.dataset && e.target.dataset.stmnew != null) { STM.lines[+e.target.dataset.stmnew].add = e.target.checked; return; }
   if (e.target.id === "expMemoFile" && e.target.files.length) {
     const f = $("#expMemoForm"), id = f.dataset.id, keep = { note: f.note.value, caption: f.caption.value };
     try { const ids = await uploadFiles([...e.target.files]); commit(() => { const x = (S.doc.expenses || []).find((y) => y.id === id); if (x) x.photos = [...(x.photos || []), ...ids]; }); openExpMemoEditor(id); const g = $("#expMemoForm"); g.note.value = keep.note; g.caption.value = keep.caption; } catch (err) { toast("上傳失敗：" + err.message); }
