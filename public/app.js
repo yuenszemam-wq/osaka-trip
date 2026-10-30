@@ -804,7 +804,8 @@ function renderChrome() {
       : `<div class="toprow3">${ptitle(day().title || day().label, day().subtitle, S.manage ? "edit-day" : "")}
       <button class="manage" data-act="manage" aria-pressed="${S.manage}">${icon(S.manage ? "check" : "sliders")}${S.manage ? "完成" : "整理"}</button>
       <button class="manage add" data-act="add" aria-label="新增">${icon("plus")}新增</button></div>${typeTabsHTML(day())}${areaChipsHTML(day())}`)
-    : S.dayId === MONEY ? `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="rc-open" aria-label="掃描收據">${icon("camera")}收據</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`
+    : S.dayId === MONEY ? (S.billPick ? `<div class="toprow3">${ptitle("合併成一張單", `已選 ${S.billPick.size} 項`)}<button class="manage" data-act="bill-pick-off">取消</button><button class="manage add" data-act="bill-make" ${S.billPick.size ? "" : "disabled"}>${icon("check")}合併</button></div>`
+      : `<div class="toprow3">${ptitle("旅行支出表", "以港幣合計")}<button class="manage" data-act="bill-pick-on" aria-label="合併成一張單">${icon("layers")}合併</button><button class="manage" data-act="rc-open" aria-label="掃描收據">${icon("camera")}收據</button><button class="manage add" data-act="add">${icon("plus")}新增</button></div>`)
     : S.dayId === SHOP ? (() => { const L = S.doc.shopping || [], nd = L.filter((x) => x.done).length;
       return `<div class="toprow3">${ptitle("購物清單", `${L.length - nd} 件未買`)}<button class="manage add" data-act="add">${icon("plus")}新增</button></div>
       <div class="toprow4"><div class="switch">${[["todo", "未買", L.length - nd], ["done", "已買", nd], ["all", "全部", L.length]].map(([k, t, n]) => `<button data-act="shop-filter" data-id="${k}" aria-pressed="${(S.shopFilter || "todo") === k}">${t}<small class="cnt">${n}</small></button>`).join("")}</div></div>`; })()
@@ -2565,8 +2566,7 @@ function moneyHTML() {
   const pick = S.billPick;
   const bills = billMap(rows);
   const rowDay = (r) => { const b = r.bill && bills.get(r.bill); if (b && b.dayId !== undefined) return b.dayId ? S.doc.days.find((x) => x.id === b.dayId) || null : null; if (b) return b.firstDay; return r.day; };
-  html += `<div class="billbar">${pick ? `<span>已選 <b>${pick.size}</b> 項</span><button class="btn small primary" data-act="bill-make" ${pick.size < 1 ? "disabled" : ""}>${icon("plus")}合併成一張單</button><button class="btn small" data-act="bill-pick-off">取消</button>`
-    : `<button class="btn small" data-act="bill-pick-on">${icon("check")}選擇項目合併成單</button>`}</div>`;
+  if (pick) html += `<p class="hint billhint">${icon("check")} 按項目選擇要合併的支出，然後按上方的「合併」。</p>`;
   const groups = [];
   for (const d of S.doc.days.filter((x) => !isIdeas(x))) { const g = fr.filter((r) => rowDay(r) === d); if (g.length) groups.push([d.label + (d.kind === "day" && d.sub ? " · " + d.sub : ""), g]); }
   if (on && !fr.length) html += `<div class="empty">沒有符合篩選的交易</div>`;
@@ -2584,8 +2584,8 @@ function moneyHTML() {
       if (done.has(b.id)) continue; done.add(b.id);
       const mem = g.filter((x) => x.bill === b.id), open = S.billOpen && S.billOpen.has(b.id);
       const local = mem.every((x) => x.cur === mem[0].cur) ? mem.reduce((a, x) => a + (effOf(x) || 0), 0) : null;
-      body += `<tr class="billrow"><td><button class="t" data-act="bill-toggle" data-id="${esc(b.id)}"><span class="bico">${icon(open ? "down" : "arrow")}</span>🧾 ${esc(b.title)}<small>${mem.length} 項${mem.some((x) => x.actual == null) ? " · 含預計" : ""}</small></button></td>
-        <td>${local != null ? moneyCell(local, mem[0].cur, mem[0].pay) : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}<button class="bedit" data-act="bill-open" data-id="${esc(b.id)}" aria-label="編輯單據">${icon("pencil")}</button></td></tr>`;
+      body += `<tr class="billrow ${open ? "open" : ""}"><td><div class="bline"><button class="t" data-act="bill-toggle" data-id="${esc(b.id)}"><span class="bico">${icon("down")}</span>${esc(b.title)}<span class="bn">${mem.length} 項${mem.some((x) => x.actual == null) ? " · 含預計" : ""}</span></button><button class="bedit" data-act="bill-open" data-id="${esc(b.id)}" aria-label="編輯單據">${icon("pencil")}</button></div></td>
+        <td>${local != null ? moneyCell(local, mem[0].cur, mem[0].pay) : `<span>${money(sumHK(mem, "eff").s, "HKD")}</span>`}</td></tr>`;
       if (open) body += mem.map((x) => rowHTML(x, true)).join("");
     }
     html += `<div class="mcard"><h3>${icon("calendar")} ${esc(label)}<span class="right">${money(sumHK(g, "eff").s, "HKD")}</span></h3>

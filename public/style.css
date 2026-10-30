@@ -1249,14 +1249,18 @@ body.diarymode #tabs .dtool .ntab.menu { flex: none; }
 /* 單據：把不同項目歸類成同一張單 */
 .billbar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin: 4px 0 10px; font-size: 13px; color: var(--muted); }
 .billbar > span { margin-right: auto; }
-.mtable tr.billrow td { background: color-mix(in srgb, var(--purple) 8%, transparent); }
-.mtable tr.billrow .t { font-weight: 650; }
-.mtable tr.billrow .bico { display: inline-flex; vertical-align: -2px; margin-right: 3px; color: var(--muted); }
+.mtable tr.billrow td { background: none; }
+.mtable tr.billrow .bline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.mtable tr.billrow .t { font-weight: 650; flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; flex-wrap: wrap; column-gap: 6px; }
+.mtable tr.billrow .bico { display: inline-flex; color: var(--muted); transform: rotate(-90deg); transition: transform .15s; }
+.mtable tr.billrow.open .bico { transform: none; }
 .mtable tr.billrow .bico svg.i { width: 14px; height: 14px; }
-.mtable tr.billrow td:last-child { white-space: nowrap; }
-.mtable .bedit { border: 0; background: none; color: var(--muted); padding: 2px 0 2px 6px; vertical-align: middle; }
+.mtable tr.billrow .bn { font-size: 12px; font-weight: 400; color: var(--muted); }
+.mtable .bedit { flex: none; border: 0; background: none; color: var(--muted); padding: 4px; display: inline-grid; place-items: center; }
 .mtable .bedit svg.i { width: 14px; height: 14px; }
-.mtable tr.inbill td:first-child { padding-left: 18px; border-left: 2px solid color-mix(in srgb, var(--purple) 35%, transparent); }
+.billhint { display: flex; align-items: center; gap: 6px; margin: 2px 0 10px; }
+.mtable tr.inbill td:first-child { padding-left: 16px; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--purple) 30%, transparent); }
+.mtable tr.inbill td { border-top: 1px dashed var(--line); }
 .mtable .pk { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--line); border-radius: 5px; margin-right: 7px; font-style: normal; font-size: 12px; vertical-align: -3px; color: var(--on-purple); }
 .mtable tr.picked .pk { background: var(--purple); border-color: var(--purple); }
 .sline .bl { flex: 1 1 auto; min-width: 0; border: 0; background: none; padding: 0; text-align: left; color: inherit; font: inherit; }
