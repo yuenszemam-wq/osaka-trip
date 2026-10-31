@@ -775,7 +775,11 @@ function areaChipsHTML(d) {
 }
 // ---------- 同步到 K&S（情侶程式）：旅程回憶 → K&S 回憶頁。由瀏覽器直接推送，網址同密鑰只存喺呢部裝置 ----------
 const KS_KEY = "osaka-ks-cfg";
-const ksCfg = () => { try { const c = JSON.parse(localStorage.getItem(KS_KEY) || "{}"); return c.url && c.key ? { url: String(c.url).replace(/\/+$/, ""), key: c.key, who: c.who === "kenny" ? "kenny" : "sally" } : null; } catch { return null; } };
+const ksCfg = () => { try { const c = JSON.parse(localStorage.getItem(KS_KEY) || "{}"); return c.url && c.key ? { url: String(c.url).replace(/\/+$/, ""), key: c.key, who: c.who === "kenny" ? "kenny" : "sally", auto: !!c.auto } : null; } catch { return null; } };
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || "") ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+let ksState = ""; // 顯示喺「K&S」掣嘅狀態：✓ 已同步、⟳ 同步中、! 失敗（會自動補推）
+function ksStat(st) { ksState = st; const b = document.querySelector('[data-act="ks-open"]'); if (b) b.innerHTML = "K&amp;S" + (st ? " " + st : ""); }
 async function ksPost(body) {
   const c = ksCfg(); if (!c) throw new Error("未設定 K&S 網址同密鑰");
   const r = await fetch(c.url + "/api/ingest", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + c.key }, body: JSON.stringify({ who: c.who, ...body }) });
@@ -793,9 +797,8 @@ async function ksPhoto(photoId, date, caption) {
   const r = await fetch(c.url + "/api/ingest?" + q, { method: "POST", headers: { "Content-Type": blob.type, Authorization: "Bearer " + c.key }, body: blob });
   const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || "錯誤 " + r.status); return j;
 }
-// 同步一天：日記文字、完成咗嘅行程、相片
-async function ksSyncDay(d, onPhoto) {
-  const date = dayDate(d); if (!date) return { photos: 0, skipped: true };
+// 一天要同步嘅內容
+function ksDayData(d) {
   const lines = [], did = [], photos = [];
   if ((d.journal || "").trim()) lines.push(d.journal.trim());
   for (const { item } of seq(d)) for (const x of [item, ...(item.children || [])]) {
@@ -810,11 +813,46 @@ async function ksSyncDay(d, onPhoto) {
       m.photos.forEach((p) => photos.push([p, t]));
     } else m.photos.forEach((p) => photos.push([p, (m.e.title || "消費").toString()]));
   }
-  if (lines.length || did.length) await ksPost({ op: "memory", date, place: (S.doc.meta || {}).title || "", text: lines.join("\n"), did: did.slice(0, 12) });
-  let n = 0;
-  for (const [p, cap] of photos) { await ksPhoto(p, date, cap); n++; if (onPhoto) onPhoto(n); }
+  return { lines, did: did.slice(0, 12), photos };
+}
+const ksHash = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return String(h >>> 0); };
+const ksSig = (d) => { const x = ksDayData(d); return ksHash(JSON.stringify([x.lines, x.did, x.photos.map((p) => p[0])])); };
+const KS_SIG = "osaka-ks-sig", KS_PH = "osaka-ks-photos";
+// 同步一天：日記文字、完成咗嘅行程、相片。force＝連已同步過嘅相都重推（手動同步用）
+async function ksSyncDay(d, onPhoto, force) {
+  const date = dayDate(d); if (!date) return { photos: 0, skipped: true };
+  const sig = ksSig(d), x = ksDayData(d);
+  if (x.lines.length || x.did.length) await ksPost({ op: "memory", date, place: (S.doc.meta || {}).title || "", text: x.lines.join("\n"), did: x.did });
+  const done = new Set(lsGet(KS_PH, [])); let n = 0;
+  for (const [p, cap] of x.photos) {
+    if (!force && done.has(p)) continue;
+    await ksPhoto(p, date, cap); done.add(p); lsSet(KS_PH, [...done].slice(-4000)); n++; if (onPhoto) onPhoto(n);
+  }
+  const sigs = lsGet(KS_SIG, {}); sigs[S.tripId + ":" + d.id] = sig; lsSet(KS_SIG, sigs);
   return { photos: n };
 }
+// ---- 自動同步：每 3 秒檢查一次，某一日內容有變而且停手 5 秒，就只同步嗰一日；失敗會留低，之後自動補推 ----
+let ksBusy = false, ksFailed = false; const ksPend = {};
+async function ksTick() {
+  const c = ksCfg(); if (!c || !c.auto || ksBusy || S.share || !S.doc || !S.doc.days || document.hidden || !navigator.onLine) return;
+  const sigs = lsGet(KS_SIG, {}), now = Date.now(); const due = [];
+  for (const d of diaryDays()) {
+    if (!dayDate(d)) continue;
+    const key = S.tripId + ":" + d.id, sig = ksSig(d);
+    if (sigs[key] === sig) { delete ksPend[key]; continue; }
+    // 冇內容嘅日子（未寫過嘢）唔使推
+    const x = ksDayData(d); if (!x.lines.length && !x.did.length && !x.photos.length) continue;
+    if (!ksPend[key] || ksPend[key].sig !== sig) ksPend[key] = { sig, since: now };
+    else if (now - ksPend[key].since >= 5000) due.push(d);
+  }
+  if (!due.length) return;
+  ksBusy = true; ksStat("⟳");
+  try { for (const d of due) await ksSyncDay(d); ksFailed = false; ksStat("✓"); }
+  catch (e) { ksFailed = true; ksStat("!"); console.warn("K&S 同步失敗，稍後自動重試：", e.message); }
+  ksBusy = false;
+}
+setInterval(ksTick, 3000); window.addEventListener("online", ksTick);
+
 function openKs() {
   const c = ksCfg() || {}; const sheet = $("#sheet"); sheet.className = "sheet";
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("upload")} 同步到 K&amp;S</h2><button class="btn ghost" data-act="close">✕</button></div>
@@ -823,17 +861,18 @@ function openKs() {
       <div class="field"><span>K&amp;S 網址</span><input name="url" inputmode="url" autocomplete="off" placeholder="https://ks-couple.xxx.workers.dev" value="${esc(c.url || "")}"></div>
       <div class="field"><span>同步密鑰</span><input name="key" autocomplete="off" value="${esc(c.key || "")}"></div>
       <div class="field"><span>呢個旅程寫日記嘅人</span><select name="who"><option value="sally" ${c.who !== "kenny" ? "selected" : ""}>Sally</option><option value="kenny" ${c.who === "kenny" ? "selected" : ""}>Kenny</option></select></div>
+      <div class="field"><label class="checkline"><input type="checkbox" name="auto" ${c.auto ? "checked" : ""}><span>自動同步（寫完日記、感受或加相後，停手約 5 秒自動同步嗰一日；失敗會自動補推）</span></label></div>
     </form><p class="hint" id="ksMsg"></p>
-    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">關閉</button><button class="btn primary" data-act="ks-sync">${icon("upload")}儲存並同步整個旅程</button></div></div>`;
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">關閉</button><button class="btn" data-act="ks-save">只儲存設定</button><button class="btn primary" data-act="ks-sync">${icon("upload")}儲存並同步整個旅程</button></div></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 async function ksRun() {
   const f = $("#ksForm"), msg = $("#ksMsg"), btn = document.querySelector('[data-act="ks-sync"]');
-  localStorage.setItem(KS_KEY, JSON.stringify({ url: f.url.value.trim(), key: f.key.value.trim(), who: f.who.value }));
+  localStorage.setItem(KS_KEY, JSON.stringify({ url: f.url.value.trim(), key: f.key.value.trim(), who: f.who.value, auto: f.auto.checked }));
   if (!ksCfg()) { msg.textContent = "請填寫網址同密鑰"; return; }
   btn.disabled = true; let days = 0, photos = 0, skipped = 0;
   try {
-    for (const d of diaryDays()) { msg.textContent = `同步緊 ${d.label || d.sub || ""}… 已同步 ${days} 日、${photos} 張相`; const r = await ksSyncDay(d, () => {}); if (r.skipped) skipped++; else { photos += r.photos; days++; } }
+    for (const d of diaryDays()) { msg.textContent = `同步緊 ${d.label || d.sub || ""}… 已同步 ${days} 日、${photos} 張相`; const r = await ksSyncDay(d, () => {}, true); if (r.skipped) skipped++; else { photos += r.photos; days++; } }
     msg.textContent = `完成 ♡ 已同步 ${days} 日、${photos} 張相到 K&S 回憶` + (skipped ? `（${skipped} 日冇日期，已略過）` : "");
   } catch (e) { msg.textContent = "同步失敗：" + e.message + "（已同步 " + days + " 日、" + photos + " 張相，可以再按一次繼續）"; }
   btn.disabled = false;
@@ -842,7 +881,7 @@ function diaryChrome() {
   const m = S.doc.meta || {}, ro = !!S.share;
   document.body.classList.add("diarymode");
   $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${ro ? "Shared journal" : "Travel memories"}</div><h1 class="dbrand">旅行回憶錄</h1></div>
-    <div class="status"><div class="status-btns">${ro ? "" : `<button class="iconbtn sm" data-act="ks-open" aria-label="同步到 K&S" style="font-weight:700;font-size:12px;width:auto;padding:0 10px">K&amp;S</button><button class="iconbtn sm" data-act="share-open" aria-label="分享日記">${icon("upload")}</button><button class="iconbtn sm" data-act="diary-back" aria-label="返回行程">${icon("back")}</button>`}</div></div>`;
+    <div class="status"><div class="status-btns">${ro ? "" : `<button class="iconbtn sm" data-act="ks-open" aria-label="同步到 K&S" style="font-weight:700;font-size:12px;width:auto;padding:0 10px">K&amp;S${ksState ? " " + ksState : ""}</button><button class="iconbtn sm" data-act="share-open" aria-label="分享日記">${icon("upload")}</button><button class="iconbtn sm" data-act="diary-back" aria-label="返回行程">${icon("back")}</button>`}</div></div>`;
   const menuBtn = ro ? "" : `<button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button>`;
   const trips = S.trips.length ? S.trips : [{ id: S.tripId, title: m.title }];
   $("#tabs").innerHTML = `${trips.length > 1 ? `<div class="dtrips">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${icon("suitcase")}${esc(t.title || "旅程")}</button>`).join("")}</div>` : ""}
@@ -5093,6 +5132,7 @@ document.addEventListener("click", async (e) => {
     case "share-open": openShare(); break;
     case "ks-open": openKs(); break;
     case "ks-sync": ksRun(); break;
+    case "ks-save": { const f = $("#ksForm"); localStorage.setItem(KS_KEY, JSON.stringify({ url: f.url.value.trim(), key: f.key.value.trim(), who: f.who.value, auto: f.auto.checked })); $("#ksMsg").textContent = f.auto.checked ? "已儲存，自動同步已開啟 ♡" : "已儲存（自動同步關閉）"; ksTick(); break; }
     case "exp-memo": openExpMemoEditor(id); break;
     case "exp-memo-save": {
       const f = $("#expMemoForm"), note = f.note.value, caption = f.caption.value.trim();
