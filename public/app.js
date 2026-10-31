@@ -773,11 +773,76 @@ function areaChipsHTML(d) {
   const keys = [...cnt.keys()].sort((a, b) => (a === "其他") - (b === "其他") || cnt.get(b) - cnt.get(a));
   return `<div class="areachips">${keys.map((k) => `<button data-act="area-jump" data-id="${esc(k)}">${icon("nav")}${esc(k)}<small>${cnt.get(k)}</small></button>`).join("")}</div>`;
 }
+// ---------- 同步到 K&S（情侶程式）：旅程回憶 → K&S 回憶頁。由瀏覽器直接推送，網址同密鑰只存喺呢部裝置 ----------
+const KS_KEY = "osaka-ks-cfg";
+const ksCfg = () => { try { const c = JSON.parse(localStorage.getItem(KS_KEY) || "{}"); return c.url && c.key ? { url: String(c.url).replace(/\/+$/, ""), key: c.key, who: c.who === "kenny" ? "kenny" : "sally" } : null; } catch { return null; } };
+async function ksPost(body) {
+  const c = ksCfg(); if (!c) throw new Error("未設定 K&S 網址同密鑰");
+  const r = await fetch(c.url + "/api/ingest", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + c.key }, body: JSON.stringify({ who: c.who, ...body }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || "錯誤 " + r.status); return j;
+}
+async function ksPhoto(photoId, date, caption) {
+  const c = ksCfg(); let blob = await (await fetch(photoUrl(photoId))).blob();
+  if (!["image/jpeg", "image/png", "image/webp"].includes(blob.type) || blob.size > 1500000) {
+    const bm = await createImageBitmap(blob); const r = Math.min(1, 1280 / Math.max(bm.width, bm.height));
+    const cv = document.createElement("canvas"); cv.width = Math.max(1, Math.round(bm.width * r)); cv.height = Math.max(1, Math.round(bm.height * r));
+    cv.getContext("2d").drawImage(bm, 0, 0, cv.width, cv.height);
+    blob = await new Promise((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("相片轉換失敗"))), "image/jpeg", 0.8));
+  }
+  const q = new URLSearchParams({ ref: photoId, date, caption: (caption || "").slice(0, 40), who: c.who });
+  const r = await fetch(c.url + "/api/ingest?" + q, { method: "POST", headers: { "Content-Type": blob.type, Authorization: "Bearer " + c.key }, body: blob });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || "錯誤 " + r.status); return j;
+}
+// 同步一天：日記文字、完成咗嘅行程、相片
+async function ksSyncDay(d, onPhoto) {
+  const date = dayDate(d); if (!date) return { photos: 0, skipped: true };
+  const lines = [], did = [], photos = [];
+  if ((d.journal || "").trim()) lines.push(d.journal.trim());
+  for (const { item } of seq(d)) for (const x of [item, ...(item.children || [])]) {
+    if (isInfo(x)) continue;
+    const t = (V(x).title || "").trim();
+    if (x.done && t) did.push(t);
+  }
+  for (const m of dayMemories(d)) {
+    if (m.kind === "item") {
+      const t = (V(m.x).title || "").trim(), mm = memoOf(m.x), txt = (mm.note || mm.caption || "").trim();
+      if (txt) lines.push((t ? t + "：" : "") + txt);
+      m.photos.forEach((p) => photos.push([p, t]));
+    } else m.photos.forEach((p) => photos.push([p, (m.e.title || "消費").toString()]));
+  }
+  if (lines.length || did.length) await ksPost({ op: "memory", date, place: (S.doc.meta || {}).title || "", text: lines.join("\n"), did: did.slice(0, 12) });
+  let n = 0;
+  for (const [p, cap] of photos) { await ksPhoto(p, date, cap); n++; if (onPhoto) onPhoto(n); }
+  return { photos: n };
+}
+function openKs() {
+  const c = ksCfg() || {}; const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("upload")} 同步到 K&amp;S</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">將呢個旅程嘅日記、行程感受同相片，同步去情侶程式 K&amp;S 嘅回憶頁。重覆按只會更新，唔會重覆。網址同密鑰喺 K&amp;S「我們 → 設定 → 連接其他程式」，只儲存喺呢部裝置。</p>
+    <form id="ksForm" onsubmit="return false">
+      <div class="field"><span>K&amp;S 網址</span><input name="url" inputmode="url" autocomplete="off" placeholder="https://ks-couple.xxx.workers.dev" value="${esc(c.url || "")}"></div>
+      <div class="field"><span>同步密鑰</span><input name="key" autocomplete="off" value="${esc(c.key || "")}"></div>
+      <div class="field"><span>呢個旅程寫日記嘅人</span><select name="who"><option value="sally" ${c.who !== "kenny" ? "selected" : ""}>Sally</option><option value="kenny" ${c.who === "kenny" ? "selected" : ""}>Kenny</option></select></div>
+    </form><p class="hint" id="ksMsg"></p>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">關閉</button><button class="btn primary" data-act="ks-sync">${icon("upload")}儲存並同步整個旅程</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+async function ksRun() {
+  const f = $("#ksForm"), msg = $("#ksMsg"), btn = document.querySelector('[data-act="ks-sync"]');
+  localStorage.setItem(KS_KEY, JSON.stringify({ url: f.url.value.trim(), key: f.key.value.trim(), who: f.who.value }));
+  if (!ksCfg()) { msg.textContent = "請填寫網址同密鑰"; return; }
+  btn.disabled = true; let days = 0, photos = 0, skipped = 0;
+  try {
+    for (const d of diaryDays()) { msg.textContent = `同步緊 ${d.label || d.sub || ""}… 已同步 ${days} 日、${photos} 張相`; const r = await ksSyncDay(d, () => {}); if (r.skipped) skipped++; else { photos += r.photos; days++; } }
+    msg.textContent = `完成 ♡ 已同步 ${days} 日、${photos} 張相到 K&S 回憶` + (skipped ? `（${skipped} 日冇日期，已略過）` : "");
+  } catch (e) { msg.textContent = "同步失敗：" + e.message + "（已同步 " + days + " 日、" + photos + " 張相，可以再按一次繼續）"; }
+  btn.disabled = false;
+}
 function diaryChrome() {
   const m = S.doc.meta || {}, ro = !!S.share;
   document.body.classList.add("diarymode");
   $("#brand").innerHTML = `<div style="min-width:0;flex:1"><div class="kicker">${ro ? "Shared journal" : "Travel memories"}</div><h1 class="dbrand">旅行回憶錄</h1></div>
-    <div class="status"><div class="status-btns">${ro ? "" : `<button class="iconbtn sm" data-act="share-open" aria-label="分享日記">${icon("upload")}</button><button class="iconbtn sm" data-act="diary-back" aria-label="返回行程">${icon("back")}</button>`}</div></div>`;
+    <div class="status"><div class="status-btns">${ro ? "" : `<button class="iconbtn sm" data-act="ks-open" aria-label="同步到 K&S" style="font-weight:700;font-size:12px;width:auto;padding:0 10px">K&amp;S</button><button class="iconbtn sm" data-act="share-open" aria-label="分享日記">${icon("upload")}</button><button class="iconbtn sm" data-act="diary-back" aria-label="返回行程">${icon("back")}</button>`}</div></div>`;
   const menuBtn = ro ? "" : `<button class="ntab menu" data-act="menu" aria-label="菜單">${icon("menu")}</button>`;
   const trips = S.trips.length ? S.trips : [{ id: S.tripId, title: m.title }];
   $("#tabs").innerHTML = `${trips.length > 1 ? `<div class="dtrips">${trips.map((t) => `<button class="${t.id === S.tripId ? "on" : ""}" data-act="diary-trip" data-id="${esc(t.id)}">${icon("suitcase")}${esc(t.title || "旅程")}</button>`).join("")}</div>` : ""}
@@ -5026,6 +5091,8 @@ document.addEventListener("click", async (e) => {
       lb.hidden = false; break;
     }
     case "share-open": openShare(); break;
+    case "ks-open": openKs(); break;
+    case "ks-sync": ksRun(); break;
     case "exp-memo": openExpMemoEditor(id); break;
     case "exp-memo-save": {
       const f = $("#expMemoForm"), note = f.note.value, caption = f.caption.value.trim();
