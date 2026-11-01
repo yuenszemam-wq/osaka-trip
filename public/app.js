@@ -3141,6 +3141,7 @@ function openMenu() {
         <button data-act="reload">${icon("refresh")}重新載入最新版本</button>
         <button data-act="offline-prep">${icon("download")}準備離線使用（下載全部圖片）</button>
         <button data-act="auth-open">${icon("lock")}裝置認證</button>
+        <button data-act="ingest-open">${icon("wallet")}連接緞帶小金庫（同步支出）</button>
         ${trips.length > 1 ? `<button data-act="trip-delete">${icon("trash")}刪除這個旅程</button>` : ""}
       </div>
     </details>
@@ -3195,6 +3196,20 @@ async function openAuth() {
       <button class="btn danger" data-act="auth-disable">停用</button></form></details>
     <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">完成</button></div>`;
   sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("lock")} 裝置認證</h2><button class="btn ghost" data-act="close">✕</button></div>${body}</div>`;
+}
+// ---------- 連接緞帶小金庫：產生同步密鑰，讓記帳程式把支出同步到旅程 ----------
+async function openIngest(newKey) {
+  const sheet = $("#sheet");
+  sheet.className = "sheet";
+  let st = { enabled: false };
+  try { const r = await fetch("/api/ingest/status"); st = await r.json(); } catch {}
+  const row = (label, val, k) => `<label class="field"><span>${label}</span><div style="display:flex;gap:8px"><input type="text" readonly value="${esc(val)}" style="flex:1;min-width:0"><button class="btn" data-act="ingest-copy" data-id="${esc(val)}">複製</button></div></label>`;
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("wallet")} 連接緞帶小金庫</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">在緞帶小金庫記支出時剔選「旅行手帳」，支出就會同步到你選擇的旅程（按日期放入對應的一天）。把下面的網址和密鑰貼到緞帶小金庫「設定 → 同步到旅行手帳」。</p>
+    ${row("網址", location.origin)}
+    ${newKey ? row("同步密鑰（只會顯示一次）", newKey) : `<p class="hint">${st.enabled ? `已產生密鑰（${new Date(st.created).toLocaleDateString("zh-HK")}）。重新產生後，緞帶小金庫要換上新密鑰。` : "未產生密鑰。"}</p>`}
+    <div class="sheet-foot">${st.enabled ? `<button class="btn danger" data-act="ingest-off">停用</button>` : ""}<span class="grow"></span><button class="btn" data-act="close">關閉</button>${newKey ? "" : `<button class="btn primary" data-act="ingest-gen">${st.enabled ? "重新產生密鑰" : "產生密鑰"}</button>`}</div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
 }
 // ---------- 離線使用：預先下載所有旅程和圖片 ----------
 async function prepareOffline() {
@@ -4719,6 +4734,10 @@ document.addEventListener("click", async (e) => {
     case "imp-add": impAdd(); break;
     case "offline-prep": prepareOffline(); break;
     case "auth-open": openAuth(); break;
+    case "ingest-open": openIngest(); break;
+    case "ingest-gen": { try { const r = await fetch("/api/ingest/key", { method: "POST" }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); openIngest(j.key); } catch (e) { toast("未能產生密鑰：" + e.message); } break; }
+    case "ingest-off": { if (!t.dataset.sure) { t.textContent = "再按一次停用"; t.dataset.sure = "1"; break; } try { await fetch("/api/ingest/key", { method: "DELETE" }); toast("已停用同步"); openIngest(); } catch (e) { toast(e.message); } break; }
+    case "ingest-copy": { try { await navigator.clipboard.writeText(id); notice("已複製"); } catch { toast("未能複製，請手動選取"); } break; }
     case "auth-setup": {
       const f = $("#authForm");
       if (f.pass.value.length < 6) { fieldErrorIn(f, "pass", "密碼最少 6 個字"); break; }

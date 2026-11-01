@@ -2,6 +2,7 @@
 import { handleApi, publicShare, publicSharePhoto } from "../lib/api.js";
 import { handleAuth, gate, loginPage } from "../lib/auth.js";
 import { json } from "../lib/db.js";
+import { handleIngest } from "../lib/ingest.js";
 
 // 不需要認證的檔案（只有圖示等，沒有行程資料）
 const OPEN = /^\/(icon[\w-]*\.png|manifest\.webmanifest|favicon\.ico|style\.css|app\.js)$/;
@@ -11,6 +12,8 @@ export default {
     const url = new URL(request.url);
     const p = url.pathname;
     if (p.startsWith("/api/auth/")) return handleAuth(request, env);
+    // 其他程式（緞帶小金庫）同步支出：用密鑰認證；設定密鑰的部分仍要已認證裝置
+    if (p.startsWith("/api/ingest/")) return handleIngest(request, env, async () => (await gate(request, env)).ok);
     // 分享的日記：不用認證，只讀
     let m;
     if ((m = /^\/api\/share\/([\w-]+)\/photos\/([\w-]+)$/.exec(p)) && request.method === "GET") return publicSharePhoto({ request, env, ctx, params: { token: m[1], id: m[2] } });
