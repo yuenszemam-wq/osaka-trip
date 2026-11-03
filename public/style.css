@@ -1284,3 +1284,4 @@ body.diarymode #tabs .dtool .ntab.menu { flex: none; }
 .mtable .pk.part { background: color-mix(in srgb, var(--purple) 45%, transparent); border-color: var(--purple); }
 .mtable tr.billrow.picked .pk:not(.part) { background: var(--purple); border-color: var(--purple); }
 .mtable .hk.conf { color: var(--ink-2); }
+.offbar { position: relative; z-index: 30; background: #3c2b47; color: #ffe2f4; font-size: 12px; text-align: center; padding: 5px 10px calc(5px); padding-top: max(5px, env(safe-area-inset-top)); }

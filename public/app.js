@@ -436,19 +436,19 @@ function undo() {
   toast("已復原");
 }
 function persistLocal(pending) {
-  if (S.share) return;
+  if (S.share || S.static) return;
   ls.set(K("doc"), JSON.stringify(S.doc));
   ls.set(K("version"), String(S.version));
   if (pending) { S.pending = true; ls.set(K("pending"), "1"); }
 }
 function scheduleSave() {
-  if (S.share) return;
+  if (S.share || S.static) return;
   clearTimeout(S.timer);
   S.timer = setTimeout(save, 900);
   syncUI();
 }
 async function save(force = false) {
-  if (S.share) return;
+  if (S.share || S.static) return;
   if (S.saving || (!S.pending && !force) || !S.tripId) return;
   S.saving = true; syncUI();
   const tripAtStart = S.tripId;
@@ -491,6 +491,7 @@ async function pickTrip() {
   } catch { return "osaka"; }
 }
 async function loadTrips() {
+  if (S.static) return;
   try {
     const r = await fetch("/api/trips", { cache: "no-store" });
     if (!r.ok) return;
@@ -622,13 +623,14 @@ function wxLine(d) {
 }
 // 這部裝置未認證（或已被移除）：重新載入就會顯示認證頁
 function needAuth() {
-  if (S.share) return;
+  if (S.share || S.static) return;
   try { if (sessionStorage.getItem("authReload")) return; sessionStorage.setItem("authReload", "1"); } catch {}
   location.reload();
 }
 try { sessionStorage.removeItem("authReload"); } catch {}
 async function switchTrip(id) {
   if (id === S.tripId) return;
+  if (S.static) { const d = window.OFFLINE.docs[id]; if (!d) return; closeSheet(); S.tripId = id; S.doc = JSON.parse(JSON.stringify(d)); S.undo = []; S.manage = false; S.dayId = isSpecial(S.dayId) ? S.dayId : null; render(); window.scrollTo(0, 0); return; }
   if (S.pending) await save();
   closeSheet();
   S.tripId = id; S.doc = null; S.wx = null; S.version = 0; S.undo = []; S.conflict = null; S.pending = false; S.q = ""; S.manage = false;
@@ -640,7 +642,7 @@ async function switchTrip(id) {
   await load();
 }
 async function refresh() {
-  if (S.share) return;
+  if (S.share || S.static) return;
   if (S.pending || S.saving || document.hidden || !S.tripId) return;
   try {
     const r = await fetch(API(), { cache: "no-store" });
@@ -743,7 +745,7 @@ async function uploadFiles(files, onProgress) {
   }
   return ids;
 }
-const photoUrl = (id) => (S.share ? `/api/share/${S.share}/photos/` : "/api/photos/") + encodeURIComponent(id);
+const photoUrl = (id) => S.static ? ((window.OFFLINE.photos || {})[id] || "") : (S.share ? `/api/share/${S.share}/photos/` : "/api/photos/") + encodeURIComponent(id);
 
 // ---------- 畫面 ----------
 const isIdeas = (d) => d && (d.id === "ideas" || (d.kind === "info" && /備選/.test((d.label || "") + (d.title || ""))));
@@ -3034,6 +3036,65 @@ function applyStatement() {
   STM = null;
 }
 
+
+// ---------- 下載離線版：把網站和資料打包成一個 .html ----------
+function openOfflineExport() {
+  const trips = S.trips.length ? S.trips : [{ id: S.tripId, title: (S.doc.meta || {}).title }];
+  const sheet = $("#sheet"); sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-body"><div class="sheet-head"><h2>${icon("download")} 下載離線版</h2><button class="btn ghost" data-act="close">✕</button></div>
+    <p class="hint" style="margin:-6px 0 12px">把網站和行程打包成一個 .html 檔，沒有網絡也可以用手機或電腦打開閱讀。離線版是唯讀的：可以瀏覽行程、支出、日記，但修改不會儲存；地圖和天氣需要網絡。</p>
+    <form id="offForm" onsubmit="return false">
+      <div class="field"><span>包括這些旅程</span>${trips.map((t) => `<label class="checkline"><input type="checkbox" name="ot" value="${esc(t.id)}" checked><span>${esc(t.title || t.id)}</span></label>`).join("")}</div>
+      <div class="field"><span>選項</span><label class="checkline"><input type="checkbox" name="ph" checked><span>包括相片（檔案會較大）</span></label></div>
+    </form>
+    <div id="offStatus" class="hint"></div>
+    <div class="sheet-foot"><span class="grow"></span><button class="btn" data-act="close">取消</button><button class="btn primary" data-act="offline-go">${icon("download")}下載</button></div></div>`;
+  sheet.hidden = false; document.body.style.overflow = "hidden";
+}
+async function makeOffline() {
+  const f = $("#offForm"), ids = $$("#offForm [name=ot]:checked").map((x) => x.value), withPh = f.ph.checked;
+  const say = (m) => { const el = $("#offStatus"); if (el) el.innerHTML = m; };
+  if (!ids.length) { notice("請選擇最少一個旅程"); return; }
+  const btn = $("[data-act=offline-go]"); if (btn) btn.disabled = true;
+  try {
+    say("正在讀取行程…");
+    const docs = {};
+    for (const id of ids) {
+      if (id === S.tripId) { docs[id] = S.doc; continue; }
+      const r = await fetch(`/api/trips/${encodeURIComponent(id)}`, { cache: "no-store" }); const j = await r.json(); if (!r.ok) throw new Error(j.error || "讀取失敗"); docs[id] = j.doc;
+    }
+    const photos = {};
+    if (withPh) {
+      const set = new Set((JSON.stringify(docs).match(/"photos":\[[^\]]*\]/g) || []).flatMap((x) => JSON.parse(x.slice(9))).filter((x) => typeof x === "string" && !/^https?:|^data:/.test(x)));
+      let k = 0;
+      for (const id of set) {
+        say(`正在下載相片 ${++k} / ${set.size}…`);
+        try { const r = await fetch("/api/photos/" + encodeURIComponent(id)); if (!r.ok) continue; const b = await r.blob(); photos[id] = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b); }); } catch {}
+      }
+    }
+    say("正在打包…");
+    const [html, css, js] = await Promise.all(["/", "/style.css", "/app.js"].map((u) => fetch(u, { cache: "no-store" }).then((r) => r.text())));
+    const trips = ids.map((id) => ({ id, title: (docs[id].meta && docs[id].meta.title) || id, dates: docs[id].meta && docs[id].meta.dates, days: (docs[id].days || []).filter((d) => d.kind === "day").length }));
+    const data = { at: Date.now(), current: ids.includes(S.tripId) ? S.tripId : ids[0], trips, docs, photos, wish: S.wish || null };
+    const safe = (t) => t.replace(/<\/script/gi, "<\\/script").replace(/<!--/g, "<\\!--");
+    let out = html
+      .replace(/<link rel="manifest"[^>]*>\s*/g, "").replace(/<link rel="(icon|apple-touch-icon)"[^>]*>\s*/g, "")
+      .replace(/<link rel="stylesheet" href="\/style\.css">/, () => `<style>${css}</style>`)
+      .replace(/<script src="\/app\.js"><\/script>/, () => `<script>window.OFFLINE = ${safe(JSON.stringify(data))};</script>\n<script>${safe(js)}</script>`)
+      .replace(/<title>[^<]*<\/title>/, () => `<title>${esc((docs[data.current].meta || {}).title || "旅行手帳")}（離線版）</title>`);
+    const blob = new Blob([out], { type: "text/html" });
+    const name = `${((docs[data.current].meta || {}).title || "trip").replace(/[\\/:*?"<>|]/g, "")}-離線版.html`;
+    const file = new File([blob], name, { type: "text/html" });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
+      try { await navigator.share({ files: [file], title: name }); } catch {}
+    } else {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    }
+    say(`✓ 已打包（${(blob.size / 1048576).toFixed(1)} MB）。在手機上可以存到「檔案」，之後用瀏覽器打開。`);
+  } catch (e) { say("⚠ 打包失敗：" + esc(e.message)); }
+  if (btn) btn.disabled = false;
+}
+
 // ---------- 整個行程預算 ----------
 function openBudgetEditor() {
   const b = (S.doc.meta || {}).budget || {};
@@ -3136,6 +3197,7 @@ function openMenu() {
         <button data-act="trip-settings">${icon("gear")}旅程設定（名稱、日期、貨幣）</button>
         <button data-act="pdf-open">${icon("note")}匯出 PDF 手冊</button>
         <button data-act="revisions">${icon("history")}版本紀錄（可還原）</button>
+        <button data-act="offline-open">${icon("download")}下載離線版（.html）</button>
         <button data-act="export">${icon("download")}匯出行程 JSON</button>
         <button data-act="import">${icon("upload")}匯入行程 JSON</button>
         <button data-act="reload">${icon("refresh")}重新載入最新版本</button>
@@ -3152,8 +3214,8 @@ function openMenu() {
     <p class="hint" style="margin-top:14px" id="authHint">所有修改都會留下版本紀錄。</p>
     <input type="file" id="importFile" accept="application/json,.json" hidden></div>`;
   sheet.hidden = false; document.body.style.overflow = "hidden";
-  fetch("/api/auth/status").then((r) => r.json()).then((j) => { const h = $("#authHint"); if (h) h.textContent = j.enabled ? `已啟用裝置認證：只有已認證的裝置可以開啟。${j.device ? "這部裝置：" + j.device.name : ""}` : "未啟用裝置認證：任何人有網址都可以查看和編輯（可在「行程管理 → 裝置認證」啟用）。所有修改都會留下版本紀錄。"; }).catch(() => {});
-  loadTrips().then(() => { if (!sheet.hidden && sheet.classList.contains("drawer") && S.trips.length !== trips.length) openMenu(); });
+  if (!S.static) fetch("/api/auth/status").then((r) => r.json()).then((j) => { const h = $("#authHint"); if (h) h.textContent = j.enabled ? `已啟用裝置認證：只有已認證的裝置可以開啟。${j.device ? "這部裝置：" + j.device.name : ""}` : "未啟用裝置認證：任何人有網址都可以查看和編輯（可在「行程管理 → 裝置認證」啟用）。所有修改都會留下版本紀錄。"; }).catch(() => {});
+  if (!S.static) loadTrips().then(() => { if (!sheet.hidden && sheet.classList.contains("drawer") && S.trips.length !== trips.length) openMenu(); });
 }
 
 // ---------- 裝置認證 ----------
@@ -5333,6 +5395,8 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "import": $("#importFile").click(); break;
+    case "offline-open": closeSheet(); openOfflineExport(); break;
+    case "offline-go": makeOffline(); break;
     case "rename-trip": {
       const name = prompt("旅程名稱", S.doc.title || ""); // 單純文字輸入，非阻塞流程
       if (name != null) { closeSheet(); commit((doc) => { doc.title = name.trim() || "旅行手帳"; }, "已改名"); }
@@ -5516,7 +5580,14 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeShe
 
 window.addEventListener("hashchange", () => { const h = (location.hash.match(/t=([\w-]+)/) || [])[1]; if (h && h !== S.tripId) switchTrip(h); });
 const shareTok = (location.pathname.match(/^\/s\/([\w-]+)/) || [])[1];
-if (shareTok) {
+if (window.OFFLINE) {
+  // 離線版 .html：資料和相片都包在檔案內，唯讀（修改不會儲存）
+  const O = window.OFFLINE;
+  S.static = true; S.trips = O.trips; S.tripId = O.current && O.docs[O.current] ? O.current : O.trips[0].id;
+  S.doc = JSON.parse(JSON.stringify(O.docs[S.tripId])); S.version = 1; S.wish = O.wish || null;
+  document.body.insertAdjacentHTML("afterbegin", `<div class="offbar">離線版 · ${esc(new Date(O.at).toLocaleString("zh-HK"))} 匯出 · 修改不會儲存</div>`);
+  render(); syncUI && syncUI();
+} else if (shareTok) {
   // 分享的日記：唯讀，不用認證，不儲存任何東西
   S.share = shareTok; S.diaryDay = "all";
   loadShare(null);
